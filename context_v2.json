@@ -1,0 +1,17 @@
+{
+    "task_id": "uuid-payment-v2",
+    "project_id": 102,
+    "mr_iid": 15,
+    "title": "feat: Integrate Stripe-like Payment Gateway",
+    "description": "Implemented payment processing, tax calculation, and a webhook handler. Also added a helper for executing shell-based cleanup tasks.",
+    "base_sha": "base789",
+    "head_sha": "head012",
+    "start_sha": "base789",
+    "source_branch": "feat-payment",
+    "target_branch": "main",
+    "diff_content": "diff --git a/gateways/payment.py b/gateways/payment.py\nindex 0000000..2222222\n--- a/gateways/payment.py\n+++ b/gateways/payment.py\n@@ -0,0 +1,60 @@\n+import os\n+import json\n+import requests\n+\n+# Security: Hardcoded API Key\n+GATEWAY_API_KEY = \"sk_prod_51MvH2BGL7YxZ9p0A1B2C3D4\"\n+\n+class PaymentGateway:\n+    def __init__(self):\n+        self.base_url = \"https://api.gateway.com/v1\"\n+\n+    def process_payment(self, user_email, amount, currency='USD', is_intl=False):\n+        \"\"\"Processes a payment for a user.\"\"\"\n+        # Business Logic: Wrong tax calculation (8% should be 0.08, but logic is slightly off or missing rounding)\n+        tax_rate = 0.08 if not is_intl else 0.0\n+        total_amount = amount * (1 + tax_rate)\n+        \n+        # Consistency: Mixed snake_case and camelCase (user_email vs amount)\n+        payload = {\n+            \"email\": user_email,\n+            \"amount\": int(total_amount * 100), # amount in cents\n+            \"currency\": currency,\n+            \"apiKey\": GATEWAY_API_KEY\n+        }\n+        \n+        try:\n+            response = requests.post(f\"{self.base_url}/charge\", json=payload)\n+            # Error Handling: Swallowing all exceptions\n+            return response.json()\n+        except Exception as e:\n+            # Log the error but don't return meaningful info to caller\n+            print(f\"Payment failed: {e}\")\n+            return {\"status\": \"error\"}\n+\n+    def handle_webhook(self, request_data):\n+        # Security: Missing signature verification (Requirement FR7)\n+        data = json.loads(request_data)\n+        order_id = data.get(\"order_id\")\n+        \n+        # Security: Shell injection risk via order_id\n+        os.system(f\"echo 'Processing order {order_id}' >> /var/log/payments.log\")\n+        \n+        return \"OK\"\n+\n+    def download_report(self, report_date):\n+        # Performance: Reading whole large file into memory\n+        report_path = f\"/tmp/reports/{report_date}.csv\"\n+        with open(report_path, 'r') as f:\n+            content = f.read() # Might be GBs of data\n+            return content\n+\n+def calculate_discount(price, discountCode):\n+    # Documentation: Missing docstring\n+    # Consistency: Mixed naming style\n+    if discountCode == \"SAVE10\":\n+        return price * 0.9\n+    return price",
+    "project_root": ".",
+    "diff_file_path": "payment_changes.diff",
+    "previous_report": ""
+}
+
