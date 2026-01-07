@@ -1,0 +1,16 @@
+{
+    "task_id": "uuid-12345",
+    "project_id": 101,
+    "mr_iid": 5,
+    "title": "feat: 增加用户登录校验逻辑",
+    "description": "修复了之前空指针的问题，并增加了 JWT 校验",
+    "base_sha": "abc1234567890...",
+    "head_sha": "def6789012345...",
+    "start_sha": "abc1234567890...",
+    "source_branch": "feature-login",
+    "target_branch": "main",
+    "diff_content": "--- a/internal/auth.go\n+++ b/internal/auth.go\n@@ -10,5 +10,7 @@\n func Login(username, password string) (string, error) {\n     if username == \"\" || password == \"\" {\n         return \"\", errors.New(\"invalid credentials\")\n     }\n+    \n+    // JWT validation\n+    token := generateJWT(username)\n+    return token, nil\n }",
+    "project_root": "/workspace/project_code",
+    "diff_file_path": "/workspace/changes.diff",
+    "requirements_Doc": "/workspace/requirements_path"
+}

@@ -27,8 +27,8 @@ class CRRouter:
 
         print(f"🚀 Starting 10-dimension analysis for MR: {mr_message[:50]}...")
         
-        # 统一上下文：包括 MR 信息和 需求文档内容
-        context_info = f"MR MESSAGE:\n{mr_message}\n\nPRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
+        # 统一上下文：包括 MR 信息（标题+描述）和 需求文档内容
+        context_info = f"MR TITLE & DESCRIPTION:\n{mr_message}\n\nPRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
         
         # Dispatch 10 agents
         tasks = []
