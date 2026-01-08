@@ -6,7 +6,7 @@ import toml
 import yaml
 import re
 from agent.router import CRRouter
-from agent.utils import parse_diff_file_paths
+from agent.utils import parse_diff_file_paths, setup_log_redirection
 
 def clean_and_parse_yaml(text: str):
     """Robustly extract and parse YAML from LLM output."""
@@ -455,73 +455,102 @@ def compute_dimension_status_overview(reports: dict, confidence_threshold: int =
 
 async def run_agent():
     config = toml.load("config.toml")
-    with open(config["context"]["json_path"], "r") as f:
-        context = json.load(f)
-    
-    mr_message = f"Title: {context['title']}\nDescription: {context['description']}"
-    code_diff = context.get("diff_content", "")
-    file_paths = parse_diff_file_paths(code_diff)
-    
-    # Load Previous Review
-    previous_report_path = context.get("previous_report", "")
-    previous_review = None
-    if previous_report_path and os.path.exists(previous_report_path):
-        with open(previous_report_path, "r") as f: previous_review = json.load(f)
-    
-    # Load Requirements
-    requirements_path = config["project"].get("requirements_path", "")
-    requirements_content = ""
-    if requirements_path and os.path.exists(requirements_path):
-        with open(requirements_path, "r") as f: requirements_content = f.read()
-    
-    # Env Setup
-    llm_config = config.get("llm", {})
-    os.environ["OPENAI_API_KEY"] = llm_config.get("api_key")
-    os.environ["OPENROUTER_API_KEY"] = llm_config.get("api_key")
-    if llm_config.get("api_base"): os.environ["OPENAI_API_BASE"] = llm_config["api_base"]
-    
-    router = CRRouter(model=llm_config.get("model", "gpt-4"))
-    
-    result = await router.route_and_aggregate(
-        mr_message=mr_message, 
-        code_diff=code_diff, 
-        file_paths=file_paths,
-        project_root=context.get("project_root", "."),
-        language=config["project"].get("language", "python"),
-        guidelines_path=config["project"].get("guidelines_path", ""),
-        requirements_content=requirements_content,
-        previous_review=previous_review
-    )
-    
-    # Generate Markdown Report
-    raw_summary = result.get("summary", "").strip()
-    
-    # Clean markdown fences if present
-    if raw_summary.startswith("```"):
-        # Remove ```markdown or just ```
-        lines = raw_summary.splitlines()
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        md_output = "\n".join(lines).strip()
-    else:
-        md_output = raw_summary
-    
-    # Check if the output actually looks like Markdown (starts with # or similar)
-    # If not, it might still be YAML
-    if not md_output.startswith("#") and ("final:" in md_output or "decision:" in md_output):
-        summary_data = clean_and_parse_yaml(md_output)
-        overview = compute_dimension_status_overview(result.get("reports", {}), confidence_threshold=85)
-        rendered = render_from_summary_schema(summary_data, overview=overview)
-        if rendered:
-            md_output = rendered
+    context_cfg = config.get("context", {})
+    result_path = context_cfg.get("result_path", ".")
+    os.makedirs(result_path, exist_ok=True)
+    log_path = os.path.join(result_path, "run.log")
+    log_file = setup_log_redirection(log_path)
 
-    print(md_output)
-    with open("CR_RESULT.md", "w") as f: 
-        f.write(md_output)
+    status = "success"
+    result = {}
+    md_output = ""
+
+    try:
+        with open(context_cfg["json_path"], "r") as f:
+            context = json.load(f)
+        
+        mr_message = f"Title: {context['title']}\nDescription: {context['description']}"
+        code_diff = context.get("diff_content", "")
+        file_paths = parse_diff_file_paths(code_diff)
+        
+        # Load Previous Review
+        previous_report_path = context.get("previous_report", "")
+        previous_review = None
+        if previous_report_path and os.path.exists(previous_report_path):
+            with open(previous_report_path, "r") as f: previous_review = json.load(f)
+        
+        # Load Requirements
+        requirements_path = config["project"].get("requirements_path", "")
+        requirements_content = ""
+        if requirements_path and os.path.exists(requirements_path):
+            with open(requirements_path, "r") as f: requirements_content = f.read()
+        
+        # Env Setup
+        llm_config = config.get("llm", {})
+        os.environ["OPENAI_API_KEY"] = llm_config.get("api_key")
+        os.environ["OPENROUTER_API_KEY"] = llm_config.get("api_key")
+        if llm_config.get("api_base"): os.environ["OPENAI_API_BASE"] = llm_config["api_base"]
+        
+        router = CRRouter(model=llm_config.get("model", "gpt-4"))
+        
+        result = await router.route_and_aggregate(
+            mr_message=mr_message, 
+            code_diff=code_diff, 
+            file_paths=file_paths,
+            project_root=context.get("project_root", "."),
+            language=config["project"].get("language", "python"),
+            guidelines_path=config["project"].get("guidelines_path", ""),
+            requirements_content=requirements_content,
+            previous_review=previous_review
+        )
+        
+        # Generate Markdown Report
+        raw_summary = result.get("summary", "").strip()
+        
+        # Clean markdown fences if present
+        if raw_summary.startswith("```"):
+            # Remove ```markdown or just ```
+            lines = raw_summary.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            md_output = "\n".join(lines).strip()
+        else:
+            md_output = raw_summary
+        
+        # Check if the output actually looks like Markdown (starts with # or similar)
+        # If not, it might still be YAML
+        if not md_output.startswith("#") and ("final:" in md_output or "decision:" in md_output):
+            summary_data = clean_and_parse_yaml(md_output)
+            overview = compute_dimension_status_overview(result.get("reports", {}), confidence_threshold=85)
+            rendered = render_from_summary_schema(summary_data, overview=overview)
+            if rendered:
+                md_output = rendered
+
+        print(md_output)
+        with open(os.path.join(result_path, "cr_result.md"), "w") as f: 
+            f.write(md_output)
+        
+    except Exception as e:
+        status = "failure"
+        import traceback
+        error_details = traceback.format_exc()
+        error_msg = f"❌ Error during CR execution: {str(e)}\n{error_details}"
+        print(error_msg)
+        if not result.get("summary"):
+            result["summary"] = error_msg
+
+    # Save result.json with the requested fields
+    with open(os.path.join(result_path, "result.json"), "w") as f:
+        json.dump({
+            "llm_result": result.get("summary", ""),
+            "status": status,
+            "log_path": log_path
+        }, f, indent=2, ensure_ascii=False)
     
-    with open("CR_RESULT.json", "w") as f: 
+    # Also save the full result for reference
+    with open(os.path.join(result_path, "CR_RESULT.json"), "w") as f: 
         json.dump(result, f, indent=2, ensure_ascii=False)
     
     return

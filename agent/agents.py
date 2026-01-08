@@ -9,18 +9,16 @@ class BaseAgent:
         self.model = model
 
     async def call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        try:
-            response = await litellm.acompletion(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"Error calling LLM: {str(e)}"
+        # We don't catch exceptions here anymore, let them propagate to be handled by the router/main
+        response = await litellm.acompletion(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.2
+        )
+        return response.choices[0].message.content
 
 class GenericDimensionAgent(BaseAgent):
     """A generic agent for single-dimension review."""

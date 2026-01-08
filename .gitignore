@@ -9,7 +9,7 @@ __pycache__/
 
 # 结果目录
 results/
-
+cr-result/
 # 虚拟环境
 venv/
 env/
