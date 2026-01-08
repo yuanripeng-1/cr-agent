@@ -56,6 +56,13 @@ class CRRouter:
             "dependency": reports[9]
         }
 
+        # --- 新增：打印每个维度报告到终端（进而进入 run.log） ---
+        for dim, content in report_map.items():
+            print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
+            print(content)
+            print(f"{'='*50}\n")
+        # ---------------------------------------------------
+
         print("📝 All expert reports complete. Aggregating...")
         final_summary = await self.generate_final_summary(
             report_map,

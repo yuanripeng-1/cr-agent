@@ -93,15 +93,21 @@ HEAD_SHA_SHORT="${HEAD_SHA:0:8}"
 echo "🔀 MR IID: $MR_IID"
 echo "🔐 Head SHA: $HEAD_SHA (前8位: $HEAD_SHA_SHORT)"
 
-# 构建输出目录路径
-# 检查是否在 Docker 容器内（通过检查 /workspace 是否可写）
-if [ -w "/workspace" ] 2>/dev/null; then
-    # 在 Docker 容器内，使用 /workspace 路径
-    OUTPUT_DIR="/workspace/cr-result/${MR_IID}-${HEAD_SHA_SHORT}"
+# --- 新增逻辑：优先从 config.toml 读取 result_path ---
+CONFIG_RESULT_PATH=$(grep -E "^result_path" "$CONFIG_FILE" | sed 's/.*= *"\(.*\)".*/\1/')
+
+if [ -n "$CONFIG_RESULT_PATH" ]; then
+    echo "📍 使用 config.toml 中定义的 result_path: $CONFIG_RESULT_PATH"
+    OUTPUT_DIR="$CONFIG_RESULT_PATH"
 else
-    # 在本地开发环境，使用项目根目录下的 results 文件夹
-    OUTPUT_DIR="${SCRIPT_DIR}/results/${MR_IID}-${HEAD_SHA_SHORT}"
+    # 原有的回退逻辑
+    if [ -w "/workspace" ] 2>/dev/null; then
+        OUTPUT_DIR="/workspace/cr-result/${MR_IID}-${HEAD_SHA_SHORT}"
+    else
+        OUTPUT_DIR="${SCRIPT_DIR}/results/${MR_IID}-${HEAD_SHA_SHORT}"
+    fi
 fi
+# ---------------------------------------------------
 
 OUTPUT_FILE="${OUTPUT_DIR}/cr_result.md"
 
@@ -125,14 +131,19 @@ cd "$SCRIPT_DIR"
 # 运行 Python 脚本
 python3 -m agent.main
 
-# 检查是否生成了 CR_REPORT.md
+# 检查是否生成了 CR_REPORT.md (兼容性检查)
 if [ -f "CR_REPORT.md" ]; then
     echo ""
     echo "✅ CR-Agent 运行完成"
-    echo "📦 移动结果到: $OUTPUT_FILE"
     
-    # 移动结果文件到指定位置
-    mv "CR_REPORT.md" "$OUTPUT_FILE"
+    # 如果 OUTPUT_FILE 已经存在（由 Python 脚本生成），则不再执行 mv，除非文件不同
+    if [ ! -f "$OUTPUT_FILE" ]; then
+        echo "📦 移动结果到: $OUTPUT_FILE"
+        mv "CR_REPORT.md" "$OUTPUT_FILE"
+    else
+        echo "✨ 结果已直接生成在: $OUTPUT_FILE"
+        rm "CR_REPORT.md" # 删除临时生成的兼容性文件
+    fi
     
     echo ""
     echo "========================================"
