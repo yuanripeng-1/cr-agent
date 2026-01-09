@@ -454,7 +454,9 @@ def compute_dimension_status_overview(reports: dict, confidence_threshold: int =
     return overview
 
 async def run_agent():
-    config = toml.load("config.toml")
+    # Load config.toml from environment variable or default path
+    config_path = os.environ.get("CR_AGENT_CONFIG", "config.toml")
+    config = toml.load(config_path)
     context_cfg = config.get("context", {})
     result_path = context_cfg.get("result_path", ".")
     os.makedirs(result_path, exist_ok=True)

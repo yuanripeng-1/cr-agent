@@ -7,7 +7,7 @@ set -e  # 遇到错误立即退出
 
 # 默认参数
 ENV_NAME="cragent"
-PYTHON_VERSION="3.9"
+PYTHON_VERSION="3.11"
 
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
@@ -114,7 +114,28 @@ conda run -n "$ENV_NAME" pip install --upgrade pip
 conda run -n "$ENV_NAME" pip install -r "$REQUIREMENTS_FILE"
 
 echo ""
-echo "✅ 依赖安装完成"
+echo "✅ Python 依赖及 Pylint 安装完成"
+echo ""
+
+# 安装 Go Linter (golangci-lint)
+echo "🔍 检查 Go Linter (golangci-lint)..."
+if ! command -v golangci-lint &> /dev/null; then
+    echo "📥 正在安装 golangci-lint..."
+    # 尝试使用官方安装脚本安装到 /usr/local/bin (如果当前是 root) 或当前目录
+    if [ "$EUID" -ne 0 ]; then
+        echo "⚠️  非 root 用户，尝试安装到 $SCRIPT_DIR/bin..."
+        mkdir -p "$SCRIPT_DIR/bin"
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$SCRIPT_DIR/bin" v1.55.2
+        echo "💡 请记得将 $SCRIPT_DIR/bin 加入系统的 PATH 环境变量中"
+    else
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v1.55.2
+    fi
+else
+    echo "✅ golangci-lint 已存在: $(golangci-lint --version)"
+fi
+
+echo ""
+echo "✅ 所有 Linter 安装检查完成"
 echo ""
 
 # 显示安装的包

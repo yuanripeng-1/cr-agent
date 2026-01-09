@@ -6,8 +6,11 @@ from .router import CRRouter
 from .utils import parse_diff_file_paths, setup_log_redirection
 
 async def main():
-    # Load config.toml
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.toml")
+    # Load config.toml from environment variable or default path
+    config_path = os.environ.get("CR_AGENT_CONFIG")
+    if not config_path:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.toml")
+    
     if not os.path.exists(config_path):
         print(f"❌ Config file not found: {config_path}")
         return

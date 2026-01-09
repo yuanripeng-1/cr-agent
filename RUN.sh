@@ -117,6 +117,10 @@ echo "📝 输出文件: $OUTPUT_FILE"
 # 创建输出目录
 mkdir -p "$OUTPUT_DIR"
 
+# 获取配置文件的绝对路径并导出为环境变量
+ABS_CONFIG_FILE=$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")
+export CR_AGENT_CONFIG="$ABS_CONFIG_FILE"
+
 # 设置环境变量
 export OPENAI_API_KEY="$LLM_API_KEY"
 export OPENAI_API_BASE="$LLM_API_BASE"
@@ -127,6 +131,16 @@ echo "🚀 开始运行 CR-Agent..."
 echo "========================================"
 
 cd "$SCRIPT_DIR"
+
+# 切换到 cragent conda 环境
+if command -v conda >/dev/null 2>&1; then
+    echo "🐍 正在激活 Conda 环境: cragent..."
+    # 初始化 shell 内部的 conda 函数，使其在脚本中可用
+    eval "$(conda shell.bash hook)"
+    conda activate cragent || echo "⚠️ 无法激活 cragent 环境，将使用当前环境运行"
+else
+    echo "⚠️ 未找到 conda 命令，将尝试直接运行"
+fi
 
 # 运行 Python 脚本
 python3 -m agent.main
