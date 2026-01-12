@@ -132,18 +132,19 @@ echo "========================================"
 
 cd "$SCRIPT_DIR"
 
-# 切换到 cragent conda 环境
-if command -v conda >/dev/null 2>&1; then
-    echo "🐍 正在激活 Conda 环境: cragent..."
-    # 初始化 shell 内部的 conda 函数，使其在脚本中可用
-    eval "$(conda shell.bash hook)"
-    conda activate cragent || echo "⚠️ 无法激活 cragent 环境，将使用当前环境运行"
-else
-    echo "⚠️ 未找到 conda 命令，将尝试直接运行"
-fi
+# 硬核锁定：直接获取 cragent 环境的物理路径
+# awk '{print $NF}' 拿到路径列，确保即便在 CI 等非交互环境下也能准确锁定
+CONDA_ENV_DIR=$(conda env list | grep -E "^cragent\s+" | awk '{print $NF}')
 
-# 运行 Python 脚本
-python3 -m agent.main
+if [ -n "$CONDA_ENV_DIR" ] && [ -x "$CONDA_ENV_DIR/bin/python" ]; then
+    echo "🐍 锁定 Conda 解释器: $CONDA_ENV_DIR/bin/python"
+    # 直接调用绝对路径，彻底避开系统 PATH 的干扰
+    "$CONDA_ENV_DIR/bin/python" -m agent.main
+else
+    echo "❌ 严重错误：未找到名为 'cragent' 的 Conda 环境或其 Python 解释器不可用。"
+    echo "请确认环境已通过 ./INSTALL.sh 安装成功。"
+    exit 1
+fi
 
 # 检查是否生成了 CR_REPORT.md (兼容性检查)
 if [ -f "CR_REPORT.md" ]; then
