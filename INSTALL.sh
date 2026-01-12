@@ -82,18 +82,10 @@ echo ""
 # 检查环境是否已存在
 echo "🔍 检查 Conda 环境..."
 if conda env list | grep -q "^${ENV_NAME} "; then
-    echo "⚠️  警告: Conda 环境 '$ENV_NAME' 已存在"
-    echo ""
-    read -p "是否删除并重新创建? (y/N): " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "🗑️  删除现有环境..."
-        conda env remove -n "$ENV_NAME" -y
-        echo "✅ 环境已删除"
-    else
-        echo "❌ 安装已取消"
-        exit 0
-    fi
+    echo "⚠️  警告: Conda 环境 '$ENV_NAME' 已存在，正在自动删除并重新创建..."
+    echo "🗑️  删除现有环境..."
+    conda env remove -n "$ENV_NAME" -y
+    echo "✅ 环境已删除"
 fi
 
 # 创建 Conda 环境
