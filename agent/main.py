@@ -234,10 +234,10 @@ async def main():
                         diff_content=diff_content
                     )
                     
-                    status = validated.get("validation_status", "valid")
+                    comment_status = validated.get("validation_status", "valid")
                     
                     # 如果验证失败，尝试使用 feedback 机制自动修正
-                    if status in ["invalid", "needs_review"]:
+                    if comment_status in ["invalid", "needs_review"]:
                         from .utils import generate_line_number_feedback, correct_line_number_with_feedback
                         
                         # 生成验证反馈
@@ -261,19 +261,19 @@ async def main():
                             
                             if corrected:
                                 validated = corrected
-                                status = "corrected"
+                                comment_status = "corrected"
                                 print(f"✅ 通过反馈机制自动修正行号: {comment.get('new_path')}: {comment.get('start_line')}-{comment.get('end_line')} -> {corrected.get('start_line')}-{corrected.get('end_line')}")
                             else:
                                 # 如果无法自动修正，记录反馈信息
                                 validated["validation_feedback"] = feedback
-                                if status == "invalid":
+                                if comment_status == "invalid":
                                     error_msg = validated.get("validation_error", "未知错误")
                                     print(f"⚠️ 无效评论已移除: {comment.get('new_path')}:{comment.get('start_line')} - {error_msg}")
                                     continue  # 跳过无效评论
                     
-                    if status == "corrected":
+                    if comment_status == "corrected":
                         print(f"✅ 已修正行号 {validated.get('new_path')}: {validated.get('original_start_line')}-{validated.get('original_end_line')} -> {validated.get('start_line')}-{validated.get('end_line')}")
-                    elif status == "needs_review":
+                    elif comment_status == "needs_review":
                         print(f"⚠️ 评论需要审核: {comment.get('new_path')}:{comment.get('start_line')}")
                     
                     # 保存前移除验证元数据

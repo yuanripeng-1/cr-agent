@@ -667,14 +667,14 @@ async def run_agent():
                         diff_content=context.get("diff_content", "")
                     )
                     
-                    status = validated.get("validation_status", "valid")
-                    if status == "invalid":
+                    comment_status = validated.get("validation_status", "valid")
+                    if comment_status == "invalid":
                         error_msg = validated.get("validation_error", "Unknown error")
                         print(f"⚠️ Invalid comment removed: {comment.get('new_path')}:{comment.get('start_line')} - {error_msg}")
                         continue  # Skip invalid comments
-                    elif status == "corrected":
+                    elif comment_status == "corrected":
                         print(f"✅ Corrected line numbers for {validated.get('new_path')}: {validated.get('original_start_line')}-{validated.get('original_end_line')} -> {validated.get('start_line')}-{validated.get('end_line')}")
-                    elif status == "needs_review":
+                    elif comment_status == "needs_review":
                         print(f"⚠️ Comment needs review: {comment.get('new_path')}:{comment.get('start_line')}")
                     
                     # Remove validation metadata before saving

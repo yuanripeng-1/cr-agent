@@ -5257,3 +5257,595 @@ review:
   PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
   PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
   return self.__pydantic_serializer__.to_python(
+🔍 已过滤 diff：原始长度 15365 字符 -> 代码文件长度 13241 字符
+✅ 已在 diff 中添加实际行号注释
+📋 Task ID: 213cec1a-8426-41ee-91c6-46b7a3a7f7e9
+📦 Project ID: 28
+🔀 MR IID: 71
+🌿 Source Branch: lgy_main3 -> Target Branch: main
+📝 Files Changed: 6
+🚀 Starting 10-dimension analysis for MR: 增加提供统计计算功能测试行评论
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Lint
+      file_path: calculator/advanced_calculator.go
+      start_line: 38
+      end_line: 38
+      description: |
+        乘法运算符号使用了非标准的“×”符号，而Go语言标准库中通常使用“*”符号。这可能导致代码风格不一致，并可能在某些环境中引发显示问题。
+      requirement_reference: |
+        Go语言官方编码规范建议使用标准ASCII字符进行运算符号表示。
+      code_suggestion:
+        existing_code: |
+          ac.addToHistory(fmt.Sprintf("%.2f × %.2f = %.2f", a, b, result))
+        improved_code: |
+          ac.addToHistory(fmt.Sprintf("%.2f * %.2f = %.2f", a, b, result))
+      confidence: 95
+    - category: |
+        Lint
+      file_path: calculator/advanced_calculator.go
+      start_line: 48
+      end_line: 48
+      description: |
+        除法运算符号使用了非标准的“÷”符号，而Go语言标准库中通常使用“/”符号。这可能导致代码风格不一致，并可能在某些环境中引发显示问题。
+      requirement_reference: |
+        Go语言官方编码规范建议使用标准ASCII字符进行运算符号表示。
+      code_suggestion:
+        existing_code: |
+          ac.addToHistory(fmt.Sprintf("%.2f ÷ %.2f = %.2f", a, b, result))
+        improved_code: |
+          ac.addToHistory(fmt.Sprintf("%.2f / %.2f = %.2f", a, b, result))
+      confidence: 95
+    - category: |
+        Lint
+      file_path: calculator/advanced_calculator.go
+      start_line: 65
+      end_line: 65
+      description: |
+        平方根运算符号使用了非标准的“√”符号，而Go语言标准库中通常使用“sqrt”函数表示。这可能导致代码风格不一致，并可能在某些环境中引发显示问题。
+      requirement_reference: |
+        Go语言官方编码规范建议使用标准ASCII字符进行运算符号表示。
+      code_suggestion:
+        existing_code: |
+          ac.addToHistory(fmt.Sprintf("√%.2f = %.2f", a, result))
+        improved_code: |
+          ac.addToHistory(fmt.Sprintf("sqrt(%.2f) = %.2f", a, result))
+      confidence: 95
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  risks: []
+```
+
+暂未发现高置信度问题。代码实现了完整的计算器功能，包括基本运算、高级运算、数论运算以及历史记录功能。所有功能都经过良好测试，错误处理得当，代码结构清晰，符合业务需求。
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+```yaml
+review:
+  score: 95
+  bottlenecks:
+    - file_path: calculator/advanced_calculator.go
+      start_line: 136
+      end_line: 138
+      severity: |
+        HIGH
+      description: |
+        `addToHistory` 方法使用 `append` 来添加历史记录，但没有限制历史记录的最大长度。在高频调用场景下，可能导致内存无限增长，最终引发内存泄漏。
+      requirement_reference: |
+        无明确性能要求，但内存管理是基本要求
+      code_suggestion:
+        existing_code: |
+          func (ac *AdvancedCalculator) addToHistory(record string) {
+            ac.history = append(ac.history, record)
+          }
+        improved_code: |
+          func (ac *AdvancedCalculator) addToHistory(record string) {
+            const maxHistorySize = 1000
+            if len(ac.history) >= maxHistorySize {
+              ac.history = ac.history[1:]
+            }
+            ac.history = append(ac.history, record)
+          }
+      confidence: 95
+    - file_path: calculator/advanced_calculator.go
+      start_line: 78
+      end_line: 81
+      severity: |
+        HIGH
+      description: |
+        `Factorial` 方法使用循环计算阶乘，时间复杂度为 O(n)。对于较大的 n（接近 20），性能会显著下降。虽然目前限制了 n <= 20，但可以考虑使用预计算表来优化性能。
+      requirement_reference: |
+        无明确性能要求，但阶乘计算是常见的高频操作
+      code_suggestion:
+        existing_code: |
+          result := 1
+          for i := 2; i <= n; i++ {
+            result *= i
+          }
+        improved_code: |
+          var factorialTable = []int{1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800, 39916800, 479001600, 6227020800, 87178291200, 1307674368000, 20922789888000, 355687428096000, 6402373705728000, 121645100408832000, 2432902008176640000}
+          result := factorialTable[n]
+      confidence: 90
+    - file_path: calculator/interactive_calculator.go
+      start_line: 28
+      end_line: 38
+      severity: |
+        HIGH
+      description: |
+        `Run` 方法中的主循环没有处理用户输入的错误，直接忽略 `reader.ReadString` 的错误返回值。在高并发或异常情况下，可能导致程序行为不可预测。
+      requirement_reference: |
+        无明确错误处理要求，但健壮性是基本要求
+      code_suggestion:
+        existing_code: |
+          choice, _ := reader.ReadString('\n')
+          choice = strings.TrimSpace(choice)
+        improved_code: |
+          choice, err := reader.ReadString('\n')
+          if err != nil {
+            fmt.Println("❌ 读取输入失败:", err)
+            continue
+          }
+          choice = strings.TrimSpace(choice)
+      confidence: 88
+```
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 95
+  vulnerabilities: []
+  comments: |
+    暂未发现高置信度问题。代码整体结构良好，实现了基本的计算功能，并对异常情况进行了处理。但仍建议：
+    1. 对用户输入进行更严格的验证，防止潜在的恶意输入
+    2. 考虑添加日志记录功能，便于问题追踪
+    3. 增加单元测试覆盖率，确保代码质量
+```
+==================================================
+
+
+==================== TESTING REPORT ====================
+```yaml
+review:
+  score: 85
+  findings:
+    - type: |
+        Missing Test
+      file_path: calculator/advanced_calculator.go
+      start_line: 60
+      end_line: 67
+      description: |
+        SquareRoot 方法没有测试负数输入的边界情况，虽然代码中有错误处理，但测试文件中没有对应的测试用例。
+      requirement_reference: |
+        所有边界条件和错误处理必须通过单元测试验证。
+      code_suggestion:
+        existing_code: |
+          func (ac *AdvancedCalculator) SquareRoot(a float64) (float64, error) {
+              if a < 0 {
+                  return 0, errors.New("不能计算负数的平方根")
+              }
+              result := math.Sqrt(a)
+              ac.addToHistory(fmt.Sprintf("√%.2f = %.2f", a, result))
+              return result, nil
+          }
+        improved_code: |
+          func TestSquareRoot_NegativeNumber(t *testing.T) {
+              calc := NewAdvancedCalculator()
+              _, err := calc.SquareRoot(-9)
+              if err == nil {
+                  t.Error("Expected error for negative input, got nil")
+              }
+          }
+      confidence: 90
+    - type: |
+        Missing Test
+      file_path: calculator/advanced_calculator.go
+      start_line: 70
+      end_line: 84
+      description: |
+        Factorial 方法没有测试负数和大数（>20）的边界情况，虽然代码中有错误处理，但测试文件中没有对应的测试用例。
+      requirement_reference: |
+        所有边界条件和错误处理必须通过单元测试验证。
+      code_suggestion:
+        existing_code: |
+          func (ac *AdvancedCalculator) Factorial(n int) (int, error) {
+              if n < 0 {
+                  return 0, errors.New("不能计算负数的阶乘")
+              }
+              if n > 20 {
+                  return 0, errors.New("数值过大，阶乘结果超出int范围")
+              }
+              result := 1
+              for i := 2; i <= n; i++ {
+                  result *= i
+              }
+              ac.addToHistory(fmt.Sprintf("%d! = %d", n, result))
+              return result, nil
+          }
+        improved_code: |
+          func TestFactorial_NegativeNumber(t *testing.T) {
+              calc := NewAdvancedCalculator()
+              _, err := calc.Factorial(-5)
+              if err == nil {
+                  t.Error("Expected error for negative input, got nil")
+              }
+          }
+
+          func TestFactorial_LargeNumber(t *testing.T) {
+              calc := NewAdvancedCalculator()
+              _, err := calc.Factorial(21)
+              if err == nil {
+                  t.Error("Expected error for large input, got nil")
+              }
+          }
+      confidence: 90
+```
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 95
+  findings:
+    - type: |
+        Missing Doc
+      file_path: calculator/advanced_calculator.go
+      start_line: 22
+      end_line: 26
+      description: |
+        Add方法缺少完整的文档注释，特别是缺少参数和返回值的详细说明
+      requirement_reference: |
+        公共API方法必须包含完整的文档注释
+      code_suggestion:
+        existing_code: |
+          // Add 加法运算
+          func (ac *AdvancedCalculator) Add(a, b float64) float64 {
+      improved_code: |
+          // Add 执行两个浮点数的加法运算
+          // 参数:
+          //   a - 第一个加数
+          //   b - 第二个加数
+          // 返回值:
+          //   两个参数的和
+          func (ac *AdvancedCalculator) Add(a, b float64) float64 {
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: calculator/advanced_calculator.go
+      start_line: 43
+      end_line: 50
+      description: |
+        Divide方法缺少错误条件的详细文档说明
+      requirement_reference: |
+        可能返回错误的方法必须明确说明错误条件
+      code_suggestion:
+        existing_code: |
+          // Divide 除法运算
+          func (ac *AdvancedCalculator) Divide(a, b float64) (float64, error) {
+      improved_code: |
+          // Divide 执行两个浮点数的除法运算
+          // 参数:
+          //   a - 被除数
+          //   b - 除数
+          // 返回值:
+          //   第一个返回值是商
+          //   第二个返回值是错误，当除数为零时返回错误
+          func (ac *AdvancedCalculator) Divide(a, b float64) (float64, error) {
+      confidence: 95
+
+    - type: |
+        Missing Doc
+      file_path: calculator/interactive_calculator.go
+      start_line: 24
+      end_line: 39
+      description: |
+        Run方法作为交互式计算器的主入口，缺少详细的功能说明文档
+      requirement_reference: |
+        核心功能入口方法必须包含详细文档
+      code_suggestion:
+        existing_code: |
+          // Run 启动交互式计算器
+          func (ic *InteractiveCalculator) Run() {
+      improved_code: |
+          // Run 启动交互式计算器的命令行界面
+          // 该方法会显示菜单并循环处理用户输入，直到用户选择退出
+          // 功能包括:
+          //   - 显示操作菜单
+          //   - 读取用户输入
+          //   - 执行相应计算操作
+          //   - 显示计算结果
+          func (ic *InteractiveCalculator) Run() {
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: calculator/interactive_calculator.go
+      start_line: 103
+      end_line: 123
+      description: |
+        handleBinaryOperation方法作为核心处理逻辑，缺少参数和功能的详细说明
+      requirement_reference: |
+        复杂内部方法需要文档说明其设计意图
+      code_suggestion:
+        existing_code: |
+          // handleBinaryOperation 处理二元运算
+          func (ic *InteractiveCalculator) handleBinaryOperation(name string, reader *bufio.Reader, operation func(float64, float64) float64) {
+      improved_code: |
+          // handleBinaryOperation 处理通用的二元运算逻辑
+          // 参数:
+          //   name - 运算名称，用于显示提示信息
+          //   reader - 用于读取用户输入的bufio.Reader
+          //   operation - 实际执行运算的函数
+          // 功能:
+          //   1. 提示用户输入两个数字
+          //   2. 验证输入有效性
+          //   3. 调用operation函数执行计算
+          //   4. 显示计算结果
+          func (ic *InteractiveCalculator) handleBinaryOperation(name string, reader *bufio.Reader, operation func(float64, float64) float64) {
+      confidence: 85
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 95
+  issues:
+    - category: |
+        Silent Failure
+      file_path: calculator/interactive_calculator.go
+      start_line: 29
+      end_line: 29
+      description: |
+        在读取用户输入时，忽略了可能的错误，这可能导致程序在输入错误时崩溃或产生不可预测的行为。
+      requirement_reference: |
+        错误处理标准：所有可能产生错误的操作都应进行错误处理，以确保程序的健壮性。
+      code_suggestion:
+        existing_code: |
+          choice, _ := reader.ReadString('\n')
+        improved_code: |
+          choice, err := reader.ReadString('\n')
+          if err != nil {
+              fmt.Println("❌ 读取输入时发生错误:", err)
+              return
+          }
+      confidence: 95
+    - category: |
+        Silent Failure
+      file_path: calculator/interactive_calculator.go
+      start_line: 106
+      end_line: 106
+      description: |
+        在读取用户输入时，忽略了可能的错误，这可能导致程序在输入错误时崩溃或产生不可预测的行为。
+      requirement_reference: |
+        错误处理标准：所有可能产生错误的操作都应进行错误处理，以确保程序的健壮性。
+      code_suggestion:
+        existing_code: |
+          aStr, _ := reader.ReadString('\n')
+        improved_code: |
+          aStr, err := reader.ReadString('\n')
+          if err != nil {
+              fmt.Println("❌ 读取输入时发生错误:", err)
+              return
+          }
+      confidence: 95
+    - category: |
+        Silent Failure
+      file_path: calculator/interactive_calculator.go
+      start_line: 114
+      end_line: 114
+      description: |
+        在读取用户输入时，忽略了可能的错误，这可能导致程序在输入错误时崩溃或产生不可预测的行为。
+      requirement_reference: |
+        错误处理标准：所有可能产生错误的操作都应进行错误处理，以确保程序的健壮性。
+      code_suggestion:
+        existing_code: |
+          bStr, _ := reader.ReadString('\n')
+        improved_code: |
+          bStr, err := reader.ReadString('\n')
+          if err != nil {
+              fmt.Println("❌ 读取输入时发生错误:", err)
+              return
+          }
+      confidence: 95
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+review:
+  score: 92
+  suggestions:
+    - file_path: "calculator/advanced_calculator.go"
+      start_line: 91
+      end_line: 92
+      issue: |
+        GCD方法在历史记录中打印的格式字符串有误，变量b在计算后已被修改为0，但历史记录中仍显示原始值
+      requirement_reference: |
+        代码正确性要求：历史记录应准确反映计算过程和结果
+      code_suggestion:
+        existing_code: |
+          ac.addToHistory(fmt.Sprintf("GCD(%d, %d) = %d", a, b, a))
+        improved_code: |
+          ac.addToHistory(fmt.Sprintf("GCD(%d, %d) = %d", originalA, originalB, a))
+      confidence: 95
+
+    - file_path: "calculator/interactive_calculator.go"
+      start_line: 62
+      end_line: 100
+      issue: |
+        handleChoice方法过于冗长且包含重复代码模式，建议提取公共输入处理逻辑
+      requirement_reference: |
+        代码可维护性原则：DRY(Don't Repeat Yourself)
+      code_suggestion:
+        existing_code: |
+          // 当前重复的输入处理逻辑分散在各个case中
+        improved_code: |
+          // 建议提取为独立方法如:
+          func (ic *InteractiveCalculator) readNumber(reader *bufio.Reader, prompt string) (float64, error) {
+              fmt.Print(prompt)
+              str, _ := reader.ReadString('\n')
+              return strconv.ParseFloat(strings.TrimSpace(str), 64)
+          }
+      confidence: 88
+
+    - file_path: "calculator/interactive_calculator.go"
+      start_line: 103
+      end_line: 123
+      issue: |
+        handleBinaryOperation方法名称过于通用，未能准确表达其处理用户交互的特性
+      requirement_reference: |
+        命名规范：方法名应准确描述其行为和上下文
+      code_suggestion:
+        existing_code: |
+          func (ic *InteractiveCalculator) handleBinaryOperation(...)
+        improved_code: |
+          func (ic *InteractiveCalculator) promptAndExecuteBinaryOperation(...)
+      confidence: 87
+
+    - file_path: "calculator/advanced_calculator.go"
+      start_line: 121
+      end_line: 122
+      issue: |
+        IsPrime方法在历史记录中硬编码了true结果，实际上应该使用计算得到的isPrime值
+      requirement_reference: |
+        代码正确性要求：历史记录必须准确反映实际计算结果
+      code_suggestion:
+        existing_code: |
+          ac.addToHistory(fmt.Sprintf("%d 是质数: %v", n, true))
+        improved_code: |
+          ac.addToHistory(fmt.Sprintf("%d 是质数: %v", n, isPrime))
+      confidence: 100
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+```yaml
+review:
+  score: 85
+  findings:
+    - category: |
+        Coupling
+      file_path: calculator/interactive_calculator.go
+      start_line: 13
+      end_line: 13
+      description: |
+        InteractiveCalculator 直接依赖 AdvancedCalculator 的具体实现，而不是通过接口。这种紧耦合使得未来替换或扩展计算器实现变得困难。
+      requirement_reference: |
+        架构设计原则：模块间应通过接口通信，而不是直接依赖具体实现
+      code_suggestion:
+        existing_code: |
+          type InteractiveCalculator struct {
+            calc *AdvancedCalculator
+          }
+        improved_code: |
+          type Calculator interface {
+            Add(a, b float64) float64
+            Subtract(a, b float64) float64
+            Multiply(a, b float64) float64
+            Divide(a, b float64) (float64, error)
+            // ... 其他方法
+          }
+
+          type InteractiveCalculator struct {
+            calc Calculator
+          }
+      confidence: 90
+    - category: |
+        Duplication
+      file_path: calculator/advanced_calculator.go
+      start_line: 22
+      end_line: 26
+      description: |
+        每个运算方法中都重复了历史记录添加的逻辑，违反了DRY原则。这增加了维护成本，如果未来需要修改历史记录格式，需要修改多处代码。
+      requirement_reference: |
+        DRY原则：避免重复代码
+      code_suggestion:
+        existing_code: |
+          func (ac *AdvancedCalculator) Add(a, b float64) float64 {
+            result := a + b
+            ac.addToHistory(fmt.Sprintf("%.2f + %.2f = %.2f", a, b, result))
+            return result
+          }
+        improved_code: |
+          func (ac *AdvancedCalculator) Add(a, b float64) float64 {
+            result := a + b
+            ac.recordOperation("+", a, b, result)
+            return result
+          }
+
+          func (ac *AdvancedCalculator) recordOperation(op string, a, b, result float64) {
+            ac.addToHistory(fmt.Sprintf("%.2f %s %.2f = %.2f", a, op, b, result))
+          }
+      confidence: 88
+    - category: |
+        Technical Debt
+      file_path: calculator/advanced_calculator.go
+      start_line: 70
+      end_line: 84
+      description: |
+        阶乘计算硬编码了最大值为20的限制，这限制了计算器的扩展性。未来如果需要支持更大的数值，需要修改代码而不是通过配置实现。
+      requirement_reference: |
+        可扩展性设计：避免硬编码限制
+      code_suggestion:
+        existing_code: |
+          if n > 20 {
+            return 0, errors.New("数值过大，阶乘结果超出int范围")
+          }
+        improved_code: |
+          const MaxFactorial = 20
+
+          if n > MaxFactorial {
+            return 0, fmt.Errorf("数值过大，阶乘结果超出范围（最大支持%d）", MaxFactorial)
+          }
+      confidence: 85
+```
+
+暂未发现其他高置信度问题。
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 100
+  analysis: []
+  summary: |
+    暂未发现高置信度问题。代码实现良好，所有数学运算均使用标准库实现，没有引入不必要的外部依赖。
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: d158fe63fa83e2b0afb4a077c7f32c2d6c0c0d64
+✅ 已切换到 commit: d158fe63fa83e2b0afb4a077c7f32c2d6c0c0d64
+🔍 正在验证 7 个行评论...
+✅ 已验证 7 个行评论
+🔄 恢复原来的 commit: d158fe63fa83e2b0afb4a077c7f32c2d6c0c0d64
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
