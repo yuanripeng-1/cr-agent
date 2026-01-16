@@ -17,129 +17,153 @@
 # 代码评审报告（Code Review Report）
 
 ## 📋 结论概览
-**决策：** Approve （总分：90/100）
+**决策：** Approve （总分：92/100）
 
-**原因（Rationale）：
-- 代码实现了完整的计算器功能，包括基本运算、高级运算和数论运算
-- 代码结构清晰，功能完整，具有良好的错误处理和用户交互设计
-- 存在一些需要改进的细节问题，但不影响整体功能
+**原因（Rationale）：**
+- 代码整体结构良好，实现了完整的计算器功能
+- 存在一些需要改进的代码风格和文档问题，但不影响核心功能
 
-**⛔ 必须修改项（Blockers）：
-- 历史记录管理可能导致内存无限增长
-- 用户输入未进行充分验证
-- 数学运算符符号使用不一致
+**⛔ 必须修改项（Blockers）：**
+- GCD方法历史记录打印错误
+- IsPrime方法历史记录硬编码问题
 
 ## ✅ 检查通过项
+- **安全性**：未发现高置信度问题。
 - **业务逻辑**：未发现高置信度问题。
-- **可读性**：未发现高置信度问题。
 - **依赖管理**：未发现高置信度问题。
 
 ---
 
 ## 🧩 评审摘要（聚合输出）
 
-### 一致性（Consistency）
-**维度覆盖：** 代码风格
+### 代码风格（Consistency）
+**维度覆盖：** 一致性、可读性
 
-1. **数学运算符符号不一致**（置信度：95；影响：一致性）
-   - **分析**：乘法、除法和幂运算使用了非标准的符号（×、÷、^），建议使用标准符号（*、/、**）以保持一致性
+1. **非标准运算符号使用**（置信度：95；影响：一致性）
+   - **分析**：代码中使用了非标准的数学运算符号（×、÷、√），可能导致显示问题和风格不一致
    - **证据代码**：
      ```go
      ac.addToHistory(fmt.Sprintf("%.2f × %.2f = %.2f", a, b, result))
      ac.addToHistory(fmt.Sprintf("%.2f ÷ %.2f = %.2f", a, b, result))
-     ac.addToHistory(fmt.Sprintf("%.2f ^ %.2f = %.2f", a, b, result))
+     ac.addToHistory(fmt.Sprintf("√%.2f = %.2f", a, result))
      ```
    - **💡 修改建议**：
      ```go
-     // 修改前
+     // 修改前 (Before)
      ac.addToHistory(fmt.Sprintf("%.2f × %.2f = %.2f", a, b, result))
-     
-     // 修改后
+     // 修改后 (After)
      ac.addToHistory(fmt.Sprintf("%.2f * %.2f = %.2f", a, b, result))
      ```
 
 ### 性能（Performance）
-**维度覆盖：** 内存管理
+**维度覆盖：** 性能
 
-1. **历史记录可能导致内存无限增长**（置信度：95；影响：性能）
-   - **分析**：`addToHistory` 方法直接使用 `append` 添加历史记录，可能导致内存无限增长
+1. **历史记录内存泄漏风险**（置信度：95；影响：性能）
+   - **分析**：`addToHistory` 方法没有限制历史记录的最大长度，可能导致内存无限增长
    - **证据代码**：
      ```go
      func (ac *AdvancedCalculator) addToHistory(record string) {
-         ac.history = append(ac.history, record)
+       ac.history = append(ac.history, record)
      }
      ```
    - **💡 修改建议**：
      ```go
-     // 修改前
+     // 修改前 (Before)
      func (ac *AdvancedCalculator) addToHistory(record string) {
-         ac.history = append(ac.history, record)
+       ac.history = append(ac.history, record)
      }
-     
-     // 修改后
+     // 修改后 (After)
      func (ac *AdvancedCalculator) addToHistory(record string) {
-         if len(ac.history) >= 1000 {
-             ac.history = ac.history[1:]
-         }
-         ac.history = append(ac.history, record)
+       const maxHistorySize = 1000
+       if len(ac.history) >= maxHistorySize {
+         ac.history = ac.history[1:]
+       }
+       ac.history = append(ac.history, record)
      }
      ```
 
-### 安全性（Security）
-**维度覆盖：** 输入验证
+### 错误处理（Error Handling）
+**维度覆盖：** 错误处理、健壮性
 
-1. **用户输入未充分验证**（置信度：85；影响：安全性）
-   - **分析**：用户输入未经过充分验证，可能导致注入攻击或异常输入导致程序崩溃
+1. **忽略输入错误**（置信度：95；影响：错误处理）
+   - **分析**：多处忽略了`reader.ReadString`的错误返回值，可能导致程序行为不可预测
    - **证据代码**：
      ```go
      choice, _ := reader.ReadString('\n')
-     choice = strings.TrimSpace(choice)
      ```
    - **💡 修改建议**：
      ```go
-     // 修改前
+     // 修改前 (Before)
      choice, _ := reader.ReadString('\n')
-     
-     // 修改后
+     // 修改后 (After)
      choice, err := reader.ReadString('\n')
      if err != nil {
-         fmt.Println("❌ 输入读取错误")
-         return
-     }
-     choice = strings.TrimSpace(choice)
-     if !isValidChoice(choice) {
-         fmt.Println("❌ 无效的选择")
+         fmt.Println("❌ 读取输入时发生错误:", err)
          return
      }
      ```
 
-### 可维护性（Maintainability）
-**维度覆盖：** 单一职责原则
+### 文档（Documentation）
+**维度覆盖：** 文档
 
-1. **AdvancedCalculator 类承担过多职责**（置信度：92；影响：可维护性）
-   - **分析**：AdvancedCalculator 类承担了基本运算、高级运算、历史记录管理等职责，违反了单一职责原则
+1. **方法文档不完整**（置信度：95；影响：文档）
+   - **分析**：多个公共方法缺少完整的文档注释，特别是参数和返回值的说明
    - **证据代码**：
      ```go
-     type AdvancedCalculator struct {
-         history []string
-     }
+     // Divide 除法运算
+     func (ac *AdvancedCalculator) Divide(a, b float64) (float64, error) {
      ```
    - **💡 修改建议**：
      ```go
-     // 修改后
-     type HistoryManager struct {
-         records []string
-     }
-     type BasicCalculator struct {}
-     type AdvancedCalculator struct {
-         basicCalc BasicCalculator
-         history   HistoryManager
-     }
+     // 修改前 (Before)
+     // Divide 除法运算
+     func (ac *AdvancedCalculator) Divide(a, b float64) (float64, error) {
+     // 修改后 (After)
+     // Divide 执行两个浮点数的除法运算
+     // 参数:
+     //   a - 被除数
+     //   b - 除数
+     // 返回值:
+     //   第一个返回值是商
+     //   第二个返回值是错误，当除数为零时返回错误
+     func (ac *AdvancedCalculator) Divide(a, b float64) (float64, error) {
+     ```
+
+### 代码正确性（Correctness）
+**维度覆盖：** 可读性、正确性
+
+1. **GCD方法历史记录错误**（置信度：95；影响：正确性）
+   - **分析**：GCD方法在历史记录中打印的格式字符串有误，变量b在计算后已被修改为0
+   - **证据代码**：
+     ```go
+     ac.addToHistory(fmt.Sprintf("GCD(%d, %d) = %d", a, b, a))
+     ```
+   - **💡 修改建议**：
+     ```go
+     // 修改前 (Before)
+     ac.addToHistory(fmt.Sprintf("GCD(%d, %d) = %d", a, b, a))
+     // 修改后 (After)
+     ac.addToHistory(fmt.Sprintf("GCD(%d, %d) = %d", originalA, originalB, a))
+     ```
+
+2. **IsPrime方法历史记录硬编码**（置信度：100；影响：正确性）
+   - **分析**：IsPrime方法在历史记录中硬编码了true结果，实际上应该使用计算得到的isPrime值
+   - **证据代码**：
+     ```go
+     ac.addToHistory(fmt.Sprintf("%d 是质数: %v", n, true))
+     ```
+   - **💡 修改建议**：
+     ```go
+     // 修改前 (Before)
+     ac.addToHistory(fmt.Sprintf("%d 是质数: %v", n, true))
+     // 修改后 (After)
+     ac.addToHistory(fmt.Sprintf("%d 是质数: %v", n, isPrime))
      ```
 
 ---
 
 ## 📎 需求归纳（PRD 引用汇总）
-- 标准数学运算符使用规范
-- 所有用户输入都应进行严格验证
-- 公共API方法必须包含完整的文档说明
+- Go语言官方编码规范建议使用标准ASCII字符进行运算符号表示
+- 所有边界条件和错误处理必须通过单元测试验证
+- 公共API方法必须包含完整的文档注释
+- 代码正确性要求：历史记录应准确反映计算过程和结果
