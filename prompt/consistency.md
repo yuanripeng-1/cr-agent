@@ -23,6 +23,9 @@ review:
   violations:
     - category: |
         <Naming / Structure / Pattern / Lint>
+      file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       description: |
         <The violation and how it deviates from project standards>
       requirement_reference: |

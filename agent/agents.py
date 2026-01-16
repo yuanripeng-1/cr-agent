@@ -1,24 +1,87 @@
 import subprocess
 import os
 import litellm
+import asyncio
 from typing import List, Dict, Any
 from .prompts import *
 
 class BaseAgent:
-    def __init__(self, model: str = "gpt-4"):
+    def __init__(self, model: str = "gpt-4", max_retries: int = 3, retry_delay: float = 2.0):
         self.model = model
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
     async def call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        # We don't catch exceptions here anymore, let them propagate to be handled by the router/main
-        response = await litellm.acompletion(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.2
-        )
-        return response.choices[0].message.content
+        """
+        Call LLM with retry mechanism for network errors.
+        
+        Retries on:
+        - Connection errors (network issues, SSL errors)
+        - Timeout errors
+        - Rate limit errors (with exponential backoff)
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = await litellm.acompletion(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.2,
+                    timeout=120  # 2 minutes timeout
+                )
+                return response.choices[0].message.content
+                
+            except Exception as e:
+                last_exception = e
+                error_str = str(e).lower()
+                error_type = type(e).__name__.lower()
+                
+                # Check if it's a retryable error
+                is_retryable = any(keyword in error_str for keyword in [
+                    "connection", "connect", "timeout", "network", 
+                    "ssl", "tls", "unreachable", "refused",
+                    "jsondecodeerror", "json decode", "unable to get json",
+                    "expecting value", "invalid json", "malformed json"
+                ])
+                
+                # Check error type for JSON parsing errors
+                is_json_error = any(keyword in error_type for keyword in [
+                    "jsondecodeerror", "jsondecode", "json"
+                ]) or "json" in error_str
+                
+                # Rate limit errors should also be retried
+                is_rate_limit = "rate limit" in error_str or "429" in error_str
+                
+                # API response format errors (like invalid JSON) should be retried
+                is_api_error = any(keyword in error_str for keyword in [
+                    "unable to get json", "expecting value", "invalid response",
+                    "malformed", "parse error"
+                ])
+                
+                if (is_retryable or is_rate_limit or is_json_error or is_api_error) and attempt < self.max_retries - 1:
+                    # Exponential backoff: 2s, 4s, 8s...
+                    delay = self.retry_delay * (2 ** attempt)
+                    if is_rate_limit:
+                        # Rate limit errors need longer delay
+                        delay = max(delay, 10.0)
+                    
+                    print(f"⚠️  LLM 调用失败 (尝试 {attempt + 1}/{self.max_retries}): {str(e)[:100]}")
+                    print(f"🔄 {delay:.1f} 秒后重试...")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Non-retryable error or max retries reached
+                    raise
+        
+        # If we exhausted all retries, raise the last exception
+        if last_exception:
+            raise last_exception
+        else:
+            raise Exception("LLM call failed after all retries")
 
 class GenericDimensionAgent(BaseAgent):
     """A generic agent for single-dimension review."""

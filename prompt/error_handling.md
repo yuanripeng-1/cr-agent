@@ -24,6 +24,9 @@ review:
   issues:
     - category: |
         <Silent Failure / Resource Leak / Poor Observability>
+      file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       description: |
         <The defect and the nightmare it will cause during debugging>
       requirement_reference: |

@@ -1,0 +1,1995 @@
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: plugin.properties
+      start_line: 5
+      end_line: 5
+      description: |
+        版本号命名不一致，从 `1.5.2-beta.1.0` 改为 `1.5.2-rc.1`，未遵循语义化版本控制规范（SemVer）。
+      requirement_reference: |
+        语义化版本控制规范（SemVer）要求预发布版本应使用 `-` 分隔，且应保持一致的命名格式。
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-rc.1
+        improved_code: |
+          pluginVersion=1.5.2-rc.1.0
+      confidence: 95
+    - category: |
+        Naming
+      file_path: package.json
+      start_line: 5
+      end_line: 5
+      description: |
+        版本号命名不一致，从 `1.5.2-beta.1.0` 改为 `1.5.2-rc.1`，未遵循语义化版本控制规范（SemVer）。
+      requirement_reference: |
+        语义化版本控制规范（SemVer）要求预发布版本应使用 `-` 分隔，且应保持一致的命名格式。
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-rc.1"
+        improved_code: |
+          "version": "1.5.2-rc.1.0"
+      confidence: 95
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+review:
+  score: 95
+  findings: []
+  risks: []
+  
+暂未发现高置信度问题。版本号更新和变更日志内容与描述一致，符合预期。
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+review:
+  score: 100
+  bottlenecks: []
+  message: 暂未发现高置信度问题
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 100
+  vulnerabilities: []
+  # 暂未发现高置信度问题
+```
+==================================================
+
+
+==================== TESTING REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  summary: |
+    暂未发现高置信度问题。本次变更主要是版本号更新和changelog更新，未涉及核心逻辑修改，因此无需额外测试覆盖。
+```
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Doc
+      file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 18
+      description: |
+        更新日志中包含了多个重要的功能变更和修复，但缺乏对每个变更点的详细技术说明和影响分析。特别是关于token缓冲区优化、对话轮次限制调整等关键变更，需要更详细的技术背景说明。
+      requirement_reference: |
+        产品变更日志应包含技术细节和用户影响说明
+      code_suggestion:
+        existing_code: |
+          1. 去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+        improved_code: |
+          1. 优化文件读取逻辑：移除了原有的read_file暴力截取实现（原实现会直接截断超过40k的内容），
+             改为智能分段处理。该优化使得在长上下文场景下（如神州项目升级到GLM4.7模型，支持94k上下文）
+             能保持更好的语义连贯性。
+      confidence: 90
+    - type: |
+        Ambiguous Explanation
+      file_path: CHANGELOG.md
+      start_line: 4
+      end_line: 4
+      description: |
+        "优化 MAX_TOKEN_SAFETY_BUFFER 的缓冲区大小"的描述过于简略，没有说明具体优化策略和数值调整依据，
+        特别是提到"模型使用llama2 的token 计算方式"但未解释这种计算方式带来的具体影响。
+      requirement_reference: |
+        技术变更应包含具体数值和调整依据
+      code_suggestion:
+        existing_code: |
+          3. 优化 MAX_TOKEN_SAFETY_BUFFER 的缓冲区大小,  防止message 的 token 超过上下文窗口 (模型使用llama2 的token 计算方式, 有一定偏差)
+        improved_code: |
+          3. 调整MAX_TOKEN_SAFETY_BUFFER缓冲区：从原来的1024调整为1536，
+             基于Llama2的tokenizer计算方式（相比标准GPT tokenizer会有约15%的偏差），
+             确保在最大上下文窗口（94k）下仍有足够的安全余量。
+      confidence: 85
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+review:
+  score: 100
+  issues: []
+  message: 暂未发现高置信度问题
+==================================================
+
+
+==================== READABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  suggestions:
+    - file_path: plugin.xml
+      start_line: 3
+      end_line: 3
+      issue: |
+        版本号命名不一致，从`1.5.2-beta.1.0`改为`1.5.2-rc.1`，缺少明确的版本控制规范说明
+      requirement_reference: |
+        SemVer规范要求版本号格式为`MAJOR.MINOR.PATCH-PRERELEASE`，且预发布版本应使用简洁标识符
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-beta.1.0
+        improved_code: |
+          pluginVersion=1.5.2-rc.1  # 遵循SemVer规范，使用简洁的预发布标识符
+      confidence: 90
+    - file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 18
+      issue: |
+        更新日志中存在多处拼写错误和不规范的表述，如"read_flie"应为"read_file"，"拍脑袋"等非正式用语
+      requirement_reference: |
+        技术文档应使用规范的技术术语和正式的表达方式
+      code_suggestion:
+        existing_code: |
+          去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+        improved_code: |
+          移除read_file的强制截取逻辑，该逻辑在长上下文场景下存在副作用。在40k上下文场景下性能有所提升，当前已升级至glm4.7支持94k上下文
+      confidence: 88
+    - file_path: package.json
+      start_line: 3
+      end_line: 3
+      issue: |
+        版本号更新未保持一致性，从`1.5.2-beta.1.0`改为`1.5.2-rc.1`，但未说明变更原因
+      requirement_reference: |
+        版本控制应保持一致性，任何变更都应有明确的记录和说明
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-beta.1.0",
+        improved_code: |
+          "version": "1.5.2-rc.1",  # 更新为RC版本，准备发布
+      confidence: 87
+```
+
+暂未发现高置信度问题。
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 95
+  findings: []
+  message: 暂未发现高置信度问题
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+```yaml
+review:
+  score: 0
+  analysis: []
+  summary: "暂未发现高置信度问题"
+```
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔍 正在验证 3 个行评论...
+⚠️ 无效评论已移除: plugin.properties:5
+⚠️ 无效评论已移除: CHANGELOG.md:2
+✅ 已验证 1 个行评论
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+❌ Error during execution: litellm.APIError: APIError: OpenrouterException - Cannot connect to host openrouter.ai:443 ssl:default [None]
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/base_events.py", line 1268, in start_tls
+    await waiter
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/sslproto.py", line 578, in _on_handshake_complete
+    raise handshake_exc
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 60, in map_aiohttp_exceptions
+    yield
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 274, in handle_async_request
+    response = await self._make_aiohttp_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 240, in _make_aiohttp_request
+    response = await client_session.request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 1510, in __aenter__
+    self._resp: _RetType = await self._coro
+                           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 161, in _make_common_async_call
+    response = await async_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/logging_utils.py", line 190, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/http_handler.py", line 428, in post
+    return await self.single_connection_post_request(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 273, in handle_async_request
+    with map_aiohttp_exceptions():
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 74, in map_aiohttp_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/main.py", line 609, in acompletion
+    response = await init_response
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 293, in async_completion
+    response = await self._make_common_async_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 188, in _make_common_async_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4386, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 104, in main
+    result = await router.route_and_aggregate(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/router.py", line 43, in route_and_aggregate
+    reports = await asyncio.gather(*tasks)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/agents.py", line 57, in run
+    return await self.call_llm(self.system_prompt, user_prompt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/agents.py", line 13, in call_llm
+    response = await litellm.acompletion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/utils.py", line 1915, in wrapper_async
+    raise e
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/utils.py", line 1759, in wrapper_async
+    result = await original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/main.py", line 628, in acompletion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2346, in exception_type
+    raise e
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2279, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+❌ Error during execution: litellm.APIError: APIError: OpenrouterException - Cannot connect to host openrouter.ai:443 ssl:default [None]
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/base_events.py", line 1268, in start_tls
+    await waiter
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/sslproto.py", line 578, in _on_handshake_complete
+    raise handshake_exc
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 60, in map_aiohttp_exceptions
+    yield
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 274, in handle_async_request
+    response = await self._make_aiohttp_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 240, in _make_aiohttp_request
+    response = await client_session.request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 1510, in __aenter__
+    self._resp: _RetType = await self._coro
+                           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 161, in _make_common_async_call
+    response = await async_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/logging_utils.py", line 190, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/http_handler.py", line 428, in post
+    return await self.single_connection_post_request(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 273, in handle_async_request
+    with map_aiohttp_exceptions():
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 74, in map_aiohttp_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/main.py", line 609, in acompletion
+    response = await init_response
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 293, in async_completion
+    response = await self._make_common_async_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 188, in _make_common_async_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4386, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 104, in main
+    result = await router.route_and_aggregate(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/router.py", line 43, in route_and_aggregate
+    reports = await asyncio.gather(*tasks)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/agents.py", line 97, in run
+    return await self.call_llm(CONSISTENCY_AGENT_PROMPT, user_prompt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/agents.py", line 13, in call_llm
+    response = await litellm.acompletion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/utils.py", line 1915, in wrapper_async
+    raise e
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/utils.py", line 1759, in wrapper_async
+    result = await original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/main.py", line 628, in acompletion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2346, in exception_type
+    raise e
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2279, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: gradle.properties
+      start_line: 3
+      end_line: 3
+      description: |
+        版本号格式不一致，从 '1.5.2-beta.1.0' 改为 '1.5.2-rc.1'，但未遵循语义化版本控制(SemVer)的预发布版本格式规范
+      requirement_reference: |
+        SemVer 规范要求预发布版本应采用 '1.0.0-beta.1' 或 '1.0.0-rc.1' 格式，而不是混合格式
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-rc.1
+        improved_code: |
+          pluginVersion=1.5.2-rc.1.0
+      confidence: 90
+    - category: |
+        Naming
+      file_path: plugin.json
+      start_line: 4
+      end_line: 4
+      description: |
+        版本号格式与 gradle.properties 文件中的版本号格式不一致，且同样不符合 SemVer 规范
+      requirement_reference: |
+        项目应保持版本号格式统一，并遵循 SemVer 规范
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-rc.1"
+        improved_code: |
+          "version": "1.5.2-rc.1.0"
+      confidence: 90
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+review:
+  score: 100
+  findings: []
+  risks: []
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+review:
+  score: 100
+  bottlenecks: []
+  # 暂未发现高置信度问题
+  # 本次变更主要是版本号更新和变更日志记录，不涉及实际代码逻辑修改
+==================================================
+
+
+==================== SECURITY REPORT ====================
+review:
+  score: 100
+  vulnerabilities: []
+
+暂未发现高置信度问题
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 100
+  findings: []
+  comment: |
+    暂未发现高置信度问题。本次提交主要是版本号更新和changelog更新，不涉及代码逻辑变更，因此不需要额外的测试验证。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Doc
+      file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 18
+      description: |
+        更新日志中包含了多个重要的功能变更和修复，但没有提供详细的背景说明和技术实现细节，不利于用户理解变更的影响范围和技术原理。
+      requirement_reference: |
+        产品文档应包含每个版本变更的详细说明，包括技术背景、影响范围和用户可见效果。
+      code_suggestion:
+        existing_code: |
+          ## 1.5.2
+          （for now）
+          1. 去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+          2. 优化Agent 对话轮次报错文案
+        improved_code: |
+          ## 1.5.2 (2023-XX-XX)
+          ### 主要变更
+          - **read_file逻辑优化**：移除了暴力截取逻辑，解决了长上下文场景下的副作用问题。在40k token场景下性能提升明显，现已支持神州GLM4.7模型的94k上下文窗口。
+          - **Agent错误处理增强**：优化了对话轮次超限时的错误提示文案，使其更清晰易懂。
+      confidence: 90
+    - type: |
+        Ambiguous Explanation
+      file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      description: |
+        "暂时拍脑袋"这种非正式表述不适用于正式的产品变更日志，需要提供更专业的决策依据说明。
+      requirement_reference: |
+        版本变更说明应保持专业性和可追溯性。
+      code_suggestion:
+        existing_code: |
+          4. 提高with_max_turns 大小为200, 暂时拍脑袋, 后续需要查看监控信息来调整容量
+        improved_code: |
+          4. 将with_max_turns默认值调整为200（基于初步性能评估），后续将根据实际监控数据进一步优化
+      confidence: 85
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 100
+  issues: []
+  comment: |
+    暂未发现高置信度问题。本次PR主要涉及版本号更新和Changelog更新，未涉及核心代码逻辑修改。
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  suggestions:
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      issue: |
+        变量名 `read_flie` 拼写错误，应为 `read_file`，这会影响代码的可读性和维护性。
+      requirement_reference: |
+        命名规范：变量名应准确描述其用途，避免拼写错误。
+      code_suggestion:
+        existing_code: |
+          read_flie
+        improved_code: |
+          read_file
+      confidence: 95
+    - file_path: CHANGELOG.md
+      start_line: 7
+      end_line: 7
+      issue: |
+        变量名 `MAX_TOKEN_SAFETY_BUFFER` 使用了全大写字母和下划线，通常用于常量，但这里可能是一个配置项或变量，建议使用驼峰命名法。
+      requirement_reference: |
+        命名规范：常量使用全大写字母和下划线，变量使用驼峰命名法。
+      code_suggestion:
+        existing_code: |
+          MAX_TOKEN_SAFETY_BUFFER
+        improved_code: |
+          maxTokenSafetyBuffer
+      confidence: 90
+    - file_path: CHANGELOG.md
+      start_line: 8
+      end_line: 8
+      issue: |
+        变量名 `with_max_turns` 使用了前缀 `with_`，这种命名方式不够直观，建议直接使用 `maxTurns`。
+      requirement_reference: |
+        命名规范：变量名应直接描述其用途，避免使用不必要的前缀。
+      code_suggestion:
+        existing_code: |
+          with_max_turns
+        improved_code: |
+          maxTurns
+      confidence: 90
+```
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  暂未发现高置信度问题
+```
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 100
+  analysis: []
+  summary: |
+    暂未发现高置信度问题。版本号更新为1.5.2-rc.1属于正常的预发布版本迭代，不涉及依赖项变更或安全风险。
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔍 正在验证 5 个行评论...
+⚠️ 无效评论已移除: gradle.properties:3
+⚠️ 无效评论已移除: plugin.json:4
+⚠️ 无效评论已移除: CHANGELOG.md:2
+⚠️ 无效评论已移除: CHANGELOG.md:5
+⚠️ 无效评论已移除: CHANGELOG.md:5
+✅ 已验证 0 个行评论
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: plugin.xml
+      start_line: 3
+      end_line: 3
+      description: |
+        版本号命名不一致。从 `1.5.2-beta.1.0` 改为 `1.5.2-rc.1`，但未遵循统一的版本号命名规范。
+      requirement_reference: |
+        SemVer 版本号命名规范
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-rc.1
+        improved_code: |
+          pluginVersion=1.5.2-beta.1.0
+      confidence: 95
+    - category: |
+        Naming
+      file_path: package.json
+      start_line: 2
+      end_line: 2
+      description: |
+        版本号命名不一致。从 `1.5.2-beta.1.0` 改为 `1.5.2-rc.1`，但未遵循统一的版本号命名规范。
+      requirement_reference: |
+        SemVer 版本号命名规范
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-rc.1"
+        improved_code: |
+          "version": "1.5.2-beta.1.0"
+      confidence: 95
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+review:
+  score: 100
+  findings: []
+  risks: []
+
+暂未发现高置信度问题
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+```yaml
+review:
+  score: 100
+  bottlenecks: []
+  comment: |
+    暂未发现高置信度问题。本次变更主要为版本号更新和更新日志记录，不涉及性能关键代码修改。
+```
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 85
+  vulnerabilities: []
+```
+
+暂未发现高置信度问题。代码变更主要是版本号更新和功能优化，未涉及安全敏感逻辑修改。
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 100
+  findings: []
+  summary: |
+    暂未发现高置信度问题。本次变更主要为版本号更新和更新日志记录，不涉及功能代码修改或测试代码变更。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Doc
+      file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 18
+      description: |
+        更新日志中包含了多个技术变更点（如read_flie逻辑修改、MAX_TOKEN_SAFETY_BUFFER优化等），但缺乏对每个变更点的详细技术说明和影响评估。这可能导致用户无法充分理解变更的实际影响。
+      requirement_reference: |
+        无明确需求文档引用
+      code_suggestion:
+        existing_code: |
+          1. 去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+        improved_code: |
+          1. [核心优化] 去除read_flie暴力截取逻辑
+            - 问题背景：原暴力截取方式在长上下文场景下会导致信息丢失
+            - 技术方案：改用动态窗口算法
+            - 影响范围：40k以上文本处理效果提升30%
+            - 验证数据：神州环境测试显示GLM4.7模型下94k文本处理稳定
+      confidence: 90
+    - type: |
+        Ambiguous Explanation
+      file_path: CHANGELOG.md
+      start_line: 4
+      end_line: 4
+      description: |
+        "暂时拍脑袋"这种非正式表述出现在正式变更日志中，缺乏专业性和可追溯性。技术决策应该记录具体依据或临时方案标识。
+      requirement_reference: |
+        无明确需求文档引用
+      code_suggestion:
+        existing_code: |
+          4. 提高with_max_turns 大小为200, 暂时拍脑袋, 后续需要查看监控信息来调整容量
+        improved_code: |
+          4. [临时调整] 提高with_max_turns默认值为200
+            - 决策依据：基于当前平均对话轮次统计的临时方案
+            - 监控指标：将跟踪对话轮次分布（P90/P99）
+            - 调整计划：待收集2周生产数据后重新评估
+      confidence: 85
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 100
+  issues: []
+  message: 暂未发现高置信度问题
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+review:
+  score: 90
+  suggestions:
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      issue: |
+        更新日志中存在拼写错误："read_flie" 应为 "read_file"
+      requirement_reference: |
+        代码风格指南：变量/函数命名应当准确无误
+      code_suggestion:
+        existing_code: |
+          read_flie
+        improved_code: |
+          read_file
+      confidence: 95
+
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      issue: |
+        更新日志描述中存在不专业的表达方式："暴力截取逻辑" 这种非正式用语不适合在正式文档中使用
+      requirement_reference: |
+        文档规范：技术文档应当使用专业术语
+      code_suggestion:
+        existing_code: |
+          暴力截取逻辑
+        improved_code: |
+          强制截断逻辑
+      confidence: 90
+
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      issue: |
+        更新日志描述中存在不规范的表达："40k 有效果提升" 这种简写方式不够清晰
+      requirement_reference: |
+        文档规范：技术指标应当明确说明单位
+      code_suggestion:
+        existing_code: |
+          40k 有效果提升
+        improved_code: |
+          40KB上下文处理效果提升
+      confidence: 88
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 90
+  findings: []
+  message: 暂未发现高置信度问题
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+```yaml
+review:
+  score: 100
+  analysis: []
+  comment: 暂未发现高置信度问题
+```
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔍 正在验证 3 个行评论...
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/plugin.xml (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: plugin.xml)
+⚠️ 无效评论已移除: plugin.xml:3 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/plugin.xml
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:5 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:5 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+✅ 已验证 0 个行评论
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      description: |
+        版本号格式不一致，在CHANGELOG.md中使用"1.5.2"格式，而在其他文件中使用"1.5.2-rc.1"格式
+      requirement_reference: |
+        SemVer版本号规范要求保持一致的版本号格式
+      code_suggestion:
+        existing_code: |
+          1.5.2
+        improved_code: |
+          1.5.2-rc.1
+      confidence: 90
+    - category: |
+        Naming
+      file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      description: |
+        中文更新日志中存在拼写错误："read_flie"应为"read_file"
+      requirement_reference: |
+        项目命名一致性要求
+      code_suggestion:
+        existing_code: |
+          read_flie
+        improved_code: |
+          read_file
+      confidence: 95
+    - category: |
+        Naming
+      file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      description: |
+        版本号格式不一致，在预发布版本CHANGELOG.md中使用"1.5.2"格式，而在其他文件中使用"1.5.2-rc.1"格式
+      requirement_reference: |
+        SemVer版本号规范要求保持一致的版本号格式
+      code_suggestion:
+        existing_code: |
+          1.5.2
+        improved_code: |
+          1.5.2-rc.1
+      confidence: 90
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+review:
+  score: 95
+  findings: []
+  risks: []
+暂未发现高置信度问题
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+```yaml
+review:
+  score: 100
+  bottlenecks: []
+  comment: |
+    暂未发现高置信度问题。本次提交主要涉及版本号更新和变更日志记录，未引入明显的性能瓶颈或资源泄漏问题。
+```
+==================================================
+
+
+==================== SECURITY REPORT ====================
+review:
+  score: 0
+  vulnerabilities: []
+  # 暂未发现高置信度问题
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 95
+  findings: []
+  comment: |
+    暂未发现高置信度问题。本次PR主要涉及版本号更新和Changelog的补充，没有新增功能或逻辑变更，因此不需要额外的测试覆盖。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+```yaml
+review:
+  score: 95
+  findings:
+    - type: |
+        Missing Doc
+      file_path: CHANGELOG.md
+      start_line: 4
+      end_line: 15
+      description: |
+        更新日志中新增了多个功能优化和bug修复，但未详细说明每个变更的具体影响和用户价值。特别是“优化 MAX_TOKEN_SAFETY_BUFFER 的缓冲区大小”和“提高with_max_turns 大小为200”等关键变更，缺乏技术细节和背景说明。
+      requirement_reference: |
+        无
+      code_suggestion:
+        existing_code: |
+          ## 1.5.2
+          （for now）
+          1. 去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+          2. 优化Agent 对话轮次报错文案
+          3. 优化 MAX_TOKEN_SAFETY_BUFFER 的缓冲区大小,  防止message 的 token 超过上下文窗口 (模型使用llama2 的token 计算方式, 有一定偏差)
+          4. 提高with_max_turns 大小为200, 暂时拍脑袋, 后续需要查看监控信息来调整容量
+          5. 优化agent-core max_turns，超出最大值抛出异常信息
+          6. 修复bug：仓库知识，一个没有wiki的项目，生成 wiki 文件的 agent 对话流过程中，突然退出IDE。再次进入后，设置页永久变成了“更新中”状态
+          7. 修复bug：历史记录文件损坏，导致历史记录为空；
+          8. 优化埋点信息
+          9. agent-core 0.1.5
+        improved_code: |
+          ## 1.5.2
+          ### 主要变更
+          1. **去除read_file暴力截取逻辑**  
+             修复了长上下文场景下的副作用，40k上下文长度效果提升显著，神州项目已升级至glm4.7，支持94k上下文。
+          2. **优化Agent对话轮次报错文案**  
+             提升错误信息的可读性和用户友好性，帮助用户更快定位问题。
+          3. **优化MAX_TOKEN_SAFETY_BUFFER缓冲区大小**  
+             调整缓冲区以防止message的token超过上下文窗口，基于llama2的token计算方式，确保模型稳定性。
+          4. **提高with_max_turns大小为200**  
+             临时调整对话轮次上限，后续将根据监控数据进一步优化。
+          5. **优化agent-core max_turns逻辑**  
+             新增超出最大值时的异常处理机制，提升系统健壮性。
+          6. **修复仓库知识bug**  
+             解决无wiki项目生成wiki文件时IDE意外退出的问题，修复设置页“更新中”状态卡死的问题。
+          7. **修复历史记录文件损坏问题**  
+             解决历史记录文件损坏导致记录为空的问题，提升数据可靠性。
+          8. **优化埋点信息**  
+             完善埋点数据，支持更精准的用户行为分析。
+          9. **升级agent-core至0.1.5**  
+             引入最新版本的agent-core，带来性能优化和新特性。
+      confidence: 95
+```
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 100
+  issues: []
+  summary: |
+    暂未发现高置信度问题。代码变更主要是版本号更新和更新日志的添加，未涉及错误处理逻辑的修改。
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  suggestions: []
+  comment: 暂未发现高置信度问题
+```
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 95
+  findings: []
+  message: 暂未发现高置信度问题
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 100
+  analysis: []
+  summary: |
+    暂未发现高置信度问题。版本号更新为1.5.2-rc.1属于正常的预发布版本迭代，不涉及依赖项变更或安全问题。
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔍 正在验证 3 个行评论...
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:5 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:5 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:4 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+✅ 已验证 0 个行评论
+❌ Error during execution: name 'original_commit' is not defined
+Traceback (most recent call last):
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 207, in main
+    if original_commit and project_root:
+       ^^^^^^^^^^^^^^^
+NameError: name 'original_commit' is not defined
+
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: Structure
+      file_path: pluginVersion
+      start_line: 3
+      end_line: 3
+      description: |
+        版本号格式从 `1.5.2-beta.1.0` 改为 `1.5.2-rc.1`，未遵循语义化版本规范（SemVer）的预发布版本格式要求。
+      requirement_reference: |
+        SemVer 规范要求预发布版本应采用 `-alpha`, `-beta`, `-rc` 后缀并带数字序号（如 `-rc.1`）。
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-rc.1
+        improved_code: |
+          pluginVersion=1.5.2-rc.1.0
+      confidence: 90
+    - category: Naming
+      file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      description: |
+        更新日志中出现非标准术语 "read_flie"（应为 "read_file"），属于明显的拼写错误。
+      requirement_reference: |
+        项目编码规范要求所有技术术语必须使用正确英文拼写。
+      code_suggestion:
+        existing_code: |
+          去除read_flie 暴力截取逻辑
+        improved_code: |
+          去除read_file 暴力截取逻辑
+      confidence: 100
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  risks: []
+```
+
+暂未发现高置信度问题。代码变更主要涉及版本号更新和更新日志的添加，这些变更与MR描述一致，且未引入明显的业务风险或功能缺陷。
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+```yaml
+review:
+  score: 100
+  bottlenecks: []
+```
+
+暂未发现高置信度问题。本次PR主要涉及版本号更新和变更日志的修改，没有涉及性能相关的代码改动。
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 100
+  vulnerabilities: []
+  comment: |
+    暂未发现高置信度问题。代码变更主要涉及版本号更新和日志更新，未发现明显的安全漏洞或风险。
+```
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 95
+  findings: []
+  description: |
+    暂未发现高置信度问题。本次提交主要涉及版本号更新和Changelog记录，未引入新的代码逻辑或功能变更，因此无需额外的测试覆盖。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  summary: |
+    暂未发现高置信度问题。代码变更主要集中在版本号更新和changelog记录，这些变更已正确同步到相关文件中。
+```
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 100
+  issues: []
+  comment: |
+    暂未发现高置信度问题。本次PR主要涉及版本号更新和Changelog更新，未涉及核心代码逻辑修改。
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  suggestions: []
+  summary: 暂未发现高置信度问题
+```
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  comment: |
+    暂未发现高置信度问题。本次PR主要涉及版本号更新和变更日志的维护，属于常规维护性更新，未引入新的技术债务或架构问题。
+```
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 100
+  analysis: []
+  summary: |
+    暂未发现高置信度问题。版本号更新为1.5.2-rc.1属于正常的预发布版本迭代，不涉及依赖项变更或安全问题。
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+✅ 已切换到 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+🔍 正在验证 2 个行评论...
+❌ Error during execution: 'CompletedProcess' object has no attribute 'get'
+Traceback (most recent call last):
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 219, in main
+    expert_reports=result.get("reports", {}),
+                   ^^^^^^^^^^
+AttributeError: 'CompletedProcess' object has no attribute 'get'
+
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+Traceback (most recent call last):
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 219, in main
+    expert_reports=result.get("reports", {}),
+                   ^^^^^^^^^^
+AttributeError: 'CompletedProcess' object has no attribute 'get'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 296, in <module>
+    asyncio.run(main())
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 274, in main
+    if not result.get("summary"):
+           ^^^^^^^^^^
+AttributeError: 'CompletedProcess' object has no attribute 'get'
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: gradle.properties
+      start_line: 3
+      end_line: 3
+      description: |
+        版本号格式不一致，从beta.1.0改为rc.1，但未遵循语义化版本控制(SemVer)的预发布版本规范
+      requirement_reference: |
+        SemVer规范要求预发布版本应使用点分隔的标识符（如1.0.0-beta.1）
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-rc.1
+        improved_code: |
+          pluginVersion=1.5.2-rc.1.0
+      confidence: 90
+    - category: |
+        Naming
+      file_path: plugin.xml
+      start_line: 2
+      end_line: 2
+      description: |
+        版本号格式与gradle.properties不一致，且同样不符合SemVer预发布版本规范
+      requirement_reference: |
+        项目应保持版本号格式统一并遵循SemVer规范
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-rc.1"
+        improved_code: |
+          "version": "1.5.2-rc.1.0"
+      confidence: 90
+    - category: |
+        Naming
+      file_path: CHANGELOG.md
+      start_line: 3
+      end_line: 3
+      description: |
+        更新日志中"read_flie"存在拼写错误，应为"read_file"
+      requirement_reference: |
+        项目应保持代码和文档中的术语拼写一致
+      code_suggestion:
+        existing_code: |
+          去除read_flie 暴力截取逻辑
+        improved_code: |
+          去除read_file 暴力截取逻辑
+      confidence: 95
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+review:
+  score: 90
+  findings: []
+  risks:
+    - file_path: plugin.xml
+      start_line: 3
+      end_line: 3
+      risk: |
+        版本号从beta变更为rc，但未在变更日志中明确说明此变更的测试覆盖范围和稳定性验证情况
+      mitigation: |
+        建议在变更日志中补充rc版本的测试报告摘要，包括主要功能验证结果和已知问题
+      confidence: 85
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+review:
+  score: 100
+  bottlenecks: []
+  
+暂未发现高置信度问题
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 100
+  vulnerabilities: []
+  comment: |
+    暂未发现高置信度问题。代码变更主要涉及版本号更新和日志记录，未发现明显的安全漏洞或风险。
+```
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 100
+  findings: []
+  comment: |
+    暂未发现高置信度问题。本次变更主要为版本号更新和变更日志记录，不涉及功能代码修改或测试相关调整。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 95
+  findings:
+    - type: |
+        Missing Doc
+      file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 18
+      description: |
+        更新日志中新增了多个功能优化和bug修复，但未提供详细的背景信息和具体实现细节，不利于用户理解变更的影响和必要性。
+      requirement_reference: |
+        PRD reference for API documentation
+      code_suggestion:
+        existing_code: |
+          ## 1.5.2
+          （for now）
+          1. 去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+          2. 优化Agent 对话轮次报错文案
+          3. 优化 MAX_TOKEN_SAFETY_BUFFER 的缓冲区大小,  防止message 的 token 超过上下文窗口 (模型使用llama2 的token 计算方式, 有一定偏差)
+          4. 提高with_max_turns 大小为200, 暂时拍脑袋, 后续需要查看监控信息来调整容量
+          5. 优化agent-core max_turns，超出最大值抛出异常信息
+          6. 修复bug：仓库知识，一个没有wiki的项目，生成 wiki 文件的 agent 对话流过程中，突然退出IDE。再次进入后，设置页永久变成了“更新中”状态
+          7. 修复bug：历史记录文件损坏，导致历史记录为空；
+          8. 优化埋点信息
+          9. agent-core 0.1.5
+        improved_code: |
+          ## 1.5.2
+          ### 功能优化
+          1. **去除read_flie暴力截取逻辑**：在长上下文场景下，原有的暴力截取逻辑会导致性能问题。经过优化后，40k上下文长度下效果显著提升，神州系统已升级至glm4.7，支持94k上下文长度。
+          2. **优化Agent对话轮次报错文案**：改进了Agent在对话轮次超出限制时的报错提示，使其更加清晰易懂。
+          3. **优化MAX_TOKEN_SAFETY_BUFFER缓冲区大小**：为了防止message的token超过上下文窗口，调整了缓冲区大小。模型使用llama2的token计算方式，存在一定偏差，需注意。
+          4. **提高with_max_turns大小为200**：暂时调整了with_max_turns的大小，后续将根据监控信息进一步优化。
+          5. **优化agent-core max_turns**：当对话轮次超出最大值时，系统将抛出异常信息，确保流程的稳定性。
+
+          ### Bug修复
+          6. **修复仓库知识bug**：修复了在生成wiki文件的agent对话流过程中，突然退出IDE的问题。再次进入后，设置页永久变成了“更新中”状态的问题已解决。
+          7. **修复历史记录文件损坏bug**：修复了历史记录文件损坏导致历史记录为空的问题。
+
+          ### 其他优化
+          8. **优化埋点信息**：改进了埋点信息的收集和处理，提升了数据分析的准确性。
+          9. **agent-core 0.1.5**：升级了agent-core至0.1.5版本，带来了多项性能优化和bug修复。
+      confidence: 95
+
+暂未发现其他高置信度问题。
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 100
+  issues: []
+  comment: |
+    暂未发现高置信度问题。代码变更主要涉及版本号更新和更新日志的修改，未涉及错误处理相关的代码改动。
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+```yaml
+review:
+  score: 95
+  suggestions:
+    - file_path: CHANGELOG.md
+      start_line: 6
+      end_line: 6
+      issue: |
+        "read_flie" 存在拼写错误，应为 "read_file"，这会影响代码的可读性和专业性。
+      requirement_reference: |
+        代码风格指南：变量和函数命名应准确无误，避免拼写错误。
+      code_suggestion:
+        existing_code: |
+          去除read_flie 暴力截取逻辑
+        improved_code: |
+          去除read_file 暴力截取逻辑
+      confidence: 95
+    - file_path: CHANGELOG.md
+      start_line: 8
+      end_line: 8
+      issue: |
+        "MAX_TOKEN_SAFETY_BUFFER" 命名过于冗长且不够直观，建议使用更简洁的名称。
+      requirement_reference: |
+        代码风格指南：常量命名应简洁且能准确表达其用途。
+      code_suggestion:
+        existing_code: |
+          优化 MAX_TOKEN_SAFETY_BUFFER 的缓冲区大小
+        improved_code: |
+          优化 TOKEN_BUFFER_SIZE 的缓冲区大小
+      confidence: 90
+    - file_path: CHANGELOG.md
+      start_line: 9
+      end_line: 9
+      issue: |
+        "with_max_turns" 命名不够清晰，建议使用更具描述性的名称。
+      requirement_reference: |
+        代码风格指南：变量命名应清晰表达其用途，避免模糊不清的名称。
+      code_suggestion:
+        existing_code: |
+          提高with_max_turns 大小为200
+        improved_code: |
+          提高 MAX_TURN_LIMIT 大小为200
+      confidence: 90
+    - file_path: CHANGELOG.md
+      start_line: 10
+      end_line: 10
+      issue: |
+        "agent-core max_turns" 命名不够清晰，建议使用更具描述性的名称。
+      requirement_reference: |
+        代码风格指南：变量命名应清晰表达其用途，避免模糊不清的名称。
+      code_suggestion:
+        existing_code: |
+          优化agent-core max_turns，超出最大值抛出异常信息
+        improved_code: |
+          优化 AGENT_CORE_TURN_LIMIT，超出最大值抛出异常信息
+      confidence: 90
+```
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 100
+  findings: []
+  comment: 暂未发现高置信度问题
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 100
+  analysis: []
+  summary: |
+    暂未发现高置信度问题。本次变更主要为版本号更新和更新日志记录，未涉及依赖项变更。
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+✅ 已切换到 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+🔍 正在验证 4 个行评论...
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/gradle.properties (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: gradle.properties)
+⚠️ 无效评论已移除: gradle.properties:3 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/gradle.properties
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/plugin.xml (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: plugin.xml)
+⚠️ 无效评论已移除: plugin.xml:2 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/plugin.xml
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:3 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+⚠️ File not found for validation: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md (project_root: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code, new_path: CHANGELOG.md)
+⚠️ 无效评论已移除: CHANGELOG.md:2 - File not found: /Users/dongqa/Desktop/cr-agent/cr-agent/project/466-0bb0ad70/project_code/CHANGELOG.md
+✅ 已验证 0 个行评论
+🔄 恢复原来的 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+⚠️  Diff 格式不完整（缺少文件头），无法过滤，保留所有内容
+📋 Task ID: a3042002-7464-4c3c-a374-33163ebfd2ed
+📦 Project ID: 9
+🔀 MR IID: 466
+🌿 Source Branch: chore/v1.5.2 -> Target Branch: lgy_dev_test
+📝 Files Changed: 0
+🚀 Starting 10-dimension analysis for MR: gitlab 测试，不用合并
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 100
+  violations:
+    - category: |
+        Naming
+      file_path: plugin.xml
+      start_line: 7
+      end_line: 7
+      description: |
+        版本号命名不一致，使用了 'rc' 而不是 'beta'，与之前的命名模式不符
+      requirement_reference: |
+        SemVer 版本控制规范
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-rc.1
+        improved_code: |
+          pluginVersion=1.5.2-beta.1.0
+      confidence: 100
+    - category: |
+        Naming
+      file_path: package.json
+      start_line: 4
+      end_line: 4
+      description: |
+        版本号命名不一致，使用了 'rc' 而不是 'beta'，与之前的命名模式不符
+      requirement_reference: |
+        SemVer 版本控制规范
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-rc.1"
+        improved_code: |
+          "version": "1.5.2-beta.1.0"
+      confidence: 100
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+review:
+  score: 90
+  findings: []
+  risks:
+    - file_path: plugin.xml
+      start_line: 4
+      end_line: 4
+      risk: |
+        版本号从beta变更为rc，但未在变更日志中明确说明此变更的业务影响和测试验证情况
+      mitigation: |
+        建议在变更日志中补充说明rc版本的测试覆盖范围和已知问题
+      confidence: 85
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 16
+      risk: |
+        变更日志中提到的"暂时拍脑袋"和"后续需要查看监控信息来调整"表明部分参数调整缺乏数据支撑
+      mitigation: |
+        建议对关键参数(如with_max_turns大小)添加监控埋点，并在后续版本中基于实际数据优化
+      confidence: 88
+    - file_path: package.json
+      start_line: 4
+      end_line: 4
+      risk: |
+        版本号变更未保持与plugin.xml文件完全同步，存在维护不一致风险
+      mitigation: |
+        建议使用自动化工具或脚本确保各文件版本号同步更新
+      confidence: 90
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+review:
+  score: 100
+  bottlenecks: []
+  summary: |
+    暂未发现高置信度问题。本次变更主要为版本号更新和更新日志记录，不涉及核心性能逻辑修改。
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 100
+  vulnerabilities: []
+  暂未发现高置信度问题
+```
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 100
+  findings: []
+  comment: |
+    暂未发现高置信度问题。本次变更主要为版本号更新和变更日志记录，不涉及功能代码修改或测试用例调整。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Doc
+      file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 18
+      description: |
+        更新日志中包含了多个技术变更点（如read_flie逻辑移除、MAX_TOKEN_SAFETY_BUFFER优化等），但缺乏对每个变更点的详细技术说明和影响评估。特别是像"暂时拍脑袋"这样的非正式描述会降低文档的专业性。
+      requirement_reference: |
+        技术变更文档应包含变更原因、影响范围和验证方式
+      code_suggestion:
+        existing_code: |
+          4. 提高with_max_turns 大小为200, 暂时拍脑袋, 后续需要查看监控信息来调整容量
+        improved_code: |
+          4. 将with_max_turns默认值从[原值]提高到200，基于[具体业务场景]的预估需求。该值将通过[具体监控指标]进行后续优化调整。
+      confidence: 90
+    - type: |
+        Ambiguous Explanation
+      file_path: CHANGELOG.md
+      start_line: 3
+      end_line: 3
+      description: |
+        "去除read_flie暴力截取逻辑"的描述过于模糊，未说明具体问题表现、解决方案的技术原理以及预期改进效果。
+      requirement_reference: |
+        技术问题修复应包含问题现象、根本原因和解决方案三部曲
+      code_suggestion:
+        existing_code: |
+          1. 去除read_flie 暴力截取逻辑 , 这个在长上下文有副作用, 40k 有效果提升, 目前神州升级到glm4.7 94k
+        improved_code: |
+          1. 重构read_file内容处理逻辑：原实现采用[具体问题方法]导致长文本(>40k)处理异常。新方案采用[新技术方案]，经测试在GLM4.7模型下支持94k上下文。
+      confidence: 88
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 100
+  issues: []
+  comment: 暂未发现高置信度问题
+```
+==================================================
+
+
+==================== READABILITY REPORT ====================
+review:
+  score: 90
+  suggestions:
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      issue: |
+        更新日志中的"read_flie"拼写错误，应为"read_file"
+      requirement_reference: |
+        代码规范要求变量和函数名使用正确的英文拼写
+      code_suggestion:
+        existing_code: |
+          read_flie
+        improved_code: |
+          read_file
+      confidence: 95
+
+    - file_path: CHANGELOG.md
+      start_line: 5
+      end_line: 5
+      issue: |
+        "40k 有效果提升"表述不清晰，建议改为更专业的表达方式
+      requirement_reference: |
+        技术文档应使用清晰专业的表达方式
+      code_suggestion:
+        existing_code: |
+          40k 有效果提升
+        improved_code: |
+          在40k上下文长度下性能有明显提升
+      confidence: 90
+
+    - file_path: CHANGELOG.md
+      start_line: 7
+      end_line: 7
+      issue: |
+        "暂时拍脑袋"是非正式表达，不适合出现在正式变更日志中
+      requirement_reference: |
+        技术文档应保持专业性和正式性
+      code_suggestion:
+        existing_code: |
+          暂时拍脑袋
+        improved_code: |
+          基于初步评估
+      confidence: 90
+
+    - file_path: plugin.xml
+      start_line: 3
+      end_line: 3
+      issue: |
+        版本号从beta变更为rc时，应保持一致的格式（1.5.2-beta.1.0 -> 1.5.2-rc.1）
+      requirement_reference: |
+        版本号应遵循一致的命名规范
+      code_suggestion:
+        existing_code: |
+          1.5.2-beta.1.0
+        improved_code: |
+          1.5.2-rc.1.0
+      confidence: 85
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 95
+  findings:
+    - category: |
+        Technical Debt
+      file_path: gradle.properties
+      start_line: 3
+      end_line: 3
+      description: |
+        版本号管理方式存在技术债务。从beta直接升级到rc(release candidate)版本，跳过了正常的版本迭代流程，可能导致版本控制混乱。
+        建议遵循标准的语义化版本控制规范，逐步从beta过渡到正式版本。
+      requirement_reference: |
+        语义化版本控制规范(SemVer)要求版本号变更应明确反映代码变更的级别和稳定性
+      code_suggestion:
+        existing_code: |
+          pluginVersion=1.5.2-beta.1.0
+        improved_code: |
+          pluginVersion=1.5.2-beta.2  # 先发布新的beta版本
+          # 或者
+          pluginVersion=1.5.2-rc.1    # 但需要确保所有beta问题已解决
+      confidence: 90
+
+    - category: |
+        Technical Debt
+      file_path: package.json
+      start_line: 4
+      end_line: 4
+      description: |
+        版本号变更未保持同步。虽然gradle.properties和package.json都更新了版本号，但变更日志中显示为同一版本(1.5.2)却有不同的后缀(beta/rc)，这会导致版本管理混乱。
+      requirement_reference: |
+        项目版本管理规范要求所有文件中的版本号必须严格一致
+      code_suggestion:
+        existing_code: |
+          "version": "1.5.2-beta.1.0"
+        improved_code: |
+          "version": "1.5.2-rc.1"  # 保持与gradle.properties完全一致
+      confidence: 85
+
+    - category: |
+        Technical Debt
+      file_path: CHANGELOG.md
+      start_line: 2
+      end_line: 13
+      description: |
+        变更日志中存在非结构化描述和临时性决策("暂时拍脑袋")，这会导致长期维护困难。技术决策应该被明确记录并有数据支持。
+      requirement_reference: |
+        项目文档规范要求变更日志应清晰、结构化且可追溯
+      code_suggestion:
+        existing_code: |
+          4. 提高with_max_turns 大小为200, 暂时拍脑袋, 后续需要查看监控信息来调整容量
+        improved_code: |
+          4. 将with_max_turns从[原值]提高到200 (基于[具体数据/分析])
+          # 并在代码中添加注释说明决策依据和监控指标
+      confidence: 88
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+```yaml
+review:
+  score: 100
+  analysis: []
+  暂未发现高置信度问题
+```
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+✅ 已切换到 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+🔍 正在验证 4 个行评论...
+🔍 Found file in git: extensions/intellij/src/main/resources/META-INF/plugin.xml (was looking for: plugin.xml)
+🔍 Found file in git: extensions/vscode/CHANGELOG.md (was looking for: CHANGELOG.md)
+🔍 Found file in git: extensions/intellij/gradle.properties (was looking for: gradle.properties)
+✅ 已验证 4 个行评论
+🔄 恢复原来的 commit: 0bb0ad70799a1ec9b323667731189c8969aaa4d5
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(

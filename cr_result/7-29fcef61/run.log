@@ -1,0 +1,3074 @@
+🔍 已过滤 diff：原始长度 118585 字符 -> 代码文件长度 94683 字符
+📋 Task ID: fa52c22e-1e05-404c-b65a-ebb683acf1b0
+📦 Project ID: 37
+🔀 MR IID: 7
+🌿 Source Branch: phd -> Target Branch: main
+📝 Files Changed: 25
+🚀 Starting 10-dimension analysis for MR: version that can run
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Pattern
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User 类的初始化参数增加了 `groups_raw` 和 `raw_info`，但未在 `dict()` 方法中返回这些字段，导致前后端数据不一致。
+      requirement_reference: |
+         CLAUDE.md - 术语一致性：相似概念应使用一致的命名和结构
+      code_suggestion:
+        existing_code: |
+          def dict(self) -> Dict:
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group
+              }
+        improved_code: |
+          def dict(self) -> Dict:
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group,
+                  "groups_raw": self.groups_raw,
+                  "raw_info": self.raw_info
+              }
+      confidence: 95
+    - category: |
+        Pattern
+      file_path: backend/app/path_manager.py
+      start_line: 86
+      end_line: 86
+      description: |
+        `get_wiki_path` 方法的参数从 `commit_id` 改为 `branch` 和 `commit_sha`，但未更新方法文档字符串，可能导致开发者误解。
+      requirement_reference: |
+        CLAUDE.md - 文档完整性：所有公共 API 应有准确的文档说明
+      code_suggestion:
+        existing_code: |
+          def get_wiki_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              commit_id: str = None,
+              upload_id: str = None
+          ) -> Path:
+        improved_code: |
+          def get_wiki_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              branch: str = None,
+              commit_sha: str = None,
+              upload_id: str = None
+          ) -> Path:
+      confidence: 90
+    - category: |
+        Pattern
+      file_path: frontend/src/app/api/wiki/content/route.ts
+      start_line: 28
+      end_line: 28
+      description: |
+        后端期望的参数名是 `file_path`，但前端使用的是 `path`，可能导致参数传递失败。
+      requirement_reference: |
+        CLAUDE.md - 接口一致性：前后端接口参数命名应保持一致
+      code_suggestion:
+        existing_code: |
+          const response = await fetch(
+            `${apiBaseUrl}/api/wiki/content?owner=${owner}&repo=${repo}&path=${encodeURIComponent(filePath)}`,
+            { headers }
+          );
+        improved_code: |
+          const response = await fetch(
+            `${apiBaseUrl}/api/wiki/content?owner=${owner}&repo=${repo}&file_path=${encodeURIComponent(filePath)}`,
+            { headers }
+          );
+      confidence: 95
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  risks: []
+```
+
+暂未发现高置信度问题。代码整体质量较高，主要新增功能包括：
+1. 代码切块器(CodeChunker)实现
+2. Docker容器管理功能
+3. 任务管理相关路由和模型
+4. 前端API路由优化
+5. 日志系统改进
+
+代码结构清晰，功能实现完整，考虑了各种边界情况和错误处理，符合业务需求。
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+review:
+  score: 90
+  bottlenecks:
+    - file_path: "agent/code_chunker.py"
+      start_line: 71
+      end_line: 71
+      severity: |
+        HIGH
+      description: |
+        滑动窗口切块方法中，字符数计算未考虑编码问题，可能导致中文字符被错误计算（每个中文字符应计为2-4字节）
+      requirement_reference: |
+        代码切块需要准确计算字符数以保证块大小符合要求
+      code_suggestion:
+        existing_code: |
+          char_count += len(lines[end_line_idx]) + 1  # +1 for newline
+        improved_code: |
+          char_count += len(lines[end_line_idx].encode('utf-8')) + 1  # 准确计算字节数
+      confidence: 90
+
+    - file_path: "agent/code_chunker.py"
+      start_line: 130
+      end_line: 130
+      severity: |
+        HIGH
+      description: |
+        重叠行数计算假设每行80字符，这个假设对于包含长行或短行的代码文件不准确，可能导致实际重叠量偏离预期
+      requirement_reference: |
+        代码切块需要保证相邻块之间有准确的重叠量
+      code_suggestion:
+        existing_code: |
+          overlap_lines = max(1, self.chunk_overlap // 80)
+        improved_code: |
+          # 基于实际平均行长度计算重叠行数
+          avg_line_len = sum(len(line) for line in lines[start_line_idx:end_line_idx]) / (end_line_idx - start_line_idx)
+          overlap_lines = max(1, round(self.chunk_overlap / avg_line_len))
+      confidence: 88
+
+    - file_path: "backend/app/auth.py"
+      start_line: 61
+      end_line: 61
+      severity: |
+        HIGH
+      description: |
+        Tokfinity API调用超时时间设置为10秒，对于高延迟网络环境可能不足，建议增加重试机制
+      requirement_reference: |
+        认证服务需要高可用性
+      code_suggestion:
+        existing_code: |
+          timeout=10.0  # 增加超时时间
+        improved_code: |
+          timeout=30.0  # 更长的超时时间
+          # 或者使用带有重试的异步客户端
+      confidence: 85
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 329
+      end_line: 329
+      severity: |
+        CRITICAL
+      description: |
+        子进程日志文件句柄未正确关闭，可能导致文件描述符泄漏
+      requirement_reference: |
+        资源管理需要确保所有句柄正确关闭
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(...)
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(..., stdout=log_fh, stderr=subprocess.STDOUT)
+      confidence: 95
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 210
+      end_line: 210
+      severity: |
+        HIGH
+      description: |
+        Docker容器执行命令未设置超时，可能导致长时间挂起
+      requirement_reference: |
+        容器操作需要设置合理的超时时间
+      code_suggestion:
+        existing_code: |
+          exit_code, output = container.exec_run(["sh", "-c", clone_cmd])
+        improved_code: |
+          exit_code, output = container.exec_run(["sh", "-c", clone_cmd], timeout=300)  # 5分钟超时
+      confidence: 90
+==================================================
+
+
+==================== SECURITY REPORT ====================
+review:
+  score: 88
+  vulnerabilities:
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 25
+      severity: |
+        MEDIUM
+      category: |
+        A01:2021-Broken Access Control
+      description: |
+        User类中groups_raw和raw_info字段可能暴露敏感用户信息，如权限组详细信息和原始用户数据，存在信息泄露风险。
+      requirement_reference: |
+        用户信息最小化原则，不应返回原始权限组结构和完整用户信息
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+              self.groups_raw = groups_raw or []  # 原始 groups 对象数组（用于前端显示）
+              self.raw_info = raw_info or {}  # 原始用户信息
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None):
+              self.groups = groups or ["guest"]
+      exploit_scenario: |
+        攻击者通过API获取用户信息时，可以获取到完整的权限组结构和原始用户数据，可能用于权限提升攻击。
+      confidence: 90
+
+    - file_path: "backend/app/auth.py"
+      start_line: 55
+      end_line: 55
+      severity: |
+        HIGH
+      category: |
+        A02:2021-Cryptographic Failures
+      description: |
+        Tokfinity API端点硬编码为"/acode/v1/userinfo"，缺乏配置灵活性且可能因端点变更导致服务不可用。
+      requirement_reference: |
+        关键API端点应通过配置管理
+      code_suggestion:
+        existing_code: |
+          url = f"{settings.TOKFINITY_API_URL}/acode/v1/userinfo"
+        improved_code: |
+          url = f"{settings.TOKFINITY_API_URL}{settings.TOKFINITY_USERINFO_PATH}"
+      exploit_scenario: |
+        如果Tokfinity更改API路径而未通知，将导致所有用户认证失败，系统不可用。
+      confidence: 85
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 210
+      end_line: 210
+      severity: |
+        HIGH
+      category: |
+        A06:2021-Vulnerable and Outdated Components
+      description: |
+        使用docker exec直接执行命令存在命令注入风险，特别是当container_id或file_path来自用户输入时。
+      requirement_reference: |
+        容器操作应使用安全API而非直接命令执行
+      code_suggestion:
+        existing_code: |
+          cmd = ["docker", "exec", container_id, "find", repo_root]
+        improved_code: |
+          # 使用Docker SDK的安全API替代
+          container = self.client.containers.get(container_id)
+          exit_code, output = container.exec_run(["find", repo_root])
+      exploit_scenario: |
+        攻击者通过构造恶意container_id或repo_root参数可执行任意命令。
+      confidence: 95
+
+    - file_path: "backend/app/config.py"
+      start_line: 57
+      end_line: 57
+      severity: |
+        HIGH
+      category: |
+        A03:2021-Injection
+      description: |
+        LLM_API_KEY和EMBEDDING_API_KEY明文存储在配置中，缺乏安全保护措施。
+      requirement_reference: |
+        敏感密钥应使用加密存储或密钥管理服务
+      code_suggestion:
+        existing_code: |
+          LLM_API_KEY: str = ""
+          EMBEDDING_API_KEY: str = ""
+        improved_code: |
+          # 使用环境变量或密钥管理服务
+          from app.secrets import get_secret
+          LLM_API_KEY: str = get_secret("llm_api_key")
+      exploit_scenario: |
+        配置文件泄露将直接暴露API密钥，可能导致未授权访问和资源滥用。
+      confidence: 92
+
+    - file_path: "agent/tools/retriever_tool.py"
+      start_line: 210
+      end_line: 210
+      severity: |
+        MEDIUM
+      category: |
+        A01:2021-Broken Access Control
+      description: |
+        OpenAI客户端初始化时未验证API密钥格式，可能接受无效或恶意构造的密钥。
+      requirement_reference: |
+        API密钥应进行基本格式验证
+      code_suggestion:
+        existing_code: |
+          client = OpenAI(
+              base_url=self.embedding_base_url,
+              api_key=self.embedding_api_key
+          )
+        improved_code: |
+          if not re.match(r'^sk-[a-zA-Z0-9]{24,}$', self.embedding_api_key):
+              raise ValueError("Invalid API key format")
+          client = OpenAI(
+              base_url=self.embedding_base_url,
+              api_key=self.embedding_api_key
+          )
+      exploit_scenario: |
+        攻击者可能通过注入恶意API密钥导致服务异常或信息泄露。
+      confidence: 88
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Test
+      file_path: agent/code_chunker.py
+      start_line: 1
+      end_line: 183
+      description: |
+        新增的代码切块器模块没有对应的单元测试。该模块包含核心的代码切分逻辑，但没有测试验证其正确性和边界情况。
+      requirement_reference: |
+        所有核心功能模块必须包含单元测试，验证正常情况和边界情况。
+      code_suggestion:
+        existing_code: |
+          class CodeChunker:
+              def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50, max_chunks_per_file: int = 100, language: str = "python"):
+                  self.chunk_size = chunk_size
+                  self.chunk_overlap = chunk_overlap
+                  self.max_chunks_per_file = max_chunks_per_file
+                  self.language = language
+        improved_code: |
+          def test_code_chunker():
+              chunker = CodeChunker()
+              # Test empty content
+              assert chunker.chunk_code("test.py", "") == []
+              
+              # Test small content
+              content = "print('hello world')"
+              chunks = chunker.chunk_code("test.py", content)
+              assert len(chunks) == 1
+              assert chunks[0].content == content
+              
+              # Test boundary conditions
+              long_content = "a" * 1000
+              chunks = chunker.chunk_code("test.py", long_content)
+              assert len(chunks) > 1
+              assert chunks[0].content + chunks[1].content == long_content
+      confidence: 95
+
+    - type: |
+        Missing Test
+      file_path: backend/app/container_manager.py
+      start_line: 1
+      end_line: 393
+      description: |
+        Docker容器管理模块没有单元测试。该模块包含关键的容器生命周期管理逻辑，但没有测试验证其正确性。
+      requirement_reference: |
+        所有基础设施相关模块必须包含单元测试，验证正常情况和错误处理。
+      code_suggestion:
+        existing_code: |
+          class ContainerManager:
+              def create_container(self, container_name: str) -> str:
+                  try:
+                      existing = self.client.containers.get(container_name)
+                      existing.remove(force=True)
+                  except docker.errors.NotFound:
+                      pass
+        improved_code: |
+          def test_create_container():
+              manager = ContainerManager()
+              # Test normal creation
+              container_id = manager.create_container("test_container")
+              assert container_id is not None
+              
+              # Test duplicate container handling
+              container_id2 = manager.create_container("test_container")
+              assert container_id2 != container_id
+              
+              # Test error handling
+              with pytest.raises(Exception):
+                  manager.create_container("invalid/name")
+      confidence: 90
+
+    - type: |
+        Missing Test
+      file_path: backend/app/routers/callback.py
+      start_line: 1
+      end_line: 102
+      description: |
+        Agent回调路由模块没有单元测试。该模块包含关键的状态更新逻辑，但没有测试验证其正确性。
+      requirement_reference: |
+        所有API路由模块必须包含单元测试，验证正常情况和错误处理。
+      code_suggestion:
+        existing_code: |
+          @router.post("/build_vector_db_status")
+          async def build_vector_db_status(request: BuildVectorDBStatusRequest):
+              task_manager.update_task_from_callback(
+                  task_id=request.task_id,
+                  status=request.status,
+                  message=request.message,
+                  total_files=request.total_files,
+                  processed_files=request.processed_files,
+                  total_chunks=request.total_chunks,
+                  processed_chunks=request.processed_chunks,
+                  callback_type="vector_db"
+              )
+        improved_code: |
+          def test_build_vector_db_status():
+              # Test normal status update
+              request = BuildVectorDBStatusRequest(
+                  task_id="test_task",
+                  status="running",
+                  message="processing"
+              )
+              response = await build_vector_db_status(request)
+              assert response["success"] is True
+              
+              # Test error handling
+              with pytest.raises(Exception):
+                  await build_vector_db_status(None)
+      confidence: 88
+
+    - type: |
+        Missing Test
+      file_path: backend/app/routers/task.py
+      start_line: 1
+      end_line: 186
+      description: |
+        任务管理路由模块没有单元测试。该模块包含关键的任务生命周期管理逻辑，但没有测试验证其正确性。
+      requirement_reference: |
+        所有API路由模块必须包含单元测试，验证正常情况和错误处理。
+      code_suggestion:
+        existing_code: |
+          @router.post("/start", response_model=TaskStartResponse)
+          async def start_task(request: TaskStartRequest):
+              task = await task_manager.create_and_execute_task(
+                  group_id=group_id,
+                  git_url=request.git_url,
+                  ref=ref,
+                  platform=platform,
+                  owner=owner,
+                  repo=repo,
+                  language=request.language,
+                  operation=request.operation.value,
+                  access_token=request.access_token,
+                  force_rebuild_paths=request.force_rebuild_paths,
+                  template=request.template
+              )
+        improved_code: |
+          def test_start_task():
+              # Test normal task creation
+              request = TaskStartRequest(
+                  git_url="https://github.com/test/repo",
+                  language="zh",
+                  operation="generate_architecture"
+              )
+              response = await start_task(request)
+              assert response.task_id is not None
+              
+              # Test duplicate task handling
+              response2 = await start_task(request)
+              assert response2.task_id == response.task_id
+              
+              # Test error handling
+              with pytest.raises(Exception):
+                  await start_task(None)
+      confidence: 88
+
+    - type: |
+        Missing Test
+      file_path: backend/app/routers/repo.py
+      start_line: 1
+      end_line: 79
+      description: |
+        仓库管理路由模块没有单元测试。该模块包含关键的仓库删除逻辑，但没有测试验证其正确性。
+      requirement_reference: |
+        所有API路由模块必须包含单元测试，验证正常情况和错误处理。
+      code_suggestion:
+        existing_code: |
+          @router.delete("", response_model=RepoDeleteResponse)
+          async def delete_repo(request: RepoDeleteRequest):
+              repo_dirs = list(wiki_base.rglob(f"*/{request.owner}/{request.repo}"))
+              for repo_dir in repo_dirs:
+                  shutil.rmtree(repo_dir)
+        improved_code: |
+          def test_delete_repo():
+              # Test normal deletion
+              request = RepoDeleteRequest(owner="test", repo="repo")
+              response = await delete_repo(request)
+              assert response.success is True
+              
+              # Test non-existent repo
+              request = RepoDeleteRequest(owner="nonexistent", repo="repo")
+              response = await delete_repo(request)
+              assert response.success is False
+              
+              # Test error handling
+              with pytest.raises(Exception):
+                  await delete_repo(None)
+      confidence: 88
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+```yaml
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Doc
+      file_path: agent/code_chunker.py
+      start_line: 36
+      end_line: 36
+      description: |
+        CodeChunker 类的初始化方法缺少对参数 chunk_size, chunk_overlap, max_chunks_per_file, language 的具体用途和取值范围说明
+      requirement_reference: |
+        代码切块功能需要明确的参数说明以确保正确使用
+      code_suggestion:
+        existing_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,          # 每块字符数
+              chunk_overlap: int = 50,        # 重叠字符数
+              max_chunks_per_file: int = 100, # 单文件最大块数
+              language: str = "python"        # 主语言（用于优化）
+          ):
+        improved_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,          # 每块字符数，建议范围：100-1000
+              chunk_overlap: int = 50,        # 重叠字符数，建议范围：0-100
+              max_chunks_per_file: int = 100, # 单文件最大块数，建议范围：10-500
+              language: str = "python"        # 主语言（用于优化），支持：python, java, go等
+          ):
+      confidence: 90
+    - type: |
+        Missing Doc
+      file_path: agent/code_chunker.py
+      start_line: 60
+      end_line: 60
+      description: |
+        chunk_code 方法缺少对返回值 List[CodeChunk] 的具体说明，包括每个 CodeChunk 对象包含的字段及其含义
+      requirement_reference: |
+        代码切块功能的输出需要明确的文档说明
+      code_suggestion:
+        existing_code: |
+          def chunk_code(self, file_path: str, content: str) -> List[CodeChunk]:
+        improved_code: |
+          def chunk_code(self, file_path: str, content: str) -> List[CodeChunk]:
+              """
+              切分代码文件（使用滑动窗口策略）
+              
+              Args:
+                  file_path: 文件相对路径
+                  content: 文件内容
+                  
+              Returns:
+                  List[CodeChunk]: 切分后的代码块列表，每个 CodeChunk 包含：
+                      - chunk_id: 唯一标识符
+                      - file_path: 文件路径
+                      - start_line: 起始行号
+                      - end_line: 结束行号
+                      - content: 代码内容
+                      - language: 编程语言
+                      - chunk_type: 块类型（目前固定为"block"）
+                      - char_count: 字符数
+                      - line_count: 行数
+              """
+      confidence: 92
+    - type: |
+        Missing Doc
+      file_path: agent/code_chunker.py
+      start_line: 139
+      end_line: 139
+      description: |
+        _detect_language 方法缺少对支持的编程语言扩展名的完整说明
+      requirement_reference: |
+        语言检测功能需要明确的文档说明
+      code_suggestion:
+        existing_code: |
+          def _detect_language(self, file_path: str) -> str:
+        improved_code: |
+          def _detect_language(self, file_path: str) -> str:
+              """
+              根据文件扩展名检测编程语言
+              
+              支持的语言扩展名包括：
+                  - .py: Python
+                  - .js: JavaScript
+                  - .ts: TypeScript
+                  - .java: Java
+                  - .go: Go
+                  - .cpp: C++
+                  - .c: C
+                  - .rs: Rust
+                  - .rb: Ruby
+                  - .php: PHP
+                  - 其他：返回 'unknown'
+              """
+      confidence: 91
+```
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+```yaml
+review:
+  score: 95
+  issues:
+    - category: |
+        Silent Failure
+      file_path: agent/doc_utils.py
+      start_line: 89
+      end_line: 96
+      description: |
+        在 `send_build_vector_db_status` 函数中，`requests.post` 的异常处理过于宽泛，捕获了所有 `requests.exceptions.RequestException` 异常，但没有记录错误日志。这可能导致网络请求失败时无法追踪问题。
+      requirement_reference: |
+        错误处理标准：所有网络请求失败必须记录详细的错误日志，包括请求URL和错误信息。
+      code_suggestion:
+        existing_code: |
+          try:
+              response = requests.post(url, json=payload, timeout=30)
+              response.raise_for_status()
+              return response.json()
+          except requests.exceptions.RequestException as e:
+              return {
+                  "succeed": False,
+                  "message": f"发送向量数据库状态失败: {str(e)}"
+              }
+        improved_code: |
+          try:
+              response = requests.post(url, json=payload, timeout=30)
+              response.raise_for_status()
+              return response.json()
+          except requests.exceptions.RequestException as e:
+              logging.error(f"Failed to send build vector db status to {url}: {str(e)}")
+              return {
+                  "succeed": False,
+                  "message": f"发送向量数据库状态失败: {str(e)}"
+              }
+      confidence: 95
+    - category: |
+        Resource Leak
+      file_path: backend/app/container_manager.py
+      start_line: 487
+      end_line: 487
+      description: |
+        在 `run_script` 方法中，日志文件句柄 `log_fh` 被打开后没有显式关闭，可能导致文件描述符泄漏。虽然子进程会继承文件句柄，但最佳实践是确保所有文件句柄都被正确关闭。
+      requirement_reference: |
+        资源管理标准：所有文件句柄必须显式关闭，避免资源泄漏。
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+      confidence: 90
+    - category: |
+        Poor Observability
+      file_path: backend/app/auth.py
+      start_line: 90
+      end_line: 90
+      description: |
+        在 `validate_token_with_tokfinity` 函数中，HTTP请求失败时只记录了简单的错误信息，没有记录完整的请求URL和响应状态码，不利于问题排查。
+      requirement_reference: |
+        可观测性标准：所有HTTP请求失败必须记录完整的请求URL和响应状态码。
+      code_suggestion:
+        existing_code: |
+          log_error("token_validation_failed",
+              f"Tokfinity API returned {response.status_code}",
+              {"url": url, "token_prefix": token[:10] + "..."}
+          )
+        improved_code: |
+          log_error("token_validation_failed",
+              f"Tokfinity API returned {response.status_code} for {url}",
+              {"url": url, "status_code": response.status_code, "token_prefix": token[:10] + "..."}
+          )
+      confidence: 88
+```
+
+暂未发现其他高置信度问题。
+==================================================
+
+
+==================== READABILITY REPORT ====================
+review:
+  score: 85
+  suggestions:
+    - file_path: "agent/code_chunker.py"
+      start_line: 44
+      end_line: 47
+      issue: |
+        构造函数参数默认值使用可变对象（language="python"），虽然当前是字符串不会导致问题，但作为最佳实践应避免
+      requirement_reference: |
+        Python最佳实践：避免在函数/方法参数中使用可变默认值
+      code_suggestion:
+        existing_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: str = "python"
+          ):
+        improved_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: Optional[str] = None
+          ):
+              self.language = language or "python"
+      confidence: 85
+
+    - file_path: "backend/app/auth.py"
+      start_line: 28
+      end_line: 31
+      issue: |
+        User类初始化参数groups默认使用可变列表["guest"]，可能导致意外修改
+      requirement_reference: |
+        Python最佳实践：避免在函数/方法参数中使用可变默认值
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None):
+              self.user_id = user_id
+              self.name = name
+              self.email = email
+              self.groups = groups or ["guest"]
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: Optional[List[str]] = None):
+              self.user_id = user_id
+              self.name = name
+              self.email = email
+              self.groups = groups if groups is not None else ["guest"]
+      confidence: 90
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 20
+      end_line: 20
+      issue: |
+        类属性_client初始化为None但未声明类型，应使用类型注解
+      requirement_reference: |
+        PEP 484类型注解规范
+      code_suggestion:
+        existing_code: |
+          self._client = None  # 懒加载
+        improved_code: |
+          self._client: Optional[docker.DockerClient] = None  # 懒加载
+      confidence: 88
+
+    - file_path: "backend/app/path_manager.py"
+      start_line: 140
+      end_line: 140
+      issue: |
+        方法参数stats: Dict未指定键值类型，应使用更精确的类型注解
+      requirement_reference: |
+        PEP 484类型注解规范
+      code_suggestion:
+        existing_code: |
+          stats: Dict = None
+        improved_code: |
+          stats: Optional[Dict[str, Any]] = None
+      confidence: 87
+
+    - file_path: "backend/app/routers/callback.py"
+      start_line: 36
+      end_line: 36
+      issue: |
+        日志记录中直接拼接字符串可能引发异常，应使用f-string或格式化
+      requirement_reference: |
+        Python日志最佳实践
+      code_suggestion:
+        existing_code: |
+          logger.info("[Callback] Vector DB - Task: " + request.task_id[:8] + " | Status: " + request.status + " | " + request.message)
+        improved_code: |
+          logger.info(f"[Callback] Vector DB - Task: {request.task_id[:8]} | Status: {request.status} | {request.message}")
+      confidence: 90
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 92
+  findings:
+    - category: |
+        Technical Debt
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User类初始化参数增加了groups_raw和raw_info字段，但未更新dict()方法返回的数据结构，导致部分用户信息丢失。这会导致前端获取的用户信息不完整，长期可能引发数据不一致问题。
+      requirement_reference: |
+        用户信息一致性要求
+      code_suggestion: |
+        existing_code: |
+          def dict(self) -> Dict:
+              """转换为字典"""
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group
+              }
+        improved_code: |
+          def dict(self) -> Dict:
+              """转换为字典"""
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group,
+                  "groups_raw": self.groups_raw,
+                  "raw_info": self.raw_info
+              }
+      confidence: 90
+
+    - category: |
+        Coupling
+      file_path: backend/app/container_manager.py
+      start_line: 210
+      end_line: 210
+      description: |
+        run_script方法中硬编码了Python版本检查逻辑(3.12+)，这会导致系统耦合到特定Python版本，增加未来维护成本。应该将Python版本要求作为配置项。
+      requirement_reference: |
+        系统可配置性要求
+      code_suggestion: |
+        existing_code: |
+          if major == 3 and minor >= 12:
+        improved_code: |
+          if major == settings.PYTHON_REQUIRED_MAJOR and minor >= settings.PYTHON_REQUIRED_MINOR:
+      confidence: 88
+
+    - category: |
+        Abstraction
+      file_path: agent/code_chunker.py
+      start_line: 143
+      end_line: 143
+      description: |
+        _detect_language方法中的文件扩展名映射硬编码在方法内部，这使得未来扩展新语言时需要修改源代码。应该将其提取为类常量或配置文件。
+      requirement_reference: |
+        可扩展性设计原则
+      code_suggestion: |
+        existing_code: |
+          ext_map = {
+              '.py': 'python',
+              '.js': 'javascript',
+              ...
+          }
+        improved_code: |
+          class CodeChunker:
+              LANGUAGE_EXT_MAP = {
+                  '.py': 'python',
+                  '.js': 'javascript',
+                  ...
+              }
+              
+              def _detect_language(self, file_path: str) -> str:
+                  for ext, lang in self.LANGUAGE_EXT_MAP.items():
+      confidence: 85
+
+    - category: |
+        Technical Debt
+      file_path: backend/app/path_manager.py
+      start_line: 140
+      end_line: 140
+      description: |
+        get_vector_db_path方法参数列表与get_wiki_path不一致(缺少doc_type和version)，这会导致调用时容易出错，且方法注释描述与实际实现不符。
+      requirement_reference: |
+        接口一致性要求
+      code_suggestion: |
+        existing_code: |
+          def get_vector_db_path(
+              self,
+              group_id: str,
+              source_type: str,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              branch: str = None,
+              commit_sha: str = None,
+              upload_id: str = None
+          ) -> Path:
+        improved_code: |
+          def get_vector_db_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              branch: str = None,
+              commit_sha: str = None,
+              upload_id: str = None
+          ) -> Path:
+      confidence: 87
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+```yaml
+review:
+  score: 100
+  analysis: []
+```
+
+暂未发现高置信度问题。代码变更主要集中在功能实现和优化上，没有发现明显的安全漏洞、依赖问题或代码质量问题。
+==================================================
+
+📝 All expert reports complete. Aggregating...
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+❌ Error during execution: litellm.APIError: APIError: OpenrouterException - Cannot connect to host openrouter.ai:443 ssl:default [None]
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/base_events.py", line 1268, in start_tls
+    await waiter
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/sslproto.py", line 578, in _on_handshake_complete
+    raise handshake_exc
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 60, in map_aiohttp_exceptions
+    yield
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 274, in handle_async_request
+    response = await self._make_aiohttp_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 240, in _make_aiohttp_request
+    response = await client_session.request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 1510, in __aenter__
+    self._resp: _RetType = await self._coro
+                           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/aiohttp/connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 161, in _make_common_async_call
+    response = await async_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/logging_utils.py", line 190, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/http_handler.py", line 428, in post
+    return await self.single_connection_post_request(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 273, in handle_async_request
+    with map_aiohttp_exceptions():
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/aiohttp_transport.py", line 74, in map_aiohttp_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/main.py", line 609, in acompletion
+    response = await init_response
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 293, in async_completion
+    response = await self._make_common_async_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 188, in _make_common_async_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4386, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 125, in main
+    result = await router.route_and_aggregate(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/router.py", line 67, in route_and_aggregate
+    final_summary = await self.generate_final_summary(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/router.py", line 95, in generate_final_summary
+    return await self.aggregator.call_llm(system_prompt, user_prompt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/agents.py", line 13, in call_llm
+    response = await litellm.acompletion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/utils.py", line 1915, in wrapper_async
+    raise e
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/utils.py", line 1759, in wrapper_async
+    result = await original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/main.py", line 628, in acompletion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2346, in exception_type
+    raise e
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2279, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - Cannot connect to host openrouter.ai:443 ssl:default [None]
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 304, in <module>
+    asyncio.run(main())
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/dongqa/Desktop/cr-agent/cr-agent/agent/main.py", line 287, in main
+    "llm_result": summary_content,  # 使用解析后的 Markdown 内容，而不是原始 JSON 字符串
+                  ^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'summary_content' where it is not associated with a value
+🔍 已过滤 diff：原始长度 118585 字符 -> 代码文件长度 94683 字符
+📋 Task ID: fa52c22e-1e05-404c-b65a-ebb683acf1b0
+📦 Project ID: 37
+🔀 MR IID: 7
+🌿 Source Branch: phd -> Target Branch: main
+📝 Files Changed: 25
+🚀 Starting 10-dimension analysis for MR: version that can run
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm._turn_on_debug()'.
+
+⚠️  LLM 调用失败 (尝试 1/3): litellm.Timeout: Timeout Error: OpenrouterException - litellm.Timeout: Connection timed out. Timeout
+🔄 2.0 秒后重试...
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Pattern
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User 类的初始化参数增加了 groups_raw 和 raw_info，但没有在 dict() 方法中返回这些字段，导致前后端数据不一致。
+      requirement_reference: |
+         API 响应数据一致性要求
+      code_suggestion:
+        existing_code: |
+          def dict(self) -> Dict:
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group
+              }
+        improved_code: |
+          def dict(self) -> Dict:
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group,
+                  "groups_raw": self.groups_raw,
+                  "raw_info": self.raw_info
+              }
+      confidence: 95
+    - category: |
+        Pattern
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User 类新增了 full_dict() 方法，但没有在 get_userinfo 路由中使用，导致前端无法获取完整用户信息。
+      requirement_reference: |
+        API 响应数据一致性要求
+      code_suggestion:
+        existing_code: |
+          @app.get("/api/test/auth")
+          async def get_userinfo(current_user: User = Depends(get_current_user)):
+              return current_user.dict()
+        improved_code: |
+          @app.get("/api/test/auth")
+          async def get_userinfo(current_user: User = Depends(get_current_user)):
+              return current_user.full_dict()
+      confidence: 95
+    - category: |
+        Pattern
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User 类的初始化参数增加了 groups_raw 和 raw_info，但没有在 __init__ 方法中设置默认值，可能导致 None 错误。
+      requirement_reference: |
+        代码健壮性要求
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+              self.user_id = user_id
+              self.name = name
+              self.email = email
+              self.groups = groups or ["guest"]
+              self.groups_raw = groups_raw
+              self.raw_info = raw_info
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+              self.user_id = user_id
+              self.name = name
+              self.email = email
+              self.groups = groups or ["guest"]
+              self.groups_raw = groups_raw or []
+              self.raw_info = raw_info or {}
+      confidence: 90
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  risks: []
+```
+
+暂未发现高置信度问题。代码整体质量较高，符合业务需求，且没有明显的功能缺陷或安全隐患。
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+```yaml
+review:
+  score: 95
+  bottlenecks:
+    - file_path: "agent/code_chunker.py"
+      start_line: 83
+      end_line: 83
+      severity: |
+        HIGH
+      description: |
+        在滑动窗口切块算法中，每次迭代都创建新的 CodeChunk 对象，可能导致内存使用过高，尤其是在处理大文件时。
+      requirement_reference: |
+        代码切块功能需要高效处理大文件
+      code_suggestion:
+        existing_code: |
+          chunks.append(CodeChunk(
+              chunk_id=f"{file_path}::{chunk_id}",
+              file_path=file_path,
+              start_line=start_line_idx + 1,
+              end_line=end_line_idx,
+              content=chunk_content,
+              language=self._detect_language(file_path),
+              chunk_type="block",
+              char_count=len(chunk_content),
+              line_count=len(chunk_lines)
+          ))
+        improved_code: |
+          # 考虑使用生成器或限制内存使用
+          yield CodeChunk(
+              chunk_id=f"{file_path}::{chunk_id}",
+              file_path=file_path,
+              start_line=start_line_idx + 1,
+              end_line=end_line_idx,
+              content=chunk_content,
+              language=self._detect_language(file_path),
+              chunk_type="block",
+              char_count=len(chunk_content),
+              line_count=len(chunk_lines)
+          )
+      confidence: 90
+    - file_path: "agent/doc_utils.py"
+      start_line: 76
+      end_line: 76
+      severity: |
+        HIGH
+      description: |
+        send_build_vector_db_status 函数中，HTTP 请求的超时时间固定为 30 秒，对于某些网络环境可能过长或过短，缺乏灵活性。
+      requirement_reference: |
+        网络请求需要可配置的超时时间
+      code_suggestion:
+        existing_code: |
+          response = requests.post(url, json=payload, timeout=30)
+        improved_code: |
+          response = requests.post(url, json=payload, timeout=settings.HTTP_TIMEOUT)
+      confidence: 88
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 25
+      severity: |
+        HIGH
+      description: |
+        User 类的 groups_raw 和 raw_info 字段可能包含敏感信息，直接暴露给前端存在安全风险。
+      requirement_reference: |
+        用户信息安全要求
+      code_suggestion:
+        existing_code: |
+          self.groups_raw = groups_raw or []  # 原始 groups 对象数组（用于前端显示）
+          self.raw_info = raw_info or {}  # 保留原始完整信息
+        improved_code: |
+          # 考虑过滤敏感信息
+          self.groups_raw = self._sanitize_groups(groups_raw)
+          self.raw_info = self._sanitize_info(raw_info)
+      confidence: 92
+    - file_path: "backend/app/container_manager.py"
+      start_line: 393
+      end_line: 393
+      severity: |
+        HIGH
+      description: |
+        delete_container 方法中，force=True 可能导致数据丢失，建议添加确认机制。
+      requirement_reference: |
+        容器删除操作需要安全确认
+      code_suggestion:
+        existing_code: |
+          container.remove(force=force)
+        improved_code: |
+          if force:
+              logger.warning(f"Force deleting container {container_id}")
+          container.remove(force=force)
+      confidence: 89
+    - file_path: "frontend/src/app/api/wiki/repos/route.ts"
+      start_line: 22
+      end_line: 22
+      severity: |
+        HIGH
+      description: |
+        错误处理中直接返回后端错误信息，可能暴露内部细节，存在安全风险。
+      requirement_reference: |
+        错误信息处理安全要求
+      code_suggestion:
+        existing_code: |
+          return NextResponse.json(
+              { error: errorData.detail || 'Failed to fetch repos from backend' },
+              { status: response.status }
+          )
+        improved_code: |
+          return NextResponse.json(
+              { error: 'Failed to fetch repos from backend' },
+              { status: response.status }
+          )
+      confidence: 91
+```
+==================================================
+
+
+==================== SECURITY REPORT ====================
+```yaml
+review:
+  score: 95
+  vulnerabilities:
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 25
+      severity: |
+        HIGH
+      category: |
+        A03:2021 - Injection
+      description: |
+        用户认证信息未进行充分验证，可能导致身份伪造攻击。User类的groups_raw和raw_info字段未进行任何验证，攻击者可能伪造这些信息来提升权限。
+      requirement_reference: |
+        用户认证信息必须经过严格验证，防止伪造攻击
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+              # 验证groups_raw和raw_info
+              if groups_raw and not isinstance(groups_raw, list):
+                  raise ValueError("groups_raw must be a list")
+              if raw_info and not isinstance(raw_info, dict):
+                  raise ValueError("raw_info must be a dict")
+      exploit_scenario: |
+        攻击者可以伪造groups_raw和raw_info字段，将自己添加到管理员组，从而获得系统管理权限。
+      confidence: 95
+    - file_path: "backend/app/auth.py"
+      start_line: 74
+      end_line: 74
+      severity: |
+        HIGH
+      category: |
+        A01:2021 - Broken Access Control
+      description: |
+        Tokfinity API调用未验证返回的用户信息完整性，可能导致身份伪造攻击。攻击者可以篡改API响应，伪造用户身份。
+      requirement_reference: |
+        API返回的用户信息必须进行完整性验证
+      code_suggestion:
+        existing_code: |
+          if response.status_code == 200:
+              return response.json()
+        improved_code: |
+          if response.status_code == 200:
+              user_info = response.json()
+              # 验证用户信息完整性
+              if not validate_user_info(user_info):
+                  raise ValueError("Invalid user info")
+              return user_info
+      exploit_scenario: |
+        攻击者可以篡改Tokfinity API响应，伪造管理员身份，从而获得系统管理权限。
+      confidence: 90
+    - file_path: "backend/app/config.py"
+      start_line: 57
+      end_line: 57
+      severity: |
+        HIGH
+      category: |
+        A02:2021 - Cryptographic Failures
+      description: |
+        Embedding API密钥以明文形式存储在配置文件中，存在泄露风险。如果配置文件被泄露，攻击者可以获取API密钥。
+      requirement_reference: |
+        敏感信息必须加密存储
+      code_suggestion:
+        existing_code: |
+          EMBEDDING_API_KEY: str = ""
+        improved_code: |
+          EMBEDDING_API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
+      exploit_scenario: |
+        攻击者获取配置文件后，可以窃取API密钥，滥用Embedding服务。
+      confidence: 85
+    - file_path: "backend/app/container_manager.py"
+      start_line: 173
+      end_line: 173
+      severity: |
+        HIGH
+      category: |
+        A05:2021 - Security Misconfiguration
+      description: |
+        Docker容器使用默认的bridge网络模式，存在网络隔离不足的风险。攻击者可能通过网络攻击其他容器。
+      requirement_reference: |
+        生产环境容器必须使用自定义网络
+      code_suggestion:
+        existing_code: |
+          network_mode="bridge"
+        improved_code: |
+          network_mode="none"  # 或者使用自定义网络
+      exploit_scenario: |
+        攻击者可以利用bridge网络模式，通过网络攻击其他容器，造成数据泄露或服务中断。
+      confidence: 90
+    - file_path: "backend/app/main.py"
+      start_line: 54
+      end_line: 54
+      severity: |
+        HIGH
+      category: |
+        A06:2021 - Vulnerable and Outdated Components
+      description: |
+        Docker镜像构建过程未进行安全扫描，可能引入已知漏洞。攻击者可以利用这些漏洞进行攻击。
+      requirement_reference: |
+        Docker镜像构建过程必须包含安全扫描
+      code_suggestion:
+        existing_code: |
+          build_cmd = f"docker build -f {dockerfile_path} -t {image_name} {project_root}"
+        improved_code: |
+          build_cmd = f"docker build -f {dockerfile_path} -t {image_name} {project_root}"
+          # 添加安全扫描
+          scan_cmd = f"docker scan {image_name}"
+          subprocess.run(scan_cmd, shell=True, check=True)
+      exploit_scenario: |
+        攻击者可以利用Docker镜像中的已知漏洞，进行容器逃逸或权限提升。
+      confidence: 85
+```
+
+暂未发现其他高置信度问题。
+==================================================
+
+
+==================== TESTING REPORT ====================
+```yaml
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Test
+      file_path: agent/code_chunker.py
+      start_line: 1
+      end_line: 183
+      description: |
+        CodeChunker 类实现了核心的代码切块功能，但缺少单元测试验证其正确性和鲁棒性。特别是滑动窗口切块算法和语言检测功能需要测试。
+      requirement_reference: |
+        所有核心功能模块必须包含单元测试，验证边界条件和异常处理。
+      code_suggestion:
+        existing_code: |
+          class CodeChunker:
+              def chunk_code(self, file_path: str, content: str) -> List[CodeChunk]:
+                  return self._chunk_by_sliding_window(file_path, content)
+        improved_code: |
+          def test_chunk_code():
+              chunker = CodeChunker()
+              # 测试空文件
+              assert chunker.chunk_code("test.py", "") == []
+              # 测试小文件
+              chunks = chunker.chunk_code("test.py", "print('hello')")
+              assert len(chunks) == 1
+              # 测试大文件
+              large_content = "\n".join(["print(i)" for i in range(1000)])
+              chunks = chunker.chunk_code("test.py", large_content)
+              assert len(chunks) > 1
+      confidence: 95
+
+    - type: |
+        Missing Test
+      file_path: agent/doc_utils.py
+      start_line: 76
+      end_line: 93
+      description: |
+        send_build_vector_db_status 函数实现了向后台发送状态更新的功能，但缺少测试验证其在不同场景下的行为，特别是网络错误和超时情况。
+      requirement_reference: |
+        所有网络请求相关功能必须包含单元测试，验证错误处理和重试逻辑。
+      code_suggestion:
+        existing_code: |
+          def send_build_vector_db_status(callback_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+              if callback_url == "":
+                  logging.warning(f"[send_build_vector_db_status] No callback_url provided, payload:\n{payload}")
+                  return {
+                      "succeed": False,
+                      "message": "No callback url provided."
+                  }
+        improved_code: |
+          @patch('requests.post')
+          def test_send_build_vector_db_status(mock_post):
+              # 测试空回调URL
+              result = send_build_vector_db_status("", {})
+              assert result["succeed"] is False
+              # 测试网络错误
+              mock_post.side_effect = requests.exceptions.RequestException("Network error")
+              result = send_build_vector_db_status("http://localhost", {})
+              assert result["succeed"] is False
+              # 测试成功
+              mock_post.return_value.status_code = 200
+              result = send_build_vector_db_status("http://localhost", {})
+              assert result["succeed"] is True
+      confidence: 90
+
+    - type: |
+        Missing Test
+      file_path: agent/tools/retriever_tool.py
+      start_line: 1
+      end_line: 214
+      description: |
+        RetrieverTool 实现了向量检索的核心功能，但缺少单元测试验证其正确性和性能，特别是 embedding 生成和 FAISS 检索部分。
+      requirement_reference: |
+        所有向量检索相关功能必须包含单元测试，验证检索准确性和性能。
+      code_suggestion:
+        existing_code: |
+          class RetrieverTool:
+              def _generate_embedding(self, text: str) -> np.ndarray:
+                  from openai import OpenAI
+                  client = OpenAI(
+                      base_url=self.embedding_base_url,
+                      api_key=self.embedding_api_key
+                  )
+                  response = client.embeddings.create(
+                      model=self.embedding_model_name,
+                      input=text
+                  )
+                  embedding = response.data[0].embedding
+                  return np.array([embedding], dtype=np.float32)
+        improved_code: |
+          @patch('openai.OpenAI')
+          def test_generate_embedding(mock_openai):
+              tool = RetrieverTool(...)
+              # 测试正常情况
+              mock_openai.return_value.embeddings.create.return_value.data = [{"embedding": [1.0, 2.0]}]
+              embedding = tool._generate_embedding("test")
+              assert len(embedding) == 1
+              # 测试API错误
+              mock_openai.return_value.embeddings.create.side_effect = Exception("API error")
+              with pytest.raises(Exception):
+                  tool._generate_embedding("test")
+      confidence: 92
+```
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+review:
+  score: 92
+  findings:
+    - type: |
+        Missing Doc
+      file_path: backend/app/container_manager.py
+      start_line: 1
+      end_line: 1
+      description: |
+        新添加的ContainerManager类缺少模块级别的文档字符串，该类负责重要的Docker容器管理功能，应该明确说明其主要职责和使用场景。
+      requirement_reference: |
+        核心功能模块必须提供清晰的文档说明
+      code_suggestion: |
+        """
+        Docker 容器管理器
+        负责创建、管理和删除任务容器
+
+        主要功能：
+        - 容器生命周期管理（创建/删除）
+        - 代码仓库克隆
+        - Agent脚本执行
+        - 容器命名生成
+        """
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/models.py
+      start_line: 1
+      end_line: 1
+      description: |
+        新添加的models.py文件缺少模块级别的文档字符串，该文件包含重要的请求和响应模型定义，应该说明其作用和包含的主要模型类别。
+      requirement_reference: |
+        API模型定义必须提供清晰的文档说明
+      code_suggestion: |
+        """
+        请求和响应的Pydantic模型定义
+
+        包含以下主要类别：
+        - 任务管理模型
+        - Wiki文档管理模型  
+        - 仓库管理模型
+        - 上传和反馈模型
+        - Agent回调模型
+        """
+      confidence: 88
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/routers/task.py
+      start_line: 1
+      end_line: 1
+      description: |
+        任务管理路由模块缺少模块级别的文档字符串，应该说明该模块的主要功能和包含的路由端点。
+      requirement_reference: |
+        路由模块必须提供清晰的文档说明
+      code_suggestion: |
+        """
+        任务管理路由
+
+        提供以下API端点：
+        - POST /start: 启动文档生成任务
+        - POST /cancel: 取消正在执行的任务  
+        - GET /status: 查询任务状态
+        """
+      confidence: 85
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/routers/callback.py
+      start_line: 1
+      end_line: 1
+      description: |
+        Agent回调路由模块缺少模块级别的文档字符串，应该说明该模块的主要功能和回调类型。
+      requirement_reference: |
+        回调接口必须提供清晰的文档说明
+      code_suggestion: |
+        """
+        Agent回调路由（Agent → Backend）
+        优雅地处理Agent推送的状态更新，实时同步到前端
+
+        支持的回调类型：
+        - 向量库构建状态
+        - 架构文档生成状态
+        - 子文档生成状态
+        """
+      confidence: 85
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+review:
+  score: 95
+  issues:
+    - category: |
+        Silent Failure
+      file_path: agent/doc_utils.py
+      start_line: 76
+      end_line: 76
+      description: |
+        send_build_vector_db_status函数中，当callback_url为空时仅记录warning日志，但未抛出异常或返回明确的错误状态。这可能导致调用方无法感知到配置错误，造成静默失败。
+      requirement_reference: |
+        Core Principles #1: No Silent Failures - 每个错误必须被记录或暴露
+      code_suggestion:
+        existing_code: |
+          if callback_url == "":
+              logging.warning(f"[send_build_vector_db_status] No callback_url provided, payload:\n{payload}")
+              return {
+                  "succeed": False,
+                  "message": "No callback url provided."
+              }
+        improved_code: |
+          if not callback_url:
+              error_msg = "callback_url is required for sending build status"
+              logging.error(error_msg)
+              raise ValueError(error_msg)
+      confidence: 90
+
+    - category: |
+        Poor Observability
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        用户模型User新增了groups_raw和raw_info字段，但未在dict()方法中暴露，导致日志和监控中丢失重要上下文信息。
+      requirement_reference: |
+        Core Principles #3: Observability - 错误必须记录足够的上下文
+      code_suggestion:
+        existing_code: |
+          def dict(self) -> Dict:
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group
+              }
+        improved_code: |
+          def dict(self) -> Dict:
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group,
+                  "groups_raw": self.groups_raw,
+                  "raw_info_keys": list(self.raw_info.keys()) if self.raw_info else []
+              }
+      confidence: 85
+
+    - category: |
+        Resource Leak
+      file_path: backend/app/container_manager.py
+      start_line: 393
+      end_line: 393
+      description: |
+        run_script方法中日志文件句柄log_fh未在子进程失败时关闭，可能导致文件描述符泄漏。
+      requirement_reference: |
+        Core Principles #4: Cleanup - 错误情况下必须释放资源
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          try:
+              log_fh = open(log_file, "w")
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+              return {"status": "started", "pid": process.pid, "log_file": str(log_file)}
+          except Exception as e:
+              if 'log_fh' in locals():
+                  log_fh.close()
+              raise
+      confidence: 90
+==================================================
+
+
+==================== READABILITY REPORT ====================
+review:
+  score: 85
+  suggestions:
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 25
+      issue: |
+        User类初始化参数中groups_raw和raw_info的命名不够清晰，无法直观理解其用途。groups_raw容易与groups混淆，raw_info过于泛泛。
+      requirement_reference: |
+        核心原则1：命名应表达意图而非实现
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, original_groups: list = None, user_metadata: dict = None):
+      confidence: 90
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 175
+      end_line: 175
+      issue: |
+        容器名称生成函数中platform_map硬编码在方法内部，不利于维护和扩展。当需要新增平台支持时，必须修改方法代码。
+      requirement_reference: |
+        核心原则3：保持一致的抽象层级
+      code_suggestion:
+        existing_code: |
+          platform_map = {
+              "github.com": "github",
+              "gitlab.com": "gitlab",
+              "gitee.com": "gitee",
+              "git.tokfinity.com": "tgit"
+          }
+        improved_code: |
+          PLATFORM_MAP = {
+              "github.com": "github",
+              "gitlab.com": "gitlab",
+              "gitee.com": "gitee",
+              "git.tokfinity.com": "tgit"
+          }
+
+          def generate_container_name(self, ...):
+              platform_short = self.PLATFORM_MAP.get(platform, platform.split(".")[0])
+      confidence: 88
+
+    - file_path: "backend/app/path_manager.py"
+      start_line: 116
+      end_line: 116
+      issue: |
+        get_wiki_path方法参数列表中commit_id参数命名不一致，在方法内部使用时被重命名为commit_short，容易引起混淆。
+      requirement_reference: |
+        核心原则1：命名应表达意图而非实现
+      code_suggestion:
+        existing_code: |
+          def get_wiki_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              commit_id: str = None,
+              upload_id: str = None
+          ) -> Path:
+        improved_code: |
+          def get_wiki_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              commit_sha: str = None,
+              upload_id: str = None
+          ) -> Path:
+      confidence: 85
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 90
+  findings:
+    - category: |
+        Coupling
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User类新增了groups_raw和raw_info字段，但没有更新dict()方法，导致部分用户信息丢失。这会导致前端获取的用户信息不完整，可能影响功能。
+      requirement_reference: |
+        用户信息完整性要求
+      code_suggestion: |
+        existing_code: |
+          def dict(self) -> Dict:
+              """转换为字典"""
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group
+              }
+        improved_code: |
+          def dict(self) -> Dict:
+              """转换为字典"""
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group,
+                  "groups_raw": self.groups_raw,
+                  "raw_info": self.raw_info
+              }
+      confidence: 90
+
+    - category: |
+        Technical Debt
+      file_path: frontend/src/app/page.tsx
+      start_line: 250
+      end_line: 302
+      description: |
+        handleSubmit函数缺少错误处理和状态管理，特别是对API调用失败的情况处理不足。这可能导致用户体验不佳，且难以调试问题。
+      requirement_reference: |
+        前端错误处理规范
+      code_suggestion: |
+        existing_code: |
+          const handleSubmit = async (e: React.FormEvent) => {
+              e.preventDefault();
+              // ...省略现有代码...
+              const response = await apiPost('/api/task/start', {
+                  git_url: finalUrl,
+                  // ...其他参数...
+              });
+              if (response.ok) {
+                  const data = await response.json();
+                  // ...成功处理...
+              }
+          }
+        improved_code: |
+          const handleSubmit = async (e: React.FormEvent) => {
+              e.preventDefault();
+              try {
+                  // ...省略现有代码...
+                  const response = await apiPost('/api/task/start', {
+                      git_url: finalUrl,
+                      // ...其他参数...
+                  });
+                  if (!response.ok) {
+                      throw new Error(`HTTP error! status: ${response.status}`);
+                  }
+                  const data = await response.json();
+                  // ...成功处理...
+              } catch (error) {
+                  console.error('Error submitting form:', error);
+                  setError(error.message || 'An unexpected error occurred');
+              } finally {
+                  setIsSubmitting(false);
+              }
+          }
+      confidence: 88
+
+    - category: |
+        Abstraction
+      file_path: backend/app/container_manager.py
+      start_line: 1
+      end_line: 393
+      description: |
+        ContainerManager类功能过于庞大，包含了容器管理、镜像构建、代码克隆等多种职责，违反了单一职责原则。建议拆分为多个专门的服务类。
+      requirement_reference: |
+        单一职责原则
+      code_suggestion: |
+        existing_code: |
+          class ContainerManager:
+              """任务容器管理器"""
+              # 包含容器管理、镜像构建、代码克隆等多种功能
+        improved_code: |
+          class ContainerManager:
+              """基础容器管理"""
+              # 只负责容器生命周期管理
+
+          class ImageBuilder:
+              """负责镜像构建检查"""
+
+          class RepoCloner:
+              """负责代码仓库克隆"""
+      confidence: 92
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 95
+  analysis:
+    - type: |
+        Security
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        用户模型初始化方法中新增了groups_raw和raw_info字段，但未进行任何数据验证或清理，可能引入安全风险
+      requirement_reference: |
+        项目安全规范要求所有用户输入数据必须经过验证
+      code_suggestion: |
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+              # 验证和清理输入数据
+              self.groups_raw = [g for g in (groups_raw or []) if isinstance(g, (str, dict))]
+              self.raw_info = {k: v for k, v in (raw_info or {}).items() if isinstance(v, (str, int, float, bool, list, dict))}
+      confidence: 90
+
+    - type: |
+        Security
+      file_path: backend/app/auth.py
+      start_line: 111
+      end_line: 111
+      description: |
+        用户信息解析逻辑中直接使用未经清理的groups_raw数据，可能导致XSS或其他注入攻击
+      requirement_reference: |
+        项目安全规范要求所有输出到前端的数据必须经过清理
+      code_suggestion: |
+        existing_code: |
+          "groups_raw": groups_raw,  # 保留原始 groups 对象数组
+        improved_code: |
+          "groups_raw": [sanitize_group(g) for g in groups_raw] if groups_raw else [],  # 清理后的groups数据
+      confidence: 88
+
+    - type: |
+        Versioning
+      file_path: backend/app/container_manager.py
+      start_line: 293
+      end_line: 293
+      description: |
+        Python版本检查逻辑硬编码了3.12+要求，但未提供优雅的降级方案，可能导致兼容性问题
+      requirement_reference: |
+        项目兼容性规范要求支持渐进增强
+      code_suggestion: |
+        existing_code: |
+          if major == 3 and minor >= 12:
+        improved_code: |
+          if (major == 3 and minor >= 12) or (major == 3 and minor >= 10 and not use_override):
+      confidence: 85
+
+    - type: |
+        Security
+      file_path: backend/app/path_manager.py
+      start_line: 119
+      end_line: 119
+      description: |
+        路径生成函数中直接使用未经处理的commit_sha作为路径组成部分，可能引发路径遍历攻击
+      requirement_reference: |
+        项目安全规范要求所有路径组成部分必须经过规范化处理
+      code_suggestion: |
+        existing_code: |
+          commit_short = commit_sha[:8] if len(commit_sha) > 8 else commit_sha
+        improved_code: |
+          commit_short = re.sub(r'[^a-f0-9]', '', commit_sha.lower())[:8]
+      confidence: 92
+
+    - type: |
+        Security
+      file_path: frontend/src/app/api/wiki/content/route.ts
+      start_line: 31
+      end_line: 31
+      description: |
+        API路由中直接使用encodeURIComponent处理文件路径，但未验证路径是否在允许范围内
+      requirement_reference: |
+        前端安全规范要求所有API参数必须经过验证
+      code_suggestion: |
+        existing_code: |
+          `${apiBaseUrl}/api/wiki/content?owner=${owner}&repo=${repo}&file_path=${encodeURIComponent(filePath)}`,
+        improved_code: |
+          const safePath = validateWikiPath(filePath);  // 新增路径验证函数
+          `${apiBaseUrl}/api/wiki/content?owner=${owner}&repo=${repo}&file_path=${encodeURIComponent(safePath)}`,
+      confidence: 89
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔍 正在验证 2 个行评论...
+⚠️ File not found for validation: /workspace/7-29fcef61/project_code/backend/app/auth.py (project_root: /workspace/7-29fcef61/project_code, new_path: backend/app/auth.py)
+⚠️ 无效评论已移除: backend/app/auth.py:25 - File not found: /workspace/7-29fcef61/project_code/backend/app/auth.py
+⚠️ File not found for validation: /workspace/7-29fcef61/project_code/backend/app/auth.py (project_root: /workspace/7-29fcef61/project_code, new_path: backend/app/auth.py)
+⚠️ 无效评论已移除: backend/app/auth.py:25 - File not found: /workspace/7-29fcef61/project_code/backend/app/auth.py
+✅ 已验证 0 个行评论
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+🔍 已过滤 diff：原始长度 118585 字符 -> 代码文件长度 94683 字符
+📋 Task ID: fa52c22e-1e05-404c-b65a-ebb683acf1b0
+📦 Project ID: 37
+🔀 MR IID: 7
+🌿 Source Branch: phd -> Target Branch: main
+📝 Files Changed: 25
+🚀 Starting 10-dimension analysis for MR: version that can run
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Pattern
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User 类初始化参数中新增了 `groups_raw` 和 `raw_info` 字段，但没有在 `dict()` 方法中体现，导致返回的用户信息不完整，与 `full_dict()` 方法不一致。
+      requirement_reference: |
+         CLAUDE.md - 一致性原则：相似概念应使用一致的命名和返回格式
+      code_suggestion:
+        existing_code: |
+          def dict(self) -> Dict:
+              """转换为字典"""
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group
+              }
+        improved_code: |
+          def dict(self) -> Dict:
+              """转换为字典"""
+              return {
+                  "user_id": self.user_id,
+                  "name": self.name,
+                  "email": self.email,
+                  "groups": self.groups,
+                  "primary_group": self.primary_group,
+                  "groups_raw": self.groups_raw,
+                  "raw_info": self.raw_info
+              }
+      confidence: 95
+    - category: |
+        Pattern
+      file_path: backend/app/auth.py
+      start_line: 55
+      end_line: 55
+      description: |
+        Tokfinity API 的 URL 从 `/api/userinfo` 改为 `/acode/v1/userinfo`，但没有更新相关的错误日志信息，可能导致调试困难。
+      requirement_reference: |
+        CLAUDE.md - 可维护性原则：错误日志应包含足够的信息以便调试
+      code_suggestion:
+        existing_code: |
+          url = f"{settings.TOKFINITY_API_URL}/api/userinfo"
+        improved_code: |
+          url = f"{settings.TOKFINITY_API_URL}/acode/v1/userinfo"
+          logger.debug(f"Tokfinity API URL: {url}")
+      confidence: 90
+    - category: |
+        Pattern
+      file_path: backend/app/main.py
+      start_line: 13
+      end_line: 13
+      description: |
+        新增的 `setup_logging` 函数应该在 `lifespan` 函数之前定义，以符合 Python 的代码组织惯例。
+      requirement_reference: |
+        CLAUDE.md - 代码组织原则：工具函数应在使用前定义
+      code_suggestion:
+        existing_code: |
+          from app.utils import log_access, log_error, setup_logging
+        improved_code: |
+          from app.utils import setup_logging, log_access, log_error
+      confidence: 85
+    - category: |
+        Pattern
+      file_path: frontend/src/app/api/wiki/content/route.ts
+      start_line: 31
+      end_line: 31
+      description: |
+        查询参数从 `path` 改为 `file_path`，但没有更新相关的注释说明，可能导致混淆。
+      requirement_reference: |
+        CLAUDE.md - 文档一致性原则：代码注释应与实际实现一致
+      code_suggestion:
+        existing_code: |
+          // 转发请求到后端 API（携带 Authorization）
+        improved_code: |
+          // 转发请求到后端 API（携带 Authorization），注意后端期望的参数名是 file_path
+      confidence: 90
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+```yaml
+review:
+  score: 95
+  findings: []
+  risks: []
+```
+
+暂未发现高置信度问题。代码整体质量较高，新增的功能模块和工具类都实现了预期的业务需求，且考虑了各种边界情况和错误处理。代码结构清晰，注释完整，符合Python最佳实践。
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+review:
+  score: 90
+  bottlenecks:
+    - file_path: "backend/app/container_manager.py"
+      start_line: 210
+      end_line: 213
+      severity: |
+        HIGH
+      description: |
+        在 `run_script` 方法中，Python 版本检查逻辑存在潜在性能问题。当前实现会逐个尝试候选 Python 路径并执行子进程检查版本，这在频繁调用时会产生不必要的进程创建开销。
+      requirement_reference: |
+        性能要求：关键路径上的操作应尽量减少系统调用和进程创建
+      code_suggestion:
+        existing_code: |
+          for py in python_candidates:
+              try:
+                  result = subprocess.run(
+                      [py, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                      capture_output=True,
+                      text=True,
+                      timeout=5
+                  )
+        improved_code: |
+          # 预先缓存 Python 路径
+          PYTHON_PATH = None
+          if not PYTHON_PATH:
+              for py in python_candidates:
+                  if os.path.exists(py):  # 先检查文件存在性
+                      try:
+                          result = subprocess.run(...)
+                          if result.returncode == 0:
+                              PYTHON_PATH = py
+                              break
+      confidence: 90
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 228
+      end_line: 240
+      severity: |
+        HIGH
+      description: |
+        依赖安装检查使用文件标记 `.deps_installed` 作为判断依据，这在多进程/多容器环境下可能导致竞态条件。同时缺少对依赖安装失败的优雅处理。
+      requirement_reference: |
+        可靠性要求：关键初始化步骤应具备原子性和错误恢复能力
+      code_suggestion:
+        existing_code: |
+          install_marker = agent_dir / ".deps_installed"
+          if not install_marker.exists() and requirements_path.exists():
+              logger.info("Installing agent dependencies...")
+              pip_cmd = python_cmd.replace("python", "pip")
+              install_result = subprocess.run(...)
+        improved_code: |
+          import filelock
+          lock = filelock.FileLock(str(agent_dir / ".deps_installed.lock"))
+          try:
+              with lock:
+                  if not install_marker.exists():
+                      try:
+                          install_result = subprocess.run(...)
+                          if install_result.returncode == 0:
+                              install_marker.touch()
+                      except Exception as e:
+                          logger.error(f"Dependency installation failed: {e}")
+                          raise
+          except filelock.Timeout:
+              logger.warning("Dependency installation lock timeout")
+      confidence: 92
+
+    - file_path: "backend/app/auth.py"
+      start_line: 73
+      end_line: 75
+      severity: |
+        HIGH
+      description: |
+        Token 验证的超时时间从 5 秒增加到 10 秒，但没有考虑重试机制。在网络不稳定的环境下，单次长超时不如多次短超时重试更可靠。
+      requirement_reference: |
+        可靠性要求：关键外部依赖调用应具备重试机制
+      code_suggestion:
+        existing_code: |
+          async with httpx.AsyncClient() as client:
+              try:
+                  response = await client.get(
+                      url,
+                      headers={"Authorization": f"Bearer {token}"},
+                      timeout=10.0  # 增加超时时间
+                  )
+        improved_code: |
+          from tenacity import retry, stop_after_attempt, wait_exponential
+          
+          @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=5))
+          async def _retryable_token_validation(url, token):
+              async with httpx.AsyncClient() as client:
+                  return await client.get(
+                      url,
+                      headers={"Authorization": f"Bearer {token}"},
+                      timeout=5.0  # 恢复较短超时
+                  )
+      confidence: 88
+
+    - file_path: "agent/tools/retriever_tool.py"
+      start_line: 210
+      end_line: 218
+      severity: |
+        HIGH
+      description: |
+        Embedding 生成时没有实现请求批处理，当处理大量查询时会产生大量小网络请求，显著降低吞吐量。
+      requirement_reference: |
+        性能要求：高频网络操作应支持批处理
+      code_suggestion:
+        existing_code: |
+          response = client.embeddings.create(
+              model=self.embedding_model_name,
+              input=text
+          )
+          embedding = response.data[0].embedding
+        improved_code: |
+          # 实现批处理接口
+          async def batch_embed(self, texts: List[str]) -> List[np.ndarray]:
+              response = client.embeddings.create(
+                  model=self.embedding_model_name,
+                  input=texts
+              )
+              return [np.array(data.embedding) for data in response.data]
+      confidence: 95
+
+    - file_path: "agent/code_chunker.py"
+      start_line: 90
+      end_line: 98
+      severity: |
+        HIGH
+      description: |
+        滑动窗口切块算法中，字符计数方式 (`char_count += len(lines[end_line_idx]) + 1`) 在极端情况下可能导致内存问题，因为会重复拼接大字符串。
+      requirement_reference: |
+        内存要求：处理大文件时应避免重复内存分配
+      code_suggestion:
+        existing_code: |
+          while end_line_idx < len(lines) and char_count < self.chunk_size:
+              char_count += len(lines[end_line_idx]) + 1  # +1 for newline
+              end_line_idx += 1
+        improved_code: |
+          # 预计算每行的字符数（包括换行符）
+          line_lengths = [len(line) + 1 for line in lines]
+          while end_line_idx < len(lines) and char_count < self.chunk_size:
+              char_count += line_lengths[end_line_idx]
+              end_line_idx += 1
+      confidence: 89
+==================================================
+
+
+==================== SECURITY REPORT ====================
+review:
+  score: 90
+  vulnerabilities:
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 25
+      severity: |
+        HIGH
+      category: |
+        A01:2021-Broken Access Control
+      description: |
+        User类中的groups字段默认值为["guest"]，这可能导致权限提升漏洞。攻击者可能通过构造恶意请求绕过身份验证，获得guest权限。
+      requirement_reference: |
+        安全需求：所有用户权限应显式设置，不应有默认权限
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None):
+              self.groups = groups or ["guest"]  # 默认 guest 组
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None):
+              if groups is None:
+                  raise ValueError("groups must be explicitly set")
+              self.groups = groups
+      exploit_scenario: |
+        1. 攻击者发送不包含groups字段的伪造用户信息
+        2. 系统自动分配guest权限
+        3. 攻击者获得不应有的访问权限
+      confidence: 90
+
+    - file_path: "backend/app/auth.py"
+      start_line: 74
+      end_line: 74
+      severity: |
+        MEDIUM
+      category: |
+        A02:2021-Cryptographic Failures
+      description: |
+        Tokfinity API调用使用明文HTTP连接，可能导致token泄露。应强制使用HTTPS。
+      requirement_reference: |
+        安全需求：所有外部API调用必须使用TLS加密
+      code_suggestion:
+        existing_code: |
+          url = f"{settings.TOKFINITY_API_URL}/acode/v1/userinfo"
+        improved_code: |
+          if not settings.TOKFINITY_API_URL.startswith('https://'):
+              raise ValueError("Tokfinity API URL must use HTTPS")
+          url = f"{settings.TOKFINITY_API_URL}/acode/v1/userinfo"
+      exploit_scenario: |
+        1. 攻击者在网络层进行中间人攻击
+        2. 截获明文传输的token
+        3. 使用窃取的token冒充用户
+      confidence: 85
+
+    - file_path: "backend/app/config.py"
+      start_line: 57
+      end_line: 57
+      severity: |
+        HIGH
+      category: |
+        A03:2021-Injection
+      description: |
+        LLM_API_KEY等敏感配置未加密存储，可能导致密钥泄露。应使用环境变量或密钥管理服务。
+      requirement_reference: |
+        安全需求：所有密钥必须加密存储
+      code_suggestion:
+        existing_code: |
+          LLM_API_KEY: str = ""
+        improved_code: |
+          from cryptography.fernet import Fernet
+          # 使用加密存储
+          _LLM_API_KEY: str = ""
+          @property
+          def LLM_API_KEY(self):
+              cipher_suite = Fernet(settings.ENCRYPTION_KEY)
+              return cipher_suite.decrypt(self._LLM_API_KEY.encode()).decode()
+      exploit_scenario: |
+        1. 攻击者获取配置文件访问权限
+        2. 直接读取明文API密钥
+        3. 滥用API密钥进行未授权访问
+      confidence: 95
+
+    - file_path: "agent/tools/retriever_tool.py"
+      start_line: 210
+      end_line: 210
+      severity: |
+        HIGH
+      category: |
+        A06:2021-Vulnerable and Outdated Components
+      description: |
+        直接使用OpenAI客户端进行embedding生成，没有请求速率限制和重试机制，可能导致服务拒绝或超额费用。
+      requirement_reference: |
+        安全需求：所有外部API调用必须有限流和熔断机制
+      code_suggestion:
+        existing_code: |
+          response = client.embeddings.create(
+              model=self.embedding_model_name,
+              input=text
+          )
+        improved_code: |
+          from tenacity import retry, stop_after_attempt, wait_exponential
+          @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+          def safe_embedding_create(client, model, input):
+              return client.embeddings.create(
+                  model=model,
+                  input=input,
+                  timeout=30
+              )
+          response = safe_embedding_create(client, self.embedding_model_name, text)
+      exploit_scenario: |
+        1. 攻击者发送大量embedding请求
+        2. 导致API超额使用产生高额费用
+        3. 或触发服务商限流导致服务不可用
+      confidence: 88
+==================================================
+
+
+==================== TESTING REPORT ====================
+review:
+  score: 95
+  findings:
+    - type: |
+        Missing Test
+      file_path: agent/code_chunker.py
+      start_line: 1
+      end_line: 183
+      description: |
+        新增的代码切块器功能没有对应的单元测试。该模块包含复杂的逻辑分支（如滑动窗口切块、语言检测等），需要测试验证其正确性和鲁棒性。
+      requirement_reference: |
+        所有核心功能模块必须包含单元测试，覆盖率不低于80%
+      code_suggestion:
+        existing_code: |
+          class CodeChunker:
+              def __init__(self, chunk_size=500, chunk_overlap=50, max_chunks_per_file=100, language="python"):
+                  self.chunk_size = chunk_size
+                  self.chunk_overlap = chunk_overlap
+                  self.max_chunks_per_file = max_chunks_per_file
+                  self.language = language
+        improved_code: |
+          def test_code_chunker():
+              # 测试空文件
+              chunker = CodeChunker()
+              assert len(chunker.chunk_code("test.py", "")) == 0
+              
+              # 测试小文件
+              content = "print('hello world')"
+              chunks = chunker.chunk_code("test.py", content)
+              assert len(chunks) == 1
+              assert chunks[0].content == content
+              
+              # 测试边界条件
+              large_content = "a" * 1000
+              chunks = chunker.chunk_code("test.py", large_content)
+              assert len(chunks) == 2
+              assert chunks[0].content.endswith("\n")
+              assert chunks[1].content.startswith("a")
+      confidence: 95
+    - type: |
+        Missing Test
+      file_path: agent/tools/retriever_tool.py
+      start_line: 1
+      end_line: 214
+      description: |
+        新增的向量检索工具没有对应的单元测试。该模块包含复杂的逻辑（如FAISS索引加载、embedding生成、结果格式化等），需要测试验证其正确性和鲁棒性。
+      requirement_reference: |
+        所有核心功能模块必须包含单元测试，覆盖率不低于80%
+      code_suggestion:
+        existing_code: |
+          class RetrieverTool:
+              def __init__(self, executor, vector_db_path, embedding_model_name, embedding_base_url, embedding_api_key):
+                  self.vector_db_path = vector_db_path
+                  self.embedding_model_name = embedding_model_name
+                  self.embedding_base_url = embedding_base_url
+                  self.embedding_api_key = embedding_api_key
+        improved_code: |
+          def test_retriever_tool():
+              # 测试初始化
+              tool = RetrieverTool(executor=None, vector_db_path="test_db", 
+                                 embedding_model_name="test_model", 
+                                 embedding_base_url="http://test.com", 
+                                 embedding_api_key="test_key")
+              assert tool.vector_db_path == "test_db"
+              
+              # 测试空查询
+              result = tool.container_execute({"query": ""})
+              assert result.error == "query 参数不能为空"
+              
+              # 测试正常查询
+              result = tool.container_execute({"query": "test query"})
+              assert "output" in result
+      confidence: 90
+    - type: |
+        Missing Test
+      file_path: backend/app/container_manager.py
+      start_line: 1
+      end_line: 393
+      description: |
+        新增的Docker容器管理器没有对应的单元测试。该模块包含复杂的逻辑（如容器创建、代码克隆、脚本执行等），需要测试验证其正确性和鲁棒性。
+      requirement_reference: |
+        所有核心功能模块必须包含单元测试，覆盖率不低于80%
+      code_suggestion:
+        existing_code: |
+          class ContainerManager:
+              def __init__(self):
+                  self._client = None
+        improved_code: |
+          def test_container_manager():
+              # 测试初始化
+              manager = ContainerManager()
+              assert manager.client is None
+              
+              # 测试容器名称生成
+              name = manager.generate_container_name("group1", "github.com", "owner", "repo", "commit123")
+              assert "deepmap__group1__github__owner__repo__commit123" in name
+              
+              # 测试容器创建
+              container_id = manager.create_container("test_container")
+              assert len(container_id) > 0
+      confidence: 90
+
+暂未发现高置信度问题。
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+```yaml
+review:
+  score: 95
+  findings:
+    - type: |
+        Missing Doc
+      file_path: agent/code_chunker.py
+      start_line: 183
+      end_line: 183
+      description: |
+        `_detect_language` 方法缺少文档字符串。该方法根据文件扩展名检测编程语言，是代码切块功能的核心部分，应该详细说明其工作原理和返回值。
+      requirement_reference: |
+        核心功能模块必须完整文档化
+      code_suggestion: |
+        existing_code: |
+          def _detect_language(self, file_path: str) -> str:
+        improved_code: |
+          def _detect_language(self, file_path: str) -> str:
+              """
+              根据文件扩展名检测编程语言
+              
+              Args:
+                  file_path: 文件路径
+              
+              Returns:
+                  str: 检测到的编程语言，如果无法识别则返回 'unknown'
+              """
+      confidence: 95
+    - type: |
+        Missing Doc
+      file_path: agent/tools/retriever_tool.py
+      start_line: 154
+      end_line: 154
+      description: |
+        `_generate_embedding` 方法缺少文档字符串。该方法用于生成文本的 embedding，是向量检索的核心功能，应该详细说明其工作原理和返回值。
+      requirement_reference: |
+        核心功能模块必须完整文档化
+      code_suggestion: |
+        existing_code: |
+          def _generate_embedding(self, text: str) -> np.ndarray:
+        improved_code: |
+          def _generate_embedding(self, text: str) -> np.ndarray:
+              """
+              使用指定的 embedding 模型生成文本的向量表示
+              
+              Args:
+                  text: 要生成 embedding 的文本
+              
+              Returns:
+                  np.ndarray: 生成的 embedding 向量
+              """
+      confidence: 95
+    - type: |
+        Missing Doc
+      file_path: agent/tools/retriever_tool.py
+      start_line: 227
+      end_line: 227
+      description: |
+        `_format_results` 方法缺少文档字符串。该方法用于格式化检索结果，是用户可见的重要功能，应该详细说明其工作原理和返回值。
+      requirement_reference: |
+        核心功能模块必须完整文档化
+      code_suggestion: |
+        existing_code: |
+          def _format_results(self, query: str, results: list) -> str:
+        improved_code: |
+          def _format_results(self, query: str, results: list) -> str:
+              """
+              格式化检索结果，生成用户友好的输出
+              
+              Args:
+                  query: 原始查询
+                  results: 检索结果列表
+              
+              Returns:
+                  str: 格式化后的结果字符串
+              """
+      confidence: 95
+```
+
+暂未发现高置信度问题。
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+review:
+  score: 95
+  issues:
+    - category: |
+        Poor Observability
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        User类初始化时未记录日志，当用户认证失败时无法追踪具体原因。建议在初始化时添加debug日志记录用户信息，便于排查认证问题。
+      requirement_reference: |
+        核心原则1：No Silent Failures - 所有错误必须被记录或暴露
+      code_suggestion:
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+        improved_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+              logger.debug(f"Initializing user: user_id={user_id}, name={name}, groups={groups}")
+      confidence: 90
+
+    - category: |
+        Resource Leak
+      file_path: backend/app/container_manager.py
+      start_line: 385
+      end_line: 385
+      description: |
+        在run_script方法中，日志文件句柄log_fh未在finally块中关闭，可能导致文件描述符泄漏。建议使用with语句或确保在finally中关闭文件句柄。
+      requirement_reference: |
+        核心原则4：Cleanup - 错误情况下必须正确释放资源
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(...)
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(..., stdout=log_fh, stderr=subprocess.STDOUT)
+      confidence: 95
+
+    - category: |
+        Poor Observability
+      file_path: backend/app/auth.py
+      start_line: 90
+      end_line: 90
+      description: |
+        validate_token_with_tokfinity方法中，当API返回非200状态码时，仅记录错误但未包含完整的响应内容，不利于调试认证失败的具体原因。
+      requirement_reference: |
+        核心原则3：Observability - 错误日志必须包含足够上下文
+      code_suggestion:
+        existing_code: |
+          log_error("token_validation_failed", f"Tokfinity API returned {response.status_code}", {"url": url, "token_prefix": token[:10] + "..."})
+        improved_code: |
+          log_error("token_validation_failed", f"Tokfinity API returned {response.status_code}: {response.text}", {"url": url, "token_prefix": token[:10] + "..."})
+      confidence: 88
+
+    - category: |
+        Poor Observability
+      file_path: backend/app/routers/callback.py
+      start_line: 22
+      end_line: 22
+      description: |
+        回调接口的日志记录中未包含关键任务指标(total_files/processed_files等)，当需要分析任务进度时缺乏足够信息。
+      requirement_reference: |
+        核心原则3：Observability - 关键操作必须记录完整上下文
+      code_suggestion:
+        existing_code: |
+          logger.info(f"[Callback] Vector DB - Task: {request.task_id[:8]} | Status: {request.status} | {request.message}")
+        improved_code: |
+          logger.info(f"[Callback] Vector DB - Task: {request.task_id[:8]} | Status: {request.status} | {request.message} | Files: {request.processed_files}/{request.total_files} | Chunks: {request.processed_chunks}/{request.total_chunks}")
+      confidence: 90
+==================================================
+
+
+==================== READABILITY REPORT ====================
+review:
+  score: 92
+  suggestions:
+    - file_path: "agent/code_chunker.py"
+      start_line: 11
+      end_line: 19
+      issue: |
+        CodeChunk 数据类字段命名可以更语义化，当前命名过于技术导向（如 chunk_id, char_count）
+      requirement_reference: |
+        Core Principles #1 - Expressive Naming: Names should describe intent, not implementation
+      code_suggestion:
+        existing_code: |
+          @dataclass
+          class CodeChunk:
+              """单个代码块"""
+              chunk_id: str           # 唯一 ID
+              file_path: str          # 文件相对路径
+              start_line: int         # 起始行号
+              end_line: int          # 结束行号
+              content: str           # 代码内容
+              language: str          # 编程语言
+              chunk_type: str        # 类型：block
+              char_count: int        # 字符数
+              line_count: int        # 行数
+        improved_code: |
+          @dataclass
+          class CodeChunk:
+              """表示一个语义完整的代码片段"""
+              id: str                # 唯一标识符
+              source_file: str       # 源文件路径  
+              line_range: tuple[int, int]  # 行号范围
+              code: str              # 代码内容
+              language: str          # 编程语言
+              type: str              # 语义类型（function/class/module等）
+              metrics: dict          # 包含char_count/line_count等指标
+      confidence: 88
+
+    - file_path: "backend/app/auth.py"
+      start_line: 23
+      end_line: 61
+      issue: |
+        User 类的 groups 和 groups_raw 字段命名容易混淆，且缺乏明确的文档说明其区别
+      requirement_reference: |
+        Core Principles #1 - Expressive Naming: Avoid ambiguous names
+      code_suggestion:
+        existing_code: |
+          class User:
+              def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+                  self.user_id = user_id
+                  self.name = name
+                  self.email = email
+                  self.groups = groups or ["guest"]  # 用于数据隔离的组名列表
+                  self.groups_raw = groups_raw or []  # 原始 groups 对象数组（用于前端显示）
+                  self.raw_info = raw_info or {}  # 原始用户信息
+        improved_code: |
+          class User:
+              def __init__(
+                  self, 
+                  user_id: str, 
+                  name: str, 
+                  email: str = None, 
+                  permission_groups: list = None,  # 用于权限控制的组名
+                  detailed_groups: list = None,    # 完整的组信息（含元数据）
+                  raw_info: dict = None
+              ):
+                  self.user_id = user_id
+                  self.name = name
+                  self.email = email
+                  self.permission_groups = permission_groups or ["guest"]
+                  self.detailed_groups = detailed_groups or []
+                  self.raw_info = raw_info or {}
+      confidence: 90
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 210
+      end_line: 228
+      issue: |
+        Python 版本检查逻辑过于复杂且脆弱，应该使用 importlib.metadata 等标准库方法
+      requirement_reference: |
+        Python Best Practices: Prefer standard library solutions over subprocess calls
+      code_suggestion:
+        existing_code: |
+          # 检测 Python 3.12+（agent 代码需要 3.12+ 支持 override）
+          python_cmd = None
+          
+          # 候选 Python 路径（包括 pyenv 直接路径）
+          pyenv_home = Path.home() / ".pyenv" / "versions"
+          python_candidates = [
+              "python3.12", "python3.13", "python3", "python"
+          ]
+        improved_code: |
+          import sys
+          if sys.version_info < (3, 12):
+              raise RuntimeError(
+                  "Python 3.12+ required. Current version: "
+                  f"{sys.version_info.major}.{sys.version_info.minor}"
+              )
+          python_cmd = sys.executable  # 使用当前解释器
+      confidence: 95
+
+    - file_path: "frontend/src/app/page.tsx"
+      start_line: 250
+      end_line: 302
+      issue: |
+        表单提交处理函数 handleSubmit 过于庞大，应该拆分为多个小函数（验证、URL处理、API调用等）
+      requirement_reference: |
+        Core Principles #2 - Cognitive Load Minimization: Functions should be small and focused
+      code_suggestion:
+        existing_code: |
+          const handleSubmit = async (e: React.FormEvent) => {
+            e.preventDefault();
+            // 验证逻辑...
+            // URL处理逻辑...
+            // API调用逻辑...
+            // 状态更新逻辑...
+          }
+        improved_code: |
+          const validateInput = () => { /*...*/ };
+          const processRepoUrl = () => { /*...*/ };
+          const startGenerationTask = async () => { /*...*/ };
+
+          const handleSubmit = async (e: React.FormEvent) => {
+            e.preventDefault();
+            if (!validateInput()) return;
+            const repoInfo = processRepoUrl();
+            await startGenerationTask(repoInfo);
+          }
+      confidence: 89
+
+    - file_path: "backend/app/config.py"
+      start_line: 44
+      end_line: 94
+      issue: |
+        配置项按功能模块分组不足，相关配置（如LLM相关）分散在不同位置
+      requirement_reference: |
+        Consistency of Abstraction: Keep related configurations together
+      code_suggestion:
+        existing_code: |
+          # Docker 任务容器配置
+          TASK_DOCKER_IMAGE: str = "deepmap-task:latest"
+          TASK_AGENT_PATH: str = "/app/agent"  # 容器内 agent 路径
+          TASK_REPO_PATH: str = "/workspace/repo"  # 容器内仓库路径
+          TASK_DEEPMAP_PATH: str = "/app/.deepmap"  # 容器内 .deepmap 路径
+          
+          # LLM 配置
+          LLM_MODEL_NAME: str = "deepseek/deepseek-chat-v3.1"
+          LLM_BASE_URL: str = "https://api.openai.com/v1"
+          LLM_API_KEY: str = ""
+          LLM_PROVIDERS: str = ""
+        improved_code: |
+          class TaskContainerConfig:
+              IMAGE: str = "deepmap-task:latest"
+              AGENT_PATH: str = "/app/agent"
+              REPO_PATH: str = "/workspace/repo" 
+              DEEPMAP_PATH: str = "/app/.deepmap"
+
+          class LLMConfig:
+              MODEL: str = "deepseek/deepseek-chat-v3.1"
+              BASE_URL: str = "https://api.openai.com/v1"  
+              API_KEY: str = ""
+              PROVIDERS: str = ""
+      confidence: 87
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+review:
+  score: 92
+  findings:
+    - category: |
+        Coupling
+      file_path: backend/app/container_manager.py
+      start_line: 1
+      end_line: 393
+      description: |
+        ContainerManager类承担了过多职责，包括容器管理、镜像构建、脚本执行等，违反了单一职责原则。这会导致后续维护困难，且难以单独测试各个功能。
+      requirement_reference: |
+        架构设计原则 - 单一职责原则
+      code_suggestion: |
+        existing_code: |
+          class ContainerManager:
+              # 包含了容器管理、镜像构建、脚本执行等所有功能
+        improved_code: |
+          class ContainerManager:
+              # 仅负责容器生命周期管理
+          
+          class ScriptExecutor:
+              # 负责脚本执行相关功能
+          
+          class ImageBuilder: 
+              # 负责镜像构建相关功能
+      confidence: 90
+
+    - category: |
+        Technical Debt
+      file_path: backend/app/container_manager.py
+      start_line: 210
+      end_line: 240
+      description: |
+        硬编码了Python版本检查逻辑(3.12+)，这会导致未来Python版本升级时维护困难。应该通过配置文件或环境变量来管理版本要求。
+      requirement_reference: |
+        可维护性要求 - 避免硬编码
+      code_suggestion: |
+        existing_code: |
+          # 硬编码的Python版本检查
+          if major == 3 and minor >= 12:
+              python_cmd = py
+        improved_code: |
+          # 从配置读取版本要求
+          min_version = settings.PYTHON_MIN_VERSION  # '3.12'
+          required_major, required_minor = map(int, min_version.split('.'))
+          if major == required_major and minor >= required_minor:
+              python_cmd = py
+      confidence: 88
+
+    - category: |
+        Abstraction
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 47
+      description: |
+        User类同时包含业务逻辑(primary_group)和数据模型(dict转换)，违反了单一职责原则。应该将业务逻辑分离到服务层。
+      requirement_reference: |
+        架构设计原则 - 分层架构
+      code_suggestion: |
+        existing_code: |
+          class User:
+              # 同时包含数据和业务逻辑
+              @property
+              def primary_group(self) -> str:
+                  return self.groups[0] if self.groups else "guest"
+        improved_code: |
+          class User:
+              # 仅作为数据模型
+              pass
+          
+          class UserService:
+              @staticmethod
+              def get_primary_group(user: User) -> str:
+                  return user.groups[0] if user.groups else "guest"
+      confidence: 85
+
+    - category: |
+        Duplication
+      file_path: backend/app/path_manager.py
+      start_line: 134
+      end_line: 172
+      description: |
+        路径生成逻辑在get_wiki_path和get_vector_db_path中重复出现，违反了DRY原则。应该提取公共路径生成逻辑到单独方法。
+      requirement_reference: |
+        代码质量要求 - 避免重复
+      code_suggestion: |
+        existing_code: |
+          def get_wiki_path(...):
+              # 重复的路径生成逻辑
+              if source_type == "git":
+                  path = base / platform / owner / repo / commit_id / doc_type / f"v{version}"
+          
+          def get_vector_db_path(...):
+              # 重复的路径生成逻辑
+              if source_type == "git":
+                  path = base / platform / owner / repo / commit_id
+        improved_code: |
+          def _build_git_path(base: Path, platform: str, owner: str, repo: str, commit_id: str, *parts) -> Path:
+              return base / platform / owner / repo / commit_id / Path(*parts)
+          
+          def get_wiki_path(...):
+              return self._build_git_path(base, platform, owner, repo, commit_id, doc_type, f"v{version}")
+      confidence: 87
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+review:
+  score: 95
+  analysis:
+    - type: |
+        Security
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 25
+      description: |
+        用户模型中的groups_raw和raw_info字段可能包含敏感信息，建议对这些字段进行脱敏处理或限制访问权限
+      requirement_reference: |
+        项目安全要求：敏感信息保护
+      code_suggestion: |
+        existing_code: |
+          groups_raw: list = None, raw_info: dict = None
+        improved_code: |
+          groups_raw: list = None, raw_info: dict = None  # 注意：此字段包含敏感信息，需在前端过滤
+      confidence: 90
+
+    - type: |
+        Security
+      file_path: backend/app/auth.py
+      start_line: 81
+      end_line: 81
+      description: |
+        Tokfinity API调用超时时间从5秒增加到10秒，可能影响系统响应速度，建议保持较短超时并实现重试机制
+      requirement_reference: |
+        项目性能要求：API响应时间
+      code_suggestion: |
+        existing_code: |
+          timeout=10.0  # 增加超时时间
+        improved_code: |
+          timeout=5.0  # 保持较短超时，并添加重试逻辑
+      confidence: 85
+
+    - type: |
+        Versioning
+      file_path: backend/app/container_manager.py
+      start_line: 374
+      end_line: 374
+      description: |
+        Python版本检查强制要求3.12+，可能限制系统兼容性，建议提供更灵活的版本支持或明确的错误提示
+      requirement_reference: |
+        项目兼容性要求：支持多Python版本
+      code_suggestion: |
+        existing_code: |
+          if major == 3 and minor >= 12:
+        improved_code: |
+          if major == 3 and minor >= 11:  # 放宽版本要求或提供更友好的错误提示
+      confidence: 88
+
+    - type: |
+        Security
+      file_path: backend/app/config.py
+      start_line: 54
+      end_line: 54
+      description: |
+        LLM和Embedding的API密钥以明文形式存储在配置中，建议使用环境变量或密钥管理服务
+      requirement_reference: |
+        项目安全要求：密钥管理
+      code_suggestion: |
+        existing_code: |
+          LLM_API_KEY: str = ""
+        improved_code: |
+          LLM_API_KEY: str = ""  # 应从安全存储中加载
+      confidence: 95
+
+    - type: |
+        Security
+      file_path: frontend/src/app/api/wiki/content/route.ts
+      start_line: 31
+      end_line: 31
+      description: |
+        前端API路由直接转发用户提供的file_path参数，可能存在路径遍历风险，建议进行验证
+      requirement_reference: |
+        项目安全要求：输入验证
+      code_suggestion: |
+        existing_code: |
+          file_path=${encodeURIComponent(filePath)}
+        improved_code: |
+          // 应先验证filePath是否合法
+          const safePath = validatePath(filePath);
+          file_path=${encodeURIComponent(safePath)}
+      confidence: 90
+==================================================
+
+📝 All expert reports complete. Aggregating...
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+✅ 已切换到 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+🔍 正在验证 5 个行评论...
+✅ 已验证 5 个行评论
+🔄 恢复原来的 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(

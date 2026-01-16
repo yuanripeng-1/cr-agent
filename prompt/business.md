@@ -32,6 +32,9 @@ review:
   findings:
     - requirement_name: |
         <name from PRD/MR>
+      file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       requirement_reference: |
         <QUOTE exact text from PRD/MR>
       analysis: |
@@ -43,7 +46,10 @@ review:
           <business-aligned fix>
       confidence: <int>
   risks:
-    - risk: |
+    - file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>
+      end_line: <int>
+      risk: |
         <business impact of this code>
       mitigation: |
         <how to safeguard>
@@ -54,6 +60,9 @@ review:
   findings:
     - requirement_name: |
         FR2: Loyalty Points
+      file_path: internal/points.go
+      start_line: 42
+      end_line: 42
       requirement_reference: |
         For every $10 spent, award 1 point.
       analysis: |

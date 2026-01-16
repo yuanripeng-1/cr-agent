@@ -1,9 +1,10 @@
 import asyncio
 import json
 import os
+import subprocess
 import toml
 from .router import CRRouter
-from .utils import parse_diff_file_paths, setup_log_redirection
+from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers
 
 async def main():
     # Load config.toml from environment variable or default path
@@ -21,7 +22,14 @@ async def main():
     
     # Handle relative path for json_path
     if not os.path.isabs(json_path):
-        json_path = os.path.join(os.path.dirname(config_path), json_path)
+        # If json_path starts with ./, it's relative to project root (where RUN.sh is)
+        # Otherwise, it's relative to config file directory
+        if json_path.startswith("./"):
+            # Get project root (assume it's the directory containing agent/ folder)
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            json_path = os.path.join(project_root, json_path[2:])  # Remove leading ./
+        else:
+            json_path = os.path.join(os.path.dirname(config_path), json_path)
 
     if not os.path.exists(json_path):
         print(f"❌ Context JSON not found: {json_path}")
@@ -34,7 +42,7 @@ async def main():
     os.makedirs(result_path, exist_ok=True)
     log_path = os.path.join(result_path, "run.log")
     log_file = setup_log_redirection(log_path)
-
+    
     # 提取标准字段
     task_id = context.get("task_id", "")
     project_id = context.get("project_id", "")
@@ -47,6 +55,18 @@ async def main():
     target_branch = context.get("target_branch", "")
     diff_content = context.get("diff_content", "")
     project_root = context.get("project_root", ".")
+    # Handle relative path for project_root
+    if project_root and not os.path.isabs(project_root):
+        if project_root.startswith("./"):
+            # Get project root (assume it's the directory containing agent/ folder)
+            base_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            project_root = os.path.join(base_project_root, project_root[2:])  # Remove leading ./
+        else:
+            # Relative to config file directory
+            project_root = os.path.join(os.path.dirname(config_path), project_root)
+    # Normalize to absolute path
+    if project_root:
+        project_root = os.path.abspath(project_root)
     requirements_doc_path = context.get("requirements_Doc", "")
     
     # 构造 MR Message
@@ -63,6 +83,19 @@ async def main():
         if os.path.exists(requirements_doc_path):
             with open(requirements_doc_path, "r", encoding="utf-8") as f:
                 requirements_content = f.read()
+    
+    # 过滤 diff，只保留代码文件的修改
+    original_diff_length = len(diff_content)
+    diff_content = filter_code_diff(diff_content)
+    filtered_diff_length = len(diff_content)
+    
+    if original_diff_length != filtered_diff_length:
+        print(f"🔍 已过滤 diff：原始长度 {original_diff_length} 字符 -> 代码文件长度 {filtered_diff_length} 字符")
+    
+    # 在 diff 中添加实际行号注释，帮助 Agent 准确识别行号
+    if project_root and os.path.exists(project_root):
+        diff_content = annotate_diff_with_line_numbers(diff_content, project_root)
+        print(f"✅ 已在 diff 中添加实际行号注释")
     
     file_paths = parse_diff_file_paths(diff_content)
     
@@ -90,6 +123,8 @@ async def main():
     status = "success"
     result = {}
     md_output = ""
+    line_comments_data = None
+    summary_content = ""  # 初始化，避免在异常情况下未定义
 
     try:
         # 执行流程
@@ -101,16 +136,179 @@ async def main():
             requirements_content=requirements_content
         )
 
-        # 构造 MD 格式
+        # 解析 Summary Agent 输出（可能是 JSON 或 Markdown）
         summary_content = result.get("summary", "")
-        # 去掉 summary 中的 markdown 代码块标记
-        if summary_content.startswith("```markdown"):
-            summary_content = summary_content[11:]
-        elif summary_content.startswith("```"):
-            summary_content = summary_content[3:]
-        if summary_content.endswith("```"):
-            summary_content = summary_content[:-3]
-        summary_content = summary_content.strip()
+        line_comments_data = None
+        
+        # 尝试解析为 JSON（新格式）
+        try:
+            json_text = summary_content.strip()
+            # 移除 markdown 代码围栏
+            if json_text.startswith("```json"):
+                json_text = json_text[7:]
+            elif json_text.startswith("```"):
+                json_text = json_text[3:]
+            if json_text.endswith("```"):
+                json_text = json_text[:-3]
+            json_text = json_text.strip()
+            
+            # 尝试解析为 JSON
+            summary_json = json.loads(json_text)
+            if isinstance(summary_json, dict) and "markdown_report" in summary_json:
+                markdown_report = summary_json.get("markdown_report", "")
+                line_comments_data = summary_json.get("line_comments", {})
+                print("✅ 成功解析 Summary Agent 输出为 JSON 格式")
+                
+                # 去掉 markdown 代码块标记（如果有）
+                if markdown_report.startswith("```markdown"):
+                    markdown_report = markdown_report[11:]
+                elif markdown_report.startswith("```"):
+                    markdown_report = markdown_report[3:]
+                if markdown_report.endswith("```"):
+                    markdown_report = markdown_report[:-3]
+                summary_content = markdown_report.strip()
+            else:
+                raise ValueError("不是有效的 summary JSON 格式")
+        except (json.JSONDecodeError, ValueError) as e:
+            # 回退到旧格式（仅 Markdown）
+            print(f"⚠️ Summary 输出不是 JSON，使用旧格式: {e}")
+            # 去掉 summary 中的 markdown 代码块标记
+            if summary_content.startswith("```markdown"):
+                summary_content = summary_content[11:]
+            elif summary_content.startswith("```"):
+                summary_content = summary_content[3:]
+            if summary_content.endswith("```"):
+                summary_content = summary_content[:-3]
+            summary_content = summary_content.strip()
+
+        # 验证和修正 line_comments（如果存在）
+        validated_comments = []
+        original_commit = None  # 在外部定义，确保在 except 块外也能访问
+        if line_comments_data and isinstance(line_comments_data, dict):
+            comments = line_comments_data.get("comments", [])
+            if isinstance(comments, list):
+                # 切换到 head_sha 对应的 commit（如果 project_root 是 git 仓库）
+                if head_sha and project_root and os.path.exists(project_root):
+                    git_dir = os.path.join(project_root, ".git")
+                    if os.path.exists(git_dir) or subprocess.run(
+                        ["git", "-C", project_root, "rev-parse", "--git-dir"],
+                        capture_output=True,
+                        check=False
+                    ).returncode == 0:
+                        try:
+                            # 保存当前 commit
+                            git_result = subprocess.run(
+                                ["git", "-C", project_root, "rev-parse", "HEAD"],
+                                capture_output=True,
+                                text=True,
+                                check=False
+                            )
+                            if git_result.returncode == 0:
+                                original_commit = git_result.stdout.strip()
+                            
+                            # 切换到 head_sha
+                            print(f"🔄 切换到 commit: {head_sha}")
+                            git_result = subprocess.run(
+                                ["git", "-C", project_root, "checkout", head_sha],
+                                capture_output=True,
+                                text=True,
+                                check=False
+                            )
+                            if git_result.returncode != 0:
+                                print(f"⚠️ 无法切换到 commit {head_sha}: {git_result.stderr}")
+                            else:
+                                print(f"✅ 已切换到 commit: {head_sha}")
+                        except Exception as e:
+                            print(f"⚠️ Git checkout 失败: {e}")
+                
+                print(f"🔍 正在验证 {len(comments)} 个行评论...")
+                for comment in comments:
+                    if not isinstance(comment, dict):
+                        continue
+                    
+                    # 验证评论
+                    validated = validate_line_comment_by_file(
+                        comment=comment,
+                        project_root=project_root,
+                        expert_reports=result.get("reports", {}),
+                        diff_content=diff_content
+                    )
+                    
+                    status = validated.get("validation_status", "valid")
+                    
+                    # 如果验证失败，尝试使用 feedback 机制自动修正
+                    if status in ["invalid", "needs_review"]:
+                        from .utils import generate_line_number_feedback, correct_line_number_with_feedback
+                        
+                        # 生成验证反馈
+                        feedback = generate_line_number_feedback(
+                            comment=comment,
+                            project_root=project_root,
+                            diff_content=diff_content,
+                            validation_result=validated
+                        )
+                        
+                        if feedback:
+                            print(f"📝 生成验证反馈:\n{feedback[:200]}...")
+                            
+                            # 尝试自动修正
+                            corrected = correct_line_number_with_feedback(
+                                comment=comment,
+                                project_root=project_root,
+                                diff_content=diff_content,
+                                validation_feedback=feedback
+                            )
+                            
+                            if corrected:
+                                validated = corrected
+                                status = "corrected"
+                                print(f"✅ 通过反馈机制自动修正行号: {comment.get('new_path')}: {comment.get('start_line')}-{comment.get('end_line')} -> {corrected.get('start_line')}-{corrected.get('end_line')}")
+                            else:
+                                # 如果无法自动修正，记录反馈信息
+                                validated["validation_feedback"] = feedback
+                                if status == "invalid":
+                                    error_msg = validated.get("validation_error", "未知错误")
+                                    print(f"⚠️ 无效评论已移除: {comment.get('new_path')}:{comment.get('start_line')} - {error_msg}")
+                                    continue  # 跳过无效评论
+                    
+                    if status == "corrected":
+                        print(f"✅ 已修正行号 {validated.get('new_path')}: {validated.get('original_start_line')}-{validated.get('original_end_line')} -> {validated.get('start_line')}-{validated.get('end_line')}")
+                    elif status == "needs_review":
+                        print(f"⚠️ 评论需要审核: {comment.get('new_path')}:{comment.get('start_line')}")
+                    
+                    # 保存前移除验证元数据
+                    clean_comment = {k: v for k, v in validated.items() 
+                                   if k not in ["validation_status", "original_start_line", "original_end_line", "validation_feedback", "validation_error"]}
+                    
+                    # 在 body 开头添加代码范围信息
+                    start_line = clean_comment.get("start_line")
+                    end_line = clean_comment.get("end_line")
+                    if start_line and end_line:
+                        if start_line == end_line:
+                            range_info = f"问题代码范围：{start_line}"
+                        else:
+                            range_info = f"问题代码范围：{start_line}:{end_line}"
+                        
+                        body = clean_comment.get("body", "")
+                        if body and not body.startswith("问题代码范围："):
+                            clean_comment["body"] = f"{range_info}\n\n{body}"
+                    
+                    validated_comments.append(clean_comment)
+                
+                line_comments_data["comments"] = validated_comments
+                print(f"✅ 已验证 {len(validated_comments)} 个行评论")
+        
+        # 恢复原来的 commit（如果之前切换过）- 移到 if 块外，确保总是执行
+        if original_commit and project_root and os.path.exists(project_root):
+            try:
+                print(f"🔄 恢复原来的 commit: {original_commit}")
+                subprocess.run(
+                    ["git", "-C", project_root, "checkout", original_commit],
+                    capture_output=True,
+                    check=False
+                )
+            except Exception as e:
+                print(f"⚠️ 恢复 commit 失败: {e}")
 
         md_output = f"# 代码审查总结报告\n\n"
         md_output += f"**任务 ID:** {task_id}\n\n"
@@ -135,14 +333,26 @@ async def main():
         # On failure, we might not have a result object, so we ensure summary is at least the error
         if not result.get("summary"):
             result["summary"] = error_msg
+        # 确保 summary_content 有值，即使发生异常
+        if not summary_content:
+            summary_content = error_msg
+        # 确保 md_output 有值
+        if not md_output:
+            md_output = f"# 代码审查执行失败\n\n{error_msg}"
 
     # 保存 result.json
+    result_json = {
+        "llm_result": summary_content,  # 使用解析后的 Markdown 内容，而不是原始 JSON 字符串
+        "status": status,
+        "log_path": log_path
+    }
+    
+    # 添加 line_comments（如果可用）
+    if line_comments_data:
+        result_json["line_comments"] = line_comments_data
+    
     with open(os.path.join(result_path, "result.json"), "w", encoding="utf-8") as f:
-        json.dump({
-            "llm_result": result.get("summary", ""),
-            "status": status,
-            "log_path": log_path
-        }, f, indent=2, ensure_ascii=False)
+        json.dump(result_json, f, indent=2, ensure_ascii=False)
 
     # 兼容旧路径，如果需要的话 (RUN.sh 期待 CR_REPORT.md)
     with open("CR_REPORT.md", "w", encoding="utf-8") as f:

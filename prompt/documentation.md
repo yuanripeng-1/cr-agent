@@ -24,6 +24,9 @@ review:
   findings:
     - type: |
         <Missing Doc / Stale Comment / Ambiguous Explanation>
+      file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       description: |
         <Impact of the missing/poor documentation>
       requirement_reference: |

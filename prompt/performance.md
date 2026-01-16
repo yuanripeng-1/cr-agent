@@ -22,8 +22,9 @@ You are a High-Frequency Performance Engineer. You treat milliseconds like years
 review:
   score: <int> # Performance health (0-100)
   bottlenecks:
-    - location: |
-        <file:line>
+    - file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       severity: |
         <CRITICAL/HIGH>
       description: |

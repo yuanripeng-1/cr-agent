@@ -29,6 +29,9 @@ review:
   findings:
     - type: |
         <Missing Test / Weak Assertion / Flaky Pattern>
+      file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       description: |
         <Why the current testing is inadequate>
       requirement_reference: |
@@ -46,6 +49,9 @@ review:
   findings:
     - type: |
         Missing Test
+      file_path: internal/points.go
+      start_line: 42
+      end_line: 45
       description: |
         New points calculation has multiple branches but no unit tests validate boundary conditions.
       requirement_reference: |
