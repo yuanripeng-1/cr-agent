@@ -62,15 +62,36 @@ LLM_API_BASE=$(grep -E "^api_base" "$CONFIG_FILE" | sed 's/.*= *"\(.*\)".*/\1/')
 
 # 处理相对路径
 if [[ ! "$CONTEXT_JSON_PATH" = /* ]]; then
-    CONTEXT_JSON_PATH="$(dirname "$CONFIG_FILE")/$CONTEXT_JSON_PATH"
+    # 如果 json_path 以 ./ 开头，说明是相对于项目根目录的
+    if [[ "$CONTEXT_JSON_PATH" = ./* ]]; then
+        # 从项目根目录（脚本所在目录）解析
+        CONTEXT_JSON_PATH=$(echo "$CONTEXT_JSON_PATH" | sed 's|^\./||')
+        CONTEXT_JSON_PATH="$SCRIPT_DIR/$CONTEXT_JSON_PATH"
+    else
+        # 否则相对于 config 文件所在目录
+        CONFIG_DIR=$(cd "$(dirname "$CONFIG_FILE")" && pwd)
+        CONTEXT_JSON_PATH="$CONFIG_DIR/$CONTEXT_JSON_PATH"
+    fi
 fi
 
-if [[ ! "$GUIDELINES_PATH" = /* ]]; then
-    GUIDELINES_PATH="$(dirname "$CONFIG_FILE")/$GUIDELINES_PATH"
+if [[ ! "$GUIDELINES_PATH" = /* ]] && [ -n "$GUIDELINES_PATH" ]; then
+    if [[ "$GUIDELINES_PATH" = ./* ]]; then
+        GUIDELINES_PATH=$(echo "$GUIDELINES_PATH" | sed 's|^\./||')
+        GUIDELINES_PATH="$SCRIPT_DIR/$GUIDELINES_PATH"
+    else
+        CONFIG_DIR=$(cd "$(dirname "$CONFIG_FILE")" && pwd)
+        GUIDELINES_PATH="$CONFIG_DIR/$GUIDELINES_PATH"
+    fi
 fi
 
-if [[ ! "$REQUIREMENTS_PATH" = /* ]]; then
-    REQUIREMENTS_PATH="$(dirname "$CONFIG_FILE")/$REQUIREMENTS_PATH"
+if [[ ! "$REQUIREMENTS_PATH" = /* ]] && [ -n "$REQUIREMENTS_PATH" ]; then
+    if [[ "$REQUIREMENTS_PATH" = ./* ]]; then
+        REQUIREMENTS_PATH=$(echo "$REQUIREMENTS_PATH" | sed 's|^\./||')
+        REQUIREMENTS_PATH="$SCRIPT_DIR/$REQUIREMENTS_PATH"
+    else
+        CONFIG_DIR=$(cd "$(dirname "$CONFIG_FILE")" && pwd)
+        REQUIREMENTS_PATH="$CONFIG_DIR/$REQUIREMENTS_PATH"
+    fi
 fi
 
 echo "📄 Context JSON: $CONTEXT_JSON_PATH"

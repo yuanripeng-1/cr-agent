@@ -22,8 +22,9 @@ You are a Code Stylist and Senior Architect. You believe that "code is read much
 review:
   score: <int> # Readability score (0-100)
   suggestions:
-    - location: |
-        <file:line>
+    - file_path: <relative path, e.g. "internal/auth.go">
+      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
+      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
       issue: |
         <description of the cognitive load or naming issue>
       requirement_reference: |

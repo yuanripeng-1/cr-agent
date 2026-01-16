@@ -1,12 +1,13 @@
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import toml
 import yaml
 import re
 from agent.router import CRRouter
-from agent.utils import parse_diff_file_paths, setup_log_redirection
+from agent.utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, parse_diff_line_ranges, filter_code_diff, annotate_diff_with_line_numbers
 
 def clean_and_parse_yaml(text: str):
     """Robustly extract and parse YAML from LLM output."""
@@ -468,11 +469,47 @@ async def run_agent():
     md_output = ""
 
     try:
-        with open(context_cfg["json_path"], "r") as f:
+        json_path = context_cfg.get("json_path", "context.json")
+        # Handle relative path for json_path
+        if not os.path.isabs(json_path):
+            # If json_path starts with ./, it's relative to project root
+            # Otherwise, it's relative to config file directory
+            if json_path.startswith("./"):
+                # Get project root (assume it's the directory containing agent/ folder)
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                json_path = os.path.join(project_root, json_path[2:])  # Remove leading ./
+            else:
+                json_path = os.path.join(os.path.dirname(config_path), json_path)
+        
+        with open(json_path, "r") as f:
             context = json.load(f)
         
         mr_message = f"Title: {context['title']}\nDescription: {context['description']}"
         code_diff = context.get("diff_content", "")
+        
+        # 过滤 diff，只保留代码文件的修改
+        original_diff_length = len(code_diff)
+        code_diff = filter_code_diff(code_diff)
+        filtered_diff_length = len(code_diff)
+        
+        if original_diff_length != filtered_diff_length:
+            print(f"🔍 已过滤 diff：原始长度 {original_diff_length} 字符 -> 代码文件长度 {filtered_diff_length} 字符")
+        
+        # 在 diff 中添加实际行号注释，帮助 Agent 准确识别行号
+        project_root = context.get("project_root", ".")
+        if project_root and os.path.exists(project_root):
+            # 处理相对路径
+            if not os.path.isabs(project_root):
+                if project_root.startswith("./"):
+                    base_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    project_root = os.path.join(base_project_root, project_root[2:])
+                else:
+                    project_root = os.path.join(os.path.dirname(config_path), project_root)
+            project_root = os.path.abspath(project_root)
+            
+            code_diff = annotate_diff_with_line_numbers(code_diff, project_root)
+            print(f"✅ 已在 diff 中添加实际行号注释")
+        
         file_paths = parse_diff_file_paths(code_diff)
         
         # Load Previous Review
@@ -506,34 +543,6 @@ async def run_agent():
             previous_review=previous_review
         )
         
-        # Generate Markdown Report
-        raw_summary = result.get("summary", "").strip()
-        
-        # Clean markdown fences if present
-        if raw_summary.startswith("```"):
-            # Remove ```markdown or just ```
-            lines = raw_summary.splitlines()
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            md_output = "\n".join(lines).strip()
-        else:
-            md_output = raw_summary
-        
-        # Check if the output actually looks like Markdown (starts with # or similar)
-        # If not, it might still be YAML
-        if not md_output.startswith("#") and ("final:" in md_output or "decision:" in md_output):
-            summary_data = clean_and_parse_yaml(md_output)
-            overview = compute_dimension_status_overview(result.get("reports", {}), confidence_threshold=85)
-            rendered = render_from_summary_schema(summary_data, overview=overview)
-            if rendered:
-                md_output = rendered
-
-        print(md_output)
-        with open(os.path.join(result_path, "cr_result.md"), "w") as f: 
-            f.write(md_output)
-        
     except Exception as e:
         status = "failure"
         import traceback
@@ -542,14 +551,202 @@ async def run_agent():
         print(error_msg)
         if not result.get("summary"):
             result["summary"] = error_msg
+    
+    # Generate Markdown Report and extract line_comments (outside try block so line_comments_data is accessible)
+    line_comments_data = None
+    try:
+        raw_summary = result.get("summary", "").strip()
+        
+        # Try to parse as JSON first (new format)
+        try:
+            # Remove markdown code fences if present
+            json_text = raw_summary
+            if json_text.startswith("```json"):
+                json_text = json_text[7:]
+            elif json_text.startswith("```"):
+                json_text = json_text[3:]
+            if json_text.endswith("```"):
+                json_text = json_text[:-3]
+            json_text = json_text.strip()
+            
+            # Try to parse as JSON
+            summary_json = json.loads(json_text)
+            if isinstance(summary_json, dict) and "markdown_report" in summary_json:
+                md_output = summary_json.get("markdown_report", "")
+                line_comments_data = summary_json.get("line_comments", {})
+                print("✅ Successfully parsed Summary Agent output as JSON")
+            else:
+                raise ValueError("Not a valid summary JSON format")
+        except (json.JSONDecodeError, ValueError) as e:
+            # Fallback to old format (Markdown only)
+            print(f"⚠️ Summary output is not JSON, using legacy format: {e}")
+            # Clean markdown fences if present
+            if raw_summary.startswith("```"):
+                lines = raw_summary.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                md_output = "\n".join(lines).strip()
+            else:
+                md_output = raw_summary
+            
+            # Check if the output actually looks like Markdown (starts with # or similar)
+            # If not, it might still be YAML
+            if not md_output.startswith("#") and ("final:" in md_output or "decision:" in md_output):
+                summary_data = clean_and_parse_yaml(md_output)
+                overview = compute_dimension_status_overview(result.get("reports", {}), confidence_threshold=85)
+                rendered = render_from_summary_schema(summary_data, overview=overview)
+                if rendered:
+                    md_output = rendered
+
+        # Validate and fix line_comments if present
+        validated_comments = []
+        if line_comments_data and isinstance(line_comments_data, dict):
+            comments = line_comments_data.get("comments", [])
+            if isinstance(comments, list):
+                # Switch to head_sha commit if project_root is a git repository
+                original_commit = None
+                project_root = context.get("project_root", ".")
+                head_sha = context.get("head_sha", "")
+                
+                # Handle relative path for project_root
+                if project_root and not os.path.isabs(project_root):
+                    if project_root.startswith("./"):
+                        base_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                        project_root = os.path.join(base_project_root, project_root[2:])
+                    else:
+                        project_root = os.path.join(os.path.dirname(config_path), project_root)
+                if project_root:
+                    project_root = os.path.abspath(project_root)
+                
+                if head_sha and project_root and os.path.exists(project_root):
+                    # Check if it's a git repository
+                    git_check = subprocess.run(
+                        ["git", "-C", project_root, "rev-parse", "--git-dir"],
+                        capture_output=True,
+                        check=False
+                    )
+                    if git_check.returncode == 0:
+                        try:
+                            # Save current commit
+                            git_result = subprocess.run(
+                                ["git", "-C", project_root, "rev-parse", "HEAD"],
+                                capture_output=True,
+                                text=True,
+                                check=False
+                            )
+                            if git_result.returncode == 0:
+                                original_commit = git_result.stdout.strip()
+                            
+                            # Switch to head_sha
+                            print(f"🔄 Switching to commit: {head_sha}")
+                            git_result = subprocess.run(
+                                ["git", "-C", project_root, "checkout", head_sha],
+                                capture_output=True,
+                                text=True,
+                                check=False
+                            )
+                            if git_result.returncode != 0:
+                                print(f"⚠️ Failed to checkout commit {head_sha}: {git_result.stderr}")
+                            else:
+                                print(f"✅ Switched to commit: {head_sha}")
+                        except Exception as e:
+                            print(f"⚠️ Git checkout failed: {e}")
+                
+                print(f"🔍 Validating {len(comments)} line comments...")
+                for comment in comments:
+                    if not isinstance(comment, dict):
+                        continue
+                    
+                    # Validate the comment
+                    validated = validate_line_comment_by_file(
+                        comment=comment,
+                        project_root=project_root,
+                        expert_reports=result.get("reports", {}),
+                        diff_content=context.get("diff_content", "")
+                    )
+                    
+                    status = validated.get("validation_status", "valid")
+                    if status == "invalid":
+                        error_msg = validated.get("validation_error", "Unknown error")
+                        print(f"⚠️ Invalid comment removed: {comment.get('new_path')}:{comment.get('start_line')} - {error_msg}")
+                        continue  # Skip invalid comments
+                    elif status == "corrected":
+                        print(f"✅ Corrected line numbers for {validated.get('new_path')}: {validated.get('original_start_line')}-{validated.get('original_end_line')} -> {validated.get('start_line')}-{validated.get('end_line')}")
+                    elif status == "needs_review":
+                        print(f"⚠️ Comment needs review: {comment.get('new_path')}:{comment.get('start_line')}")
+                    
+                    # Remove validation metadata before saving
+                    clean_comment = {k: v for k, v in validated.items() 
+                                   if k not in ["validation_status", "original_start_line", "original_end_line"]}
+                    
+                    # 在 body 开头添加代码范围信息
+                    start_line = clean_comment.get("start_line")
+                    end_line = clean_comment.get("end_line")
+                    if start_line and end_line:
+                        if start_line == end_line:
+                            range_info = f"问题代码范围：{start_line}"
+                        else:
+                            range_info = f"问题代码范围：{start_line}:{end_line}"
+                        
+                        body = clean_comment.get("body", "")
+                        if body and not body.startswith("问题代码范围："):
+                            clean_comment["body"] = f"{range_info}\n\n{body}"
+                    
+                    validated_comments.append(clean_comment)
+                
+                line_comments_data["comments"] = validated_comments
+                print(f"✅ Validated {len(validated_comments)} line comments")
+                
+                # Restore original commit if we switched
+                if original_commit and project_root and os.path.exists(project_root):
+                    try:
+                        print(f"🔄 Restoring original commit: {original_commit}")
+                        subprocess.run(
+                            ["git", "-C", project_root, "checkout", original_commit],
+                            capture_output=True,
+                            check=False
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Failed to restore commit: {e}")
+                
+                # Restore original commit if we switched
+                if original_commit and project_root:
+                    try:
+                        print(f"🔄 Restoring original commit: {original_commit}")
+                        subprocess.run(
+                            ["git", "-C", project_root, "checkout", original_commit],
+                            capture_output=True,
+                            check=False
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Failed to restore commit: {e}")
+
+        print(md_output)
+        with open(os.path.join(result_path, "cr_result.md"), "w") as f: 
+            f.write(md_output)
+    except Exception as e:
+        # If parsing fails, use raw summary as fallback
+        print(f"⚠️ Error parsing summary output: {e}")
+        md_output = result.get("summary", "")
+        with open(os.path.join(result_path, "cr_result.md"), "w") as f: 
+            f.write(md_output)
 
     # Save result.json with the requested fields
+    # Use parsed markdown content instead of raw summary
+    result_json = {
+        "llm_result": md_output if md_output else result.get("summary", ""),
+        "status": status,
+        "log_path": log_path
+    }
+    
+    # Add line_comments if available
+    if line_comments_data:
+        result_json["line_comments"] = line_comments_data
+    
     with open(os.path.join(result_path, "result.json"), "w") as f:
-        json.dump({
-            "llm_result": result.get("summary", ""),
-            "status": status,
-            "log_path": log_path
-        }, f, indent=2, ensure_ascii=False)
+        json.dump(result_json, f, indent=2, ensure_ascii=False)
     
     # Also save the full result for reference
     with open(os.path.join(result_path, "CR_RESULT.json"), "w") as f: 
