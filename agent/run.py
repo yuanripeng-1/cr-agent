@@ -513,10 +513,26 @@ async def run_agent():
         file_paths = parse_diff_file_paths(code_diff)
         
         # Load Previous Review
-        previous_report_path = context.get("previous_report", "")
+        # Support: file path, JSON string, or markdown string
+        previous_report_value = context.get("previous_report", "")
         previous_review = None
-        if previous_report_path and os.path.exists(previous_report_path):
-            with open(previous_report_path, "r") as f: previous_review = json.load(f)
+        if previous_report_value:
+            # First, try as file path
+            if os.path.exists(previous_report_value):
+                with open(previous_report_value, "r") as f:
+                    previous_review = json.load(f)
+            else:
+                # If not a file path, try parsing as JSON string
+                try:
+                    previous_review = json.loads(previous_report_value)
+                except (json.JSONDecodeError, TypeError):
+                    # If parsing fails, treat as markdown string and wrap it as summary
+                    # This allows previous_report to be a simple markdown string
+                    previous_review = {
+                        "reports": {},
+                        "summary": previous_report_value
+                    }
+                    print(f"ℹ️  previous_report is treated as markdown string (used as summary)")
         
         # Load Requirements
         requirements_path = config["project"].get("requirements_path", "")
@@ -735,10 +751,19 @@ async def run_agent():
 
     # Save result.json with the requested fields
     # Use parsed markdown content instead of raw summary
+    # 提取 token 使用信息（汇总所有 Agent 的统计）
+    usage_info = result.get("usage", {}) if isinstance(result, dict) else {}
+    tokens_consume = {
+        "input_tokens": usage_info.get("prompt_tokens", 0),
+        "output_tokens": usage_info.get("completion_tokens", 0),
+        "cost": usage_info.get("cost", 0.0)
+    }
+    
     result_json = {
         "llm_result": md_output if md_output else result.get("summary", ""),
         "status": status,
-        "log_path": log_path
+        "log_path": log_path,
+        "tokens_consume": tokens_consume
     }
     
     # Add line_comments if available

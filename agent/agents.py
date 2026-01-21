@@ -11,14 +11,12 @@ class BaseAgent:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
-    async def call_llm(self, system_prompt: str, user_prompt: str) -> str:
+    async def call_llm(self, system_prompt: str, user_prompt: str) -> tuple[str, dict]:
         """
         Call LLM with retry mechanism for network errors.
         
-        Retries on:
-        - Connection errors (network issues, SSL errors)
-        - Timeout errors
-        - Rate limit errors (with exponential backoff)
+        Returns:
+            tuple: (content, usage_info) where usage_info contains tokens and cost
         """
         last_exception = None
         
@@ -33,7 +31,25 @@ class BaseAgent:
                     temperature=0.2,
                     timeout=120  # 2 minutes timeout
                 )
-                return response.choices[0].message.content
+                
+                content = response.choices[0].message.content
+                
+                # Get token usage and cost
+                usage = getattr(response, 'usage', None)
+                usage_info = {
+                    "prompt_tokens": getattr(usage, 'prompt_tokens', 0),
+                    "completion_tokens": getattr(usage, 'completion_tokens', 0),
+                    "total_tokens": getattr(usage, 'total_tokens', 0),
+                    "cost": 0.0
+                }
+                
+                # Try to get cost if possible
+                try:
+                    usage_info["cost"] = litellm.completion_cost(completion_response=response) or 0.0
+                except Exception:
+                    pass
+                
+                return content, usage_info
                 
             except Exception as e:
                 last_exception = e
@@ -90,7 +106,7 @@ class GenericDimensionAgent(BaseAgent):
         self.system_prompt = system_prompt
         self.dimension_name = dimension_name
 
-    async def run(self, code_diff: str, context_info: str = "", previous_review: str = "", language: str = "python") -> str:
+    async def run(self, code_diff: str, context_info: str = "", previous_review: str = "", language: str = "python") -> tuple[str, dict]:
         # Language-Specific Red Flags
         lang_checks = {
             "python": "- Watch for: Mutable default arguments, broad except: pass, circular imports, misuse of *args/**kwargs.",
@@ -121,7 +137,7 @@ class GenericDimensionAgent(BaseAgent):
 
 class QualityLinterAgent(BaseAgent):
     """Consistency & Style Agent that also runs physical Linter."""
-    async def run(self, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", previous_review: str = "") -> str:
+    async def run(self, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", previous_review: str = "") -> tuple[str, dict]:
         # Linter execution logic
         linter_output = ""
         linter_cmd = []

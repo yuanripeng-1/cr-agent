@@ -40,31 +40,43 @@ class CRRouter:
         for dim in dims_to_run:
             tasks.append(self.agents[dim].run(code_diff, context_info, prev_reports.get(dim, ""), language=language))
 
-        reports = await asyncio.gather(*tasks)
+        # results will be list of (content, usage) tuples
+        results = await asyncio.gather(*tasks)
         
-        # Map results back
-        report_map = {
-            "consistency": reports[0],
-            "business": reports[1],
-            "performance": reports[2],
-            "security": reports[3],
-            "testing": reports[4],
-            "documentation": reports[5],
-            "error_handling": reports[6],
-            "readability": reports[7],
-            "maintainability": reports[8],
-            "dependency": reports[9]
+        # Aggregate reports and tokens
+        report_map = {}
+        report_usages = {}
+        total_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cost": 0.0
         }
 
-        # --- 新增：打印每个维度报告到终端（进而进入 run.log） ---
+        # Order must match tasks.append order
+        dims_order = ["consistency", "business", "performance", "security", "testing", "documentation", "error_handling", "readability", "maintainability", "dependency"]
+        
+        for i, dim in enumerate(dims_order):
+            content, usage = results[i]
+            report_map[dim] = content
+            report_usages[dim] = usage
+            # Aggregate usage
+            total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+            total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+            total_usage["total_tokens"] += usage.get("total_tokens", 0)
+            total_usage["cost"] += usage.get("cost", 0.0)
+
+        # --- 新增：打印每个维度报告和 Token 消耗到终端 ---
         for dim, content in report_map.items():
+            usage = report_usages.get(dim, {})
             print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
+            print(f"Token 消耗: {usage.get('total_tokens', 0)} (Input: {usage.get('prompt_tokens', 0)}, Output: {usage.get('completion_tokens', 0)}, Cost: ${usage.get('cost', 0.0):.6f})")
             print(content)
             print(f"{'='*50}\n")
         # ---------------------------------------------------
 
         print("📝 All expert reports complete. Aggregating...")
-        final_summary = await self.generate_final_summary(
+        final_summary, summary_usage = await self.generate_final_summary(
             report_map,
             previous_review.get("summary", ""),
             mr_message=mr_message,
@@ -72,12 +84,23 @@ class CRRouter:
             code_diff=code_diff,
         )
         
+        print(f"Summary Agent Token 消耗: {summary_usage.get('total_tokens', 0)} (Input: {summary_usage.get('prompt_tokens', 0)}, Output: {summary_usage.get('completion_tokens', 0)}, Cost: ${summary_usage.get('cost', 0.0):.6f})")
+        
+        # Aggregate summary tokens
+        total_usage["prompt_tokens"] += summary_usage.get("prompt_tokens", 0)
+        total_usage["completion_tokens"] += summary_usage.get("completion_tokens", 0)
+        total_usage["total_tokens"] += summary_usage.get("total_tokens", 0)
+        total_usage["cost"] += summary_usage.get("cost", 0.0)
+        
         return {
             "reports": report_map,
-            "summary": final_summary
+            "report_usages": report_usages,
+            "summary": final_summary,
+            "summary_usage": summary_usage,
+            "usage": total_usage
         }
 
-    async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "") -> str:
+    async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "") -> tuple[str, dict]:
         system_prompt = SUMMARY_AGENT_PROMPT
         user_prompt = "### MR MESSAGE\n"
         user_prompt += f"{mr_message}\n\n"
