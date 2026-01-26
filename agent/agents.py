@@ -14,7 +14,8 @@ try:
         APITimeoutError,
         RateLimitError,
         ServiceUnavailableError,
-        ContentFilterViolationError
+        ContentFilterViolationError,
+        Timeout  # litellm's Timeout exception
     )
 except ImportError:
     # Fallback if litellm exceptions are not available
@@ -24,6 +25,7 @@ except ImportError:
     RateLimitError = Exception
     ServiceUnavailableError = Exception
     ContentFilterViolationError = Exception
+    Timeout = Exception
 
 class BaseAgent:
     def __init__(self, model: str = "gpt-4", max_retries: int = 3, retry_delay: float = 2.0):
@@ -44,7 +46,7 @@ class BaseAgent:
         # Check for litellm specific exceptions
         if isinstance(exception, (APIConnectionError, ConnectionError, OSError)):
             return True, "connection"
-        elif isinstance(exception, (APITimeoutError, TimeoutError)):
+        elif isinstance(exception, (Timeout, APITimeoutError, TimeoutError, asyncio.TimeoutError)):
             return True, "timeout"
         elif isinstance(exception, RateLimitError):
             return True, "rate_limit"
@@ -100,8 +102,17 @@ class BaseAgent:
         """
         last_exception = None
         
+        # Calculate dynamic timeout based on prompt length
+        # Base timeout: 180 seconds (3 minutes)
+        # Add 1 second per 1000 characters in prompt (rough estimate)
+        total_prompt_length = len(system_prompt) + len(user_prompt)
+        base_timeout = 180  # 3 minutes base timeout
+        additional_timeout = max(0, (total_prompt_length // 1000) * 1)  # +1s per 1k chars
+        dynamic_timeout = min(base_timeout + additional_timeout, 600)  # Cap at 10 minutes
+        
         for attempt in range(self.max_retries):
             try:
+                current_timeout = int(dynamic_timeout)
                 response = await litellm.acompletion(
                     model=self.model,
                     messages=[
@@ -109,7 +120,7 @@ class BaseAgent:
                         {"role": "user", "content": user_prompt}
                     ],
                     temperature=0.2,
-                    timeout=120  # 2 minutes timeout
+                    timeout=current_timeout  # Dynamic timeout based on prompt size
                 )
                 
                 # Validate response structure
@@ -157,7 +168,11 @@ class BaseAgent:
                     elif error_category == "server_error":
                         delay = max(base_delay, 5.0)   # Server errors need moderate delay
                     elif error_category == "timeout":
-                        delay = base_delay * 1.5        # Timeouts need slightly longer delay
+                        # For timeouts, use longer delay and increase timeout for next attempt
+                        delay = max(base_delay * 2.0, 5.0)  # Timeouts need longer delay
+                        # Increase timeout for next retry attempt (up to 10 minutes)
+                        dynamic_timeout = min(dynamic_timeout * 1.5, 600)
+                        print(f"   下次重试将使用更长的超时时间: {int(dynamic_timeout)} 秒")
                     else:
                         delay = base_delay
                     
@@ -166,6 +181,8 @@ class BaseAgent:
                     print(f"⚠️  LLM 调用失败 (尝试 {attempt + 1}/{self.max_retries})")
                     print(f"   错误类型: {error_category}")
                     print(f"   错误信息: {error_msg}")
+                    if error_category == "timeout":
+                        print(f"   当前超时设置: {current_timeout} 秒")
                     print(f"🔄 {delay:.1f} 秒后重试...")
                     
                     await asyncio.sleep(delay)
@@ -177,6 +194,8 @@ class BaseAgent:
                         print(f"❌ LLM 调用失败，已达到最大重试次数 ({self.max_retries})")
                         print(f"   错误类型: {error_category}")
                         print(f"   错误信息: {error_msg}")
+                        if error_category == "timeout":
+                            print(f"   最终超时设置: {int(dynamic_timeout)} 秒")
                     raise
         
         # If we exhausted all retries, raise the last exception
