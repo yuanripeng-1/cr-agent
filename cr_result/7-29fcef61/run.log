@@ -4334,3 +4334,1244 @@ Summary Agent Token 消耗: 50894 (Input: 48449, Output: 2445, Cost: $0.007467)
   PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
   PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
   return self.__pydantic_serializer__.to_python(
+🔍 已过滤 diff：原始长度 118585 字符 -> 代码文件长度 94683 字符
+✅ 已在 diff 中添加实际行号注释
+📋 Task ID: fa52c22e-1e05-404c-b65a-ebb683acf1b0
+📦 Project ID: 37
+🔀 MR IID: 7
+🌿 Source Branch: phd -> Target Branch: main
+📝 Files Changed: 25
+🚀 Starting 10-dimension analysis for MR: version that can run
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```yaml\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+Token 消耗: 39075 (Input: 37920, Output: 1155, Cost: $0.005632)
+```yaml
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: "agent/code_chunker.py"
+      start_line: 14
+      end_line: 22
+      description: |
+        CodeChunk 类字段命名风格不一致，部分使用下划线命名法（如 chunk_id），部分使用驼峰命名法（如 charCount）
+      requirement_reference: |
+        Python 代码规范要求保持命名风格一致性
+      code_suggestion:
+        existing_code: |
+          chunk_id: str           # 唯一 ID
+          file_path: str          # 文件相对路径
+          start_line: int         # 起始行号
+          end_line: int          # 结束行号
+          content: str           # 代码内容
+          language: str          # 编程语言
+          chunk_type: str        # 类型：block
+          char_count: int        # 字符数
+          line_count: int        # 行数
+        improved_code: |
+          chunk_id: str           # 唯一 ID
+          file_path: str          # 文件相对路径
+          start_line: int         # 起始行号
+          end_line: int           # 结束行号
+          content: str            # 代码内容
+          language: str           # 编程语言
+          chunk_type: str         # 类型：block
+          char_count: int         # 字符数
+          line_count: int         # 行数
+      confidence: 95
+
+    - category: |
+        Structure
+      file_path: "agent/doc_utils.py"
+      start_line: 76
+      end_line: 103
+      description: |
+        新增的 send_build_vector_db_status 函数缺少类型注解，且错误处理不够全面
+      requirement_reference: |
+        Python 代码规范要求公共函数必须有完整类型注解
+      code_suggestion:
+        existing_code: |
+          def send_build_vector_db_status(callback_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        improved_code: |
+          def send_build_vector_db_status(
+              callback_url: str,
+              payload: Dict[str, Any],
+              timeout: int = 30
+          ) -> Dict[str, Any]:
+      confidence: 90
+
+    - category: |
+        Pattern
+      file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 61
+      description: |
+        User 类新增的 full_dict 方法返回的字段与原始数据模型不完全一致，可能导致前端兼容性问题
+      requirement_reference: |
+        数据模型变更需要保持前后端兼容性
+      code_suggestion:
+        existing_code: |
+          def full_dict(self) -> Dict:
+              """转换为完整字典（用于前端显示）"""
+              return {
+                  "sub": self.user_id,
+                  "name": self.raw_info.get("name", self.name),
+                  "display_name": self.raw_info.get("display_name", self.name),
+                  "is_admin": self.raw_info.get("is_admin", False),
+                  "groups": self.groups_raw,
+                  "email": self.email,
+                  "email_verified": self.raw_info.get("email_verified", False),
+                  "phone": self.raw_info.get("phone", ""),
+                  "country_code": self.raw_info.get("country_code", ""),
+                  "created_time": self.raw_info.get("CreatedTime", ""),
+              }
+        improved_code: |
+          def full_dict(self) -> Dict:
+              """转换为完整字典（用于前端显示）"""
+              return {
+                  **self.dict(),  # 包含基础字段
+                  "sub": self.user_id,
+                  "display_name": self.raw_info.get("display_name", self.name),
+                  "is_admin": self.raw_info.get("is_admin", False),
+                  "groups": self.groups_raw,
+                  "email_verified": self.raw_info.get("email_verified", False),
+                  "phone": self.raw_info.get("phone", ""),
+                  "country_code": self.raw_info.get("country_code", ""),
+                  "created_time": self.raw_info.get("CreatedTime", ""),
+                  "raw_info": self.raw_info  # 保留原始数据
+              }
+      confidence: 90
+
+    - category: |
+        Lint
+      file_path: "backend/app/container_manager.py"
+      start_line: 250
+      end_line: 355
+      description: |
+        run_script 方法中文件句柄未正确关闭，可能导致资源泄漏
+      requirement_reference: |
+        Python 资源管理规范要求确保文件句柄被正确关闭
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+          # 注意：不关闭 log_fh，让子进程继承并持续写入
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+          # 子进程会复制文件描述符，主进程可以安全关闭
+      confidence: 95
+```
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+Token 消耗: 38645 (Input: 37659, Output: 986, Cost: $0.005548)
+review:
+  score: 90
+  findings:
+    - requirement_name: |
+        向量数据库构建状态回调
+      file_path: backend/app/routers/callback.py
+      start_line: 15
+      end_line: 43
+      requirement_reference: |
+        接收向量数据库构建状态回调
+      analysis: |
+        回调接口缺少对任务状态的校验，可能导致无效状态更新。应验证任务状态是否为合法值(running/finished/failed)。
+      code_suggestion:
+        existing_code: |
+          @router.post("/build_vector_db_status")
+          async def build_vector_db_status(request: BuildVectorDBStatusRequest):
+              # 缺少状态校验
+              task_manager.update_task_from_callback(...)
+        improved_code: |
+          @router.post("/build_vector_db_status")
+          async def build_vector_db_status(request: BuildVectorDBStatusRequest):
+              if request.status not in ["running", "finished", "failed"]:
+                  raise HTTPException(status_code=400, detail="Invalid status")
+              task_manager.update_task_from_callback(...)
+      confidence: 90
+
+    - requirement_name: |
+        代码切块器初始化
+      file_path: agent/code_chunker.py
+      start_line: 42
+      end_line: 48
+      requirement_reference: |
+        初始化代码切块器
+      analysis: |
+        缺少对输入参数的校验，可能导致无效配置(chunk_size <= chunk_overlap等)。
+      code_suggestion:
+        existing_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: str = "python"
+          ):
+        improved_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: str = "python"
+          ):
+              if chunk_size <= 0 or chunk_overlap < 0:
+                  raise ValueError("Invalid chunk parameters")
+              if chunk_overlap >= chunk_size:
+                  raise ValueError("chunk_overlap must be smaller than chunk_size")
+      confidence: 88
+
+    - requirement_name: |
+        Docker容器名称生成
+      file_path: backend/app/container_manager.py
+      start_line: 37
+      end_line: 93
+      requirement_reference: |
+        生成容器名称（使用双下划线分隔）
+      analysis: |
+        容器名称生成逻辑中，对非法字符的处理不够健壮，可能导致Docker容器创建失败。
+      code_suggestion:
+        existing_code: |
+          def sanitize(s: str) -> str:
+              if re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$', s):
+                  return s.replace("__", "-").lower()
+              else:
+                  hash_val = hashlib.md5(s.encode('utf-8')).hexdigest()[:8]
+                  return f"g{hash_val}"
+        improved_code: |
+          def sanitize(s: str) -> str:
+              if not s:
+                  return "default"
+              # 移除所有非法字符，而不仅仅是替换
+              s = re.sub(r'[^a-zA-Z0-9_.-]', '', s)
+              if not s:
+                  hash_val = hashlib.md5(s.encode('utf-8')).hexdigest()[:8]
+                  return f"g{hash_val}"
+              return s.replace("__", "-").lower()[:63]
+      confidence: 85
+
+  risks:
+    - file_path: agent/code_chunker.py
+      start_line: 132
+      end_line: 135
+      risk: |
+        滑动窗口切块算法中，重叠行数的计算基于固定假设(每行80字符)，可能导致实际重叠不足或过多。
+      mitigation: |
+        应动态计算平均行长度或提供更精确的重叠控制参数。
+      confidence: 87
+
+    - file_path: backend/app/container_manager.py
+      start_line: 250
+      end_line: 352
+      risk: |
+        脚本执行逻辑中，Python版本检测可能失败，导致任务无法启动。
+      mitigation: |
+        应提供更友好的错误提示，并明确记录Python版本要求。
+      confidence: 86
+
+    - file_path: frontend/src/app/page.tsx
+      start_line: 234
+      end_line: 295
+      risk: |
+        前端表单提交逻辑缺少对任务状态的实时反馈，用户体验不佳。
+      mitigation: |
+        应添加任务状态轮询和进度显示功能。
+      confidence: 85
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+Token 消耗: 38128 (Input: 37326, Output: 802, Cost: $0.005450)
+review:
+  score: 92
+  bottlenecks:
+    - file_path: "agent/code_chunker.py"
+      start_line: 100
+      end_line: 102
+      severity: |
+        HIGH
+      description: |
+        滑动窗口切块算法中字符计数循环存在潜在性能问题：每次循环都执行字符串长度计算(len(lines[end_line_idx]))，对于大文件会导致O(N^2)复杂度
+      requirement_reference: |
+        代码切块需要支持大文件处理（100KB+）
+      code_suggestion:
+        existing_code: |
+          while end_line_idx < len(lines) and char_count < self.chunk_size:
+              char_count += len(lines[end_line_idx]) + 1  # +1 for newline
+              end_line_idx += 1
+        improved_code: |
+          line_lengths = [len(line) + 1 for line in lines]  # 预计算所有行长度
+          while end_line_idx < len(lines) and char_count < self.chunk_size:
+              char_count += line_lengths[end_line_idx]
+              end_line_idx += 1
+      confidence: 92
+
+    - file_path: "agent/generate_sub_docs.py"
+      start_line: 136
+      end_line: 141
+      severity: |
+        HIGH
+      description: |
+        文件大小检查时对每个文件都发起独立的docker exec调用，IO开销极大。对于500个文件会产生500次容器命令执行。
+      requirement_reference: |
+        批量处理需要控制IO开销
+      code_suggestion:
+        existing_code: |
+          size_result = subprocess.run(
+              ["docker", "exec", container_id, "stat", "-c", "%s", f],
+              capture_output=True,
+              text=True,
+              timeout=5
+          )
+        improved_code: |
+          # 批量获取文件大小（通过单个docker exec执行find命令）
+          cmd = f"docker exec {container_id} find {' '.join(files)} -exec stat -c '%s %n' {{}} +"
+          size_result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+      confidence: 90
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 340
+      end_line: 347
+      severity: |
+        HIGH
+      description: |
+        子进程日志文件句柄未正确关闭，长期运行可能导致文件描述符泄漏
+      requirement_reference: |
+        资源管理要求无泄漏
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+      confidence: 95
+
+    - file_path: "backend/app/auth.py"
+      start_line: 74
+      end_line: 75
+      severity: |
+        HIGH
+      description: |
+        Tokfinity API调用超时时间从5秒增加到10秒，但未考虑重试机制，网络不稳定时可能导致认证失败
+      requirement_reference: |
+        认证服务需要高可用性
+      code_suggestion:
+        existing_code: |
+          timeout=10.0  # 增加超时时间
+        improved_code: |
+          timeout=10.0  # 增加超时时间
+          max_retries=2  # 增加重试机制
+          retry_delay=1.0
+      confidence: 88
+==================================================
+
+
+==================== SECURITY REPORT ====================
+Token 消耗: 38143 (Input: 37338, Output: 805, Cost: $0.005453)
+review:
+  score: 85
+  vulnerabilities:
+    - file_path: "agent/tools/retriever_tool.py"
+      start_line: 196
+      end_line: 209
+      severity: |
+        HIGH
+      category: |
+        A03:2021-Injection
+      description: |
+        在`_generate_embedding`方法中直接使用OpenAI API密钥进行请求，没有对API密钥进行安全处理或隐藏。如果API密钥被泄露，可能导致未经授权的API调用和费用损失。
+      requirement_reference: |
+        安全要求：敏感信息如API密钥应当进行加密存储或使用环境变量管理
+      code_suggestion: |
+        existing_code: |
+          client = OpenAI(
+              base_url=self.embedding_base_url,
+              api_key=self.embedding_api_key
+          )
+        improved_code: |
+          # 应该从安全配置或环境变量获取API密钥
+          client = OpenAI(
+              base_url=os.getenv('EMBEDDING_BASE_URL'),
+              api_key=os.getenv('EMBEDDING_API_KEY')
+          )
+      exploit_scenario: |
+        攻击者可以通过反编译或日志文件获取到硬编码的API密钥，然后滥用该密钥进行大量API调用，导致服务中断或产生高额费用。
+      confidence: 90
+
+    - file_path: "backend/app/auth.py"
+      start_line: 74
+      end_line: 92
+      severity: |
+        MEDIUM
+      category: |
+        A01:2021-Broken Access Control
+      description: |
+        Token验证过程中没有对HTTP请求设置足够的超时时间和重试机制，可能导致DoS攻击或服务不可用。
+      requirement_reference: |
+        安全要求：外部服务调用应当设置合理的超时和重试机制
+      code_suggestion: |
+        existing_code: |
+          async with httpx.AsyncClient() as client:
+              try:
+                  response = await client.get(
+                      url,
+                      headers={"Authorization": f"Bearer {token}"},
+                      timeout=10.0  # 增加超时时间
+                  )
+        improved_code: |
+          async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+              try:
+                  response = await client.get(
+                      url,
+                      headers={"Authorization": f"Bearer {token}"},
+                      follow_redirects=True
+                  )
+      exploit_scenario: |
+        攻击者可以发送大量慢速请求或无效token，导致服务线程被占用，无法处理正常请求。
+      confidence: 85
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 342
+      end_line: 347
+      severity: |
+        MEDIUM
+      category: |
+        A06:2021-Vulnerable and Outdated Components
+      description: |
+        在运行子进程时没有限制资源使用(CPU/内存)，可能导致资源耗尽攻击。
+      requirement_reference: |
+        安全要求：子进程执行应当限制资源使用
+      code_suggestion: |
+        existing_code: |
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          import resource
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True,
+              preexec_fn=lambda: resource.setrlimit(
+                  resource.RLIMIT_CPU, 
+                  (10, 10))  # 限制CPU时间
+          )
+      exploit_scenario: |
+        攻击者可以提交恶意代码导致子进程无限循环或消耗大量资源，影响系统稳定性。
+      confidence: 85
+==================================================
+
+
+==================== TESTING REPORT ====================
+Token 消耗: 38782 (Input: 37524, Output: 1258, Cost: $0.005606)
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Test
+      file_path: agent/code_chunker.py
+      start_line: 39
+      end_line: 183
+      description: |
+        CodeChunker 类实现了核心的代码切块逻辑，但没有对应的单元测试来验证其功能正确性。
+        需要测试边界条件如空文件、单行文件、超大文件、不同编程语言等情况。
+      requirement_reference: |
+        代码切块功能是向量化的基础，必须保证切块逻辑的正确性和鲁棒性。
+      code_suggestion:
+        existing_code: |
+          class CodeChunker:
+              def __init__(self, chunk_size=500, chunk_overlap=50, max_chunks_per_file=100, language="python"):
+                  self.chunk_size = chunk_size
+                  self.chunk_overlap = chunk_overlap
+                  self.max_chunks_per_file = max_chunks_per_file
+                  self.language = language
+              
+              def chunk_code(self, file_path: str, content: str) -> List[CodeChunk]:
+                  return self._chunk_by_sliding_window(file_path, content)
+        improved_code: |
+          # 测试用例示例
+          def test_chunk_empty_file():
+              chunker = CodeChunker()
+              chunks = chunker.chunk_code("empty.py", "")
+              assert len(chunks) == 0
+              
+          def test_chunk_single_line():
+              chunker = CodeChunker(chunk_size=10)
+              chunks = chunker.chunk_code("single.py", "print('hello')")
+              assert len(chunks) == 1
+              assert chunks[0].line_count == 1
+      confidence: 95
+
+    - type: |
+        Missing Test
+      file_path: agent/tools/retriever_tool.py
+      start_line: 21
+      end_line: 244
+      description: |
+        RetrieverTool 实现了向量检索的核心功能，但没有单元测试验证其正确性。
+        需要测试不同查询、边界条件和错误处理场景。
+      requirement_reference: |
+        向量检索是系统的核心功能，必须保证其可靠性和正确性。
+      code_suggestion:
+        existing_code: |
+          class RetrieverTool(Tool):
+              def __init__(self, executor, vector_db_path, embedding_model_name, embedding_base_url, embedding_api_key):
+                  self.vector_db_path = vector_db_path
+                  self._index = None
+                  self._chunks = None
+                  self._meta = None
+                  self._loaded = False
+        improved_code: |
+          # 测试用例示例
+          def test_retriever_empty_query():
+              tool = RetrieverTool(...)
+              result = tool.container_execute({"query": ""})
+              assert result.error == "query 参数不能为空"
+              
+          def test_retriever_valid_query():
+              tool = RetrieverTool(...)
+              result = tool.container_execute({"query": "用户认证"})
+              assert len(result.output) > 0
+      confidence: 90
+
+    - type: |
+        Missing Test
+      file_path: backend/app/container_manager.py
+      start_line: 16
+      end_line: 393
+      description: |
+        ContainerManager 实现了 Docker 容器管理的关键功能，但没有单元测试验证其正确性。
+        需要测试容器创建、删除、命令执行等核心功能。
+      requirement_reference: |
+        容器管理是任务执行的基础，必须保证其可靠性和正确性。
+      code_suggestion:
+        existing_code: |
+          class ContainerManager:
+              def create_container(self, container_name: str) -> str:
+                  try:
+                      existing = self.client.containers.get(container_name)
+                      existing.remove(force=True)
+                  except docker.errors.NotFound:
+                      pass
+        improved_code: |
+          # 测试用例示例
+          def test_create_container():
+              manager = ContainerManager()
+              container_id = manager.create_container("test-container")
+              assert len(container_id) > 0
+              
+          def test_delete_container():
+              manager = ContainerManager()
+              manager.delete_container("test-container")
+              assert manager.get_container_by_name("test-container") is None
+      confidence: 90
+
+    - type: |
+        Missing Test
+      file_path: backend/app/path_manager.py
+      start_line: 1
+      end_line: 377
+      description: |
+        PathManager 实现了复杂的路径管理逻辑，但没有单元测试验证其正确性。
+        需要测试各种路径组合和边界条件。
+      requirement_reference: |
+        路径管理是数据隔离和多版本支持的基础，必须保证其正确性。
+      code_suggestion:
+        existing_code: |
+          class PathManager:
+              def get_wiki_path(self, group_id, source_type, doc_type, version, platform, owner, repo, branch, commit_sha, upload_id):
+                  if source_type == "git":
+                      commit_short = commit_sha[:8] if len(commit_sha) > 8 else commit_sha
+                      path = base / platform / owner / repo / branch / commit_short / doc_type / f"v{version}"
+        improved_code: |
+          # 测试用例示例
+          def test_get_wiki_path_git():
+              manager = PathManager()
+              path = manager.get_wiki_path("group1", "git", "arch", 1, "github.com", "owner", "repo", "main", "abcdef1234567890")
+              assert "github.com/owner/repo/main/abcdef12/arch/v1" in str(path)
+              
+          def test_get_wiki_path_upload():
+              manager = PathManager()
+              path = manager.get_wiki_path("group1", "upload", "subdocs", 1, upload_id="upload123")
+              assert "upload/upload123/subdocs/v1" in str(path)
+      confidence: 90
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+Token 消耗: 38389 (Input: 37325, Output: 1064, Cost: $0.005523)
+review:
+  score: 92
+  findings:
+    - type: |
+        Missing Doc
+      file_path: backend/app/container_manager.py
+      start_line: 16
+      end_line: 393
+      description: |
+        ContainerManager类作为核心Docker容器管理组件，缺乏完整的类级别文档字符串，包括功能概述、主要方法和使用示例。
+        这会影响其他开发人员理解和使用该组件。
+      requirement_reference: |
+        核心组件文档要求
+      code_suggestion: |
+        improved_code: |
+          class ContainerManager:
+              """
+              Docker容器管理器
+              
+              功能：
+              - 创建/删除任务容器
+              - 在容器内执行代码克隆
+              - 管理容器生命周期
+              - 执行Agent脚本
+              
+              典型用法：
+                manager = ContainerManager()
+                container_id = manager.create_container("test-container")
+                manager.run_script(container_id, "build.py", ["--arg1", "value1"])
+              """
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/routers/callback.py
+      start_line: 1
+      end_line: 102
+      description: |
+        回调路由模块缺乏模块级文档字符串，未说明整体设计思路和回调机制。
+        这会影响后续维护人员理解回调流程。
+      requirement_reference: |
+        API接口文档规范
+      code_suggestion: |
+        improved_code: |
+          """
+          Agent回调路由（Agent → Backend）
+          
+          设计说明：
+          1. 采用异步处理机制
+          2. 支持三种回调类型：
+             - 向量库构建状态
+             - 架构文档生成状态  
+             - 子文档生成状态
+          3. 实时更新任务状态到前端
+          
+          安全要求：
+          - 所有回调需验证任务ID有效性
+          - 错误状态需记录详细日志
+          """
+      confidence: 88
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/routers/task.py
+      start_line: 1
+      end_line: 186
+      description: |
+        任务管理路由模块缺乏模块级文档字符串，未说明整体设计架构和状态流转机制。
+        这会影响后续功能扩展和维护。
+      requirement_reference: |
+        任务系统架构文档
+      code_suggestion: |
+        improved_code: |
+          """
+          任务管理路由
+          
+          架构设计：
+          - 采用状态机模式管理任务生命周期
+          - 支持三种操作类型：
+            1. 生成架构文档
+            2. 生成子文档
+            3. 同时生成两者
+          
+          状态流转：
+          QUEUED → RUNNING → (INDEXING|GENERATING_ARCH|GENERATING_SUBDOCS) → COMPLETED
+                              ↘ FAILED/CANCELLED
+          """
+      confidence: 89
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/models.py
+      start_line: 1
+      end_line: 214
+      description: |
+        模型文件缺乏模块级文档字符串，未说明模型分类和设计原则。
+        这会影响模型维护和新模型添加。
+      requirement_reference: |
+        数据模型规范文档
+      code_suggestion: |
+        improved_code: |
+          """
+          请求和响应的Pydantic模型
+          
+          模型分类：
+          1. 枚举类型：TaskStatus, DocType, Operation
+          2. 任务管理模型
+          3. Wiki文档模型
+          4. 仓库管理模型
+          5. 上传/反馈模型
+          6. Agent回调模型
+          
+          设计原则：
+          - 所有API请求/响应必须使用模型验证
+          - 模型字段需明确描述和示例
+          """
+      confidence: 87
+
+    - type: |
+        Missing Doc
+      file_path: agent/tools/retriever_tool.py
+      start_line: 21
+      end_line: 28
+      description: |
+        RetrieverTool初始化方法参数缺乏详细说明，特别是embedding相关参数的作用和格式要求。
+        这会影响工具的正确配置和使用。
+      requirement_reference: |
+        工具开发规范文档
+      code_suggestion: |
+        improved_code: |
+          def __init__(
+              self, 
+              executor: Executor,
+              vector_db_path: str,
+              embedding_model_name: str = "text-embedding-3-small",
+              embedding_base_url: str = "https://api.openai.com/v1",
+              embedding_api_key: str = ""
+          ) -> None:
+              """
+              初始化向量检索工具
+              
+              Args:
+                  executor: Docker容器执行器
+                  vector_db_path: 向量数据库路径(需包含faiss.index和chunks.jsonl)
+                  embedding_model_name: embedding模型名称(如"text-embedding-3-small")
+                  embedding_base_url: embedding API基础URL
+                  embedding_api_key: API访问密钥
+              """
+      confidence: 91
+
+暂未发现其他高置信度问题
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+Token 消耗: 37983 (Input: 37332, Output: 651, Cost: $0.005409)
+review:
+  score: 90
+  issues:
+    - category: |
+        Resource Leak
+      file_path: backend/app/container_manager.py
+      start_line: 340
+      end_line: 348
+      description: |
+        在 `run_script` 方法中，日志文件句柄 `log_fh` 被打开但没有显式关闭，可能导致文件描述符泄漏。虽然子进程会继承文件句柄，但最佳实践是确保所有资源都被正确释放。
+      requirement_reference: |
+        核心原则3：Cleanup - 确保资源（如文件句柄）被正确释放
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+      confidence: 90
+
+    - category: |
+        Poor Observability
+      file_path: agent/doc_utils.py
+      start_line: 96
+      end_line: 103
+      description: |
+        `send_build_vector_db_status` 函数中的网络请求错误处理仅返回了简单的错误消息，没有记录完整的错误上下文（如请求URL、响应状态码等），这会增加调试难度。
+      requirement_reference: |
+        核心原则3：Observability - 错误日志应包含足够上下文
+      code_suggestion:
+        existing_code: |
+          except requests.exceptions.RequestException as e:
+              return {
+                  "succeed": False,
+                  "message": f"发送向量数据库状态失败: {str(e)}"
+              }
+        improved_code: |
+          except requests.exceptions.RequestException as e:
+              logging.error(
+                  f"Failed to send status to {url}: {str(e)}",
+                  exc_info=True,
+                  extra={"payload": payload}
+              )
+              return {
+                  "succeed": False,
+                  "message": f"发送向量数据库状态失败: {str(e)}"
+              }
+      confidence: 88
+
+    - category: |
+        Silent Failure
+      file_path: agent/generate_sub_docs.py
+      start_line: 148
+      end_line: 149
+      description: |
+        在 `scan_code_files` 函数中，捕获异常后仅打印错误并返回空列表，没有记录完整的错误堆栈，可能导致潜在问题被忽略。
+      requirement_reference: |
+        核心原则1：No Silent Failures - 所有错误都应被记录
+      code_suggestion:
+        existing_code: |
+          except Exception as e:
+              print(f"Error scanning files: {e}")
+              return []
+        improved_code: |
+          except Exception as e:
+              logging.error(f"Error scanning files: {e}", exc_info=True)
+              return []
+      confidence: 85
+==================================================
+
+
+==================== READABILITY REPORT ====================
+Token 消耗: 38578 (Input: 37312, Output: 1266, Cost: $0.005578)
+review:
+  score: 85
+  suggestions:
+    - file_path: "agent/code_chunker.py"
+      start_line: 76
+      end_line: 76
+      issue: |
+        方法名称 `_chunk_by_sliding_window` 不够直观，未能清晰表达其核心算法逻辑
+      requirement_reference: |
+        Core Principles 1: Names should describe *intent*, not *implementation*
+      code_suggestion:
+        existing_code: |
+          def _chunk_by_sliding_window(self, file_path: str, content: str) -> List[CodeChunk]:
+        improved_code: |
+          def _split_code_with_overlapping_chunks(self, file_path: str, content: str) -> List[CodeChunk]:
+      confidence: 90
+
+    - file_path: "agent/tools/retriever_tool.py"
+      start_line: 193
+      end_line: 209
+      issue: |
+        `_generate_embedding` 方法直接依赖 OpenAI 客户端，缺乏抽象层，不利于测试和未来扩展
+      requirement_reference: |
+        Core Principles 3: Keep abstraction levels consistent
+      code_suggestion:
+        existing_code: |
+          def _generate_embedding(self, text: str) -> np.ndarray:
+              from openai import OpenAI
+              
+              client = OpenAI(
+                  base_url=self.embedding_base_url,
+                  api_key=self.embedding_api_key
+              )
+              
+              response = client.embeddings.create(
+                  model=self.embedding_model_name,
+                  input=text
+              )
+              
+              embedding = response.data[0].embedding
+              return np.array([embedding], dtype=np.float32)
+        improved_code: |
+          def _generate_embedding(self, text: str) -> np.ndarray:
+              """通过嵌入模型生成文本向量"""
+              return self.embedding_client.create_embedding(
+                  text=text,
+                  model=self.embedding_model_name
+              )
+      confidence: 88
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 262
+      end_line: 300
+      issue: |
+        Python 版本检查逻辑过于复杂且硬编码，应考虑使用更优雅的版本管理方案
+      requirement_reference: |
+        Core Principles 2: Functions should be small, focused
+      code_suggestion:
+        existing_code: |
+          # 候选 Python 路径（包括 pyenv 直接路径）
+          pyenv_home = Path.home() / ".pyenv" / "versions"
+          python_candidates = [
+              "python3.12", "python3.13", "python3", "python"
+          ]
+          
+          # 如果 pyenv 存在，添加直接路径
+          if pyenv_home.exists():
+              for version_dir in pyenv_home.glob("3.1*"):
+                  py_bin = version_dir / "bin" / "python3"
+                  if py_bin.exists():
+                      python_candidates.insert(0, str(py_bin))
+          
+          for py in python_candidates:
+              try:
+                  result = subprocess.run(
+                      [py, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                      capture_output=True,
+                      text=True,
+                      timeout=5
+                  )
+                  if result.returncode == 0:
+                      version = result.stdout.strip()
+                      major, minor = map(int, version.split('.'))
+                      if major == 3 and minor >= 12:
+                          python_cmd = py
+                          logger.info(f"Using Python: {py} (version {version})")
+                          break
+                      else:
+                          logger.debug(f"{py} version {version} is too old (need 3.12+)")
+              except Exception as e:
+                  logger.debug(f"Failed to check {py}: {e}")
+                  continue
+        improved_code: |
+          def _find_python_executable(min_version: tuple = (3, 12)) -> str:
+              """查找符合版本要求的 Python 可执行文件"""
+              # 实现更简洁的版本查找逻辑
+              ...
+      confidence: 85
+
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 61
+      issue: |
+        `User` 类的 `full_dict` 方法直接暴露原始用户信息，存在潜在安全风险
+      requirement_reference: |
+        Security Best Practices: Sensitive data exposure
+      code_suggestion:
+        existing_code: |
+          def full_dict(self) -> Dict:
+              """转换为完整字典（用于前端显示）"""
+              return {
+                  "sub": self.user_id,
+                  "name": self.raw_info.get("name", self.name),
+                  "display_name": self.raw_info.get("display_name", self.name),
+                  "is_admin": self.raw_info.get("is_admin", False),
+                  "groups": self.groups_raw,
+                  "email": self.email,
+                  "email_verified": self.raw_info.get("email_verified", False),
+                  "phone": self.raw_info.get("phone", ""),
+                  "country_code": self.raw_info.get("country_code", ""),
+                  "created_time": self.raw_info.get("CreatedTime", ""),
+              }
+        improved_code: |
+          def full_dict(self) -> Dict:
+              """转换为安全过滤后的字典（用于前端显示）"""
+              return {
+                  "sub": self.user_id,
+                  "name": self.raw_info.get("name", self.name),
+                  "display_name": self.raw_info.get("display_name", self.name),
+                  "is_admin": self.raw_info.get("is_admin", False),
+                  "groups": [g for g in self.groups_raw if isinstance(g, str)],  # 过滤掉敏感信息
+                  "email": self.email if self.email_verified else "",
+                  # 其他非敏感字段...
+              }
+      confidence: 87
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+Token 消耗: 38444 (Input: 37273, Output: 1171, Cost: $0.005546)
+review:
+  score: 90
+  findings:
+    - category: |
+        Technical Debt
+      file_path: "backend/app/container_manager.py"
+      start_line: 260
+      end_line: 300
+      description: |
+        检测Python版本的逻辑过于复杂且脆弱，存在硬编码路径和版本检查逻辑。这会导致维护困难，特别是在不同环境中部署时。
+        建议使用标准库的sys.version_info进行版本检查，或者使用pyenv的API来检测可用版本。
+      requirement_reference: |
+        系统应具备良好的可移植性和易于维护性
+      code_suggestion:
+        existing_code: |
+          # 候选 Python 路径（包括 pyenv 直接路径）
+          pyenv_home = Path.home() / ".pyenv" / "versions"
+          python_candidates = [
+              "python3.12", "python3.13", "python3", "python"
+          ]
+          
+          # 如果 pyenv 存在，添加直接路径
+          if pyenv_home.exists():
+              for version_dir in pyenv_home.glob("3.1*"):
+                  py_bin = version_dir / "bin" / "python3"
+                  if py_bin.exists():
+                      python_candidates.insert(0, str(py_bin))
+        improved_code: |
+          import sys
+          if sys.version_info >= (3, 12):
+              python_cmd = sys.executable
+          else:
+              raise RuntimeError("Python 3.12+ is required")
+      confidence: 90
+
+    - category: |
+        Coupling
+      file_path: "backend/app/container_manager.py"
+      start_line: 302
+      end_line: 318
+      description: |
+        依赖安装检查使用标记文件(.deps_installed)的方式不够可靠，可能导致依赖状态不一致。
+        这种硬编码的检查方式增加了维护成本，且在多实例部署时可能导致问题。
+      requirement_reference: |
+        系统应具备可靠的依赖管理机制
+      code_suggestion:
+        existing_code: |
+          # 确保 agent 依赖已安装（只安装一次，使用标记文件）
+          install_marker = agent_dir / ".deps_installed"
+          if not install_marker.exists() and requirements_path.exists():
+              logger.info("Installing agent dependencies...")
+              pip_cmd = python_cmd.replace("python", "pip")
+              install_result = subprocess.run(
+                  [pip_cmd, "install", "-q", "-r", str(requirements_path)],
+                  capture_output=True,
+                  text=True,
+                  timeout=300  # 5分钟超时
+              )
+        improved_code: |
+          # 每次运行时检查并安装依赖
+          if requirements_path.exists():
+              logger.info("Installing/updating agent dependencies...")
+              subprocess.run(
+                  [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+                  check=True,
+                  timeout=300
+              )
+      confidence: 85
+
+    - category: |
+        Abstraction
+      file_path: "agent/code_chunker.py"
+      start_line: 142
+      end_line: 183
+      description: |
+        语言检测逻辑(_detect_language)硬编码了文件扩展名映射，缺乏扩展性。
+        这种实现方式使得添加新语言支持时需要修改代码，违反了开闭原则。
+      requirement_reference: |
+        系统应支持灵活的语言扩展
+      code_suggestion:
+        existing_code: |
+          def _detect_language(self, file_path: str) -> str:
+              """
+              根据文件扩展名检测编程语言
+              """
+              ext_map = {
+                  '.py': 'python',
+                  '.js': 'javascript',
+                  # ... 其他硬编码映射
+              }
+        improved_code: |
+          def _detect_language(self, file_path: str) -> str:
+              """
+              根据文件扩展名检测编程语言，支持从配置加载
+              """
+              # 从配置或外部文件加载语言映射
+              ext_map = self._load_language_map()  
+              # 默认映射
+              ext_map.setdefault('.py', 'python')
+              ext_map.setdefault('.js', 'javascript')
+      confidence: 88
+
+    - category: |
+        Technical Debt
+      file_path: "backend/app/main.py"
+      start_line: 17
+      end_line: 74
+      description: |
+        Docker镜像检查与构建逻辑直接使用subprocess调用shell命令，存在安全风险且难以维护。
+        这种实现方式缺乏错误处理的细粒度控制，且日志输出不够结构化。
+      requirement_reference: |
+        系统启动过程应具备良好的错误处理和日志记录
+      code_suggestion:
+        existing_code: |
+          # 检查镜像是否存在
+          check_cmd = f"docker images -q {image_name}"
+          result = subprocess.run(
+              check_cmd,
+              shell=True,
+              capture_output=True,
+              text=True,
+              timeout=10
+          )
+        improved_code: |
+          # 使用docker SDK替代shell命令
+          try:
+              client = docker.from_env()
+              client.images.get(image_name)
+              logger.info(f"✅ Docker 镜像已存在: {image_name}")
+          except docker.errors.ImageNotFound:
+              logger.warning(f"⚠️  Docker 镜像不存在，开始构建: {image_name}")
+              # 使用docker SDK构建镜像
+              client.images.build(
+                  path=str(project_root),
+                  dockerfile=str(dockerfile_path),
+                  tag=image_name
+              )
+      confidence: 90
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+Token 消耗: 38146 (Input: 37287, Output: 859, Cost: $0.005461)
+review:
+  score: 90
+  analysis:
+    - type: |
+        Security
+      file_path: backend/app/auth.py
+      start_line: 74
+      end_line: 75
+      description: |
+        Tokfinity API 调用超时时间从5秒增加到10秒，但没有考虑重试机制。对于关键的身份验证服务，建议增加重试逻辑以提高可靠性。
+      requirement_reference: |
+        关键服务应具备重试机制以应对临时性网络问题
+      code_suggestion: |
+        existing_code: |
+          timeout=10.0  # 增加超时时间
+        improved_code: |
+          timeout=10.0,  # 增加超时时间
+          retries=2,  # 增加重试次数
+      confidence: 90
+
+    - type: |
+        Security
+      file_path: backend/app/config.py
+      start_line: 53
+      end_line: 59
+      description: |
+        LLM和Embedding的API密钥配置为空字符串默认值，这可能导致生产环境安全问题。建议至少设置为None或从环境变量强制获取。
+      requirement_reference: |
+        敏感配置不应有默认值
+      code_suggestion: |
+        existing_code: |
+          LLM_API_KEY: str = ""
+          EMBEDDING_API_KEY: str = ""
+        improved_code: |
+          LLM_API_KEY: str = Field(..., env="LLM_API_KEY")
+          EMBEDDING_API_KEY: str = Field(..., env="EMBEDDING_API_KEY") 
+      confidence: 95
+
+    - type: |
+        Versioning
+      file_path: backend/app/container_manager.py
+      start_line: 287
+      end_line: 300
+      description: |
+        Python版本检查强制要求3.12+，但没有提供友好的降级方案或兼容层。这可能导致部署问题。
+      requirement_reference: |
+        关键依赖应有降级方案
+      code_suggestion: |
+        existing_code: |
+          raise RuntimeError(
+            "Python 3.12+ not found. Agent code requires Python 3.12+ for typing.override support.\n"
+            "Please install: pyenv install 3.12.11 && pyenv global 3.12.11"
+          )
+        improved_code: |
+          logger.warning("Python 3.12+ recommended but not required. Falling back to runtime checks...")
+          # 添加运行时兼容性检查逻辑
+      confidence: 88
+
+    - type: |
+        Security
+      file_path: agent/tools/retriever_tool.py
+      start_line: 196
+      end_line: 209
+      description: |
+        OpenAI客户端调用没有设置超时时间，可能导致长时间阻塞。建议添加合理的超时配置。
+      requirement_reference: |
+        外部API调用应有超时限制
+      code_suggestion: |
+        existing_code: |
+          response = client.embeddings.create(
+            model=self.embedding_model_name,
+            input=text
+          )
+        improved_code: |
+          response = client.embeddings.create(
+            model=self.embedding_model_name,
+            input=text,
+            timeout=30.0  # 30秒超时
+          )
+      confidence: 92
+
+    - type: |
+        Security
+      file_path: backend/app/container_manager.py
+      start_line: 171
+      end_line: 177
+      description: |
+        Git克隆时直接在URL中插入token，这可能在日志中泄露敏感信息。建议使用环境变量或临时文件方式传递token。
+      requirement_reference: |
+        敏感信息不应出现在命令行或日志中
+      code_suggestion: |
+        existing_code: |
+          git_url_with_token = git_url.replace("https://", f"https://{access_token}@")
+        improved_code: |
+          # 使用GIT_ASKPASS或环境变量传递token
+          env = {"GIT_PASSWORD": access_token}
+          clone_cmd = f"git clone {git_url}"
+      confidence: 95
+==================================================
+
+📝 All expert reports complete. Aggregating...
+Summary Agent Token 消耗: 50249 (Input: 48488, Output: 1761, Cost: $0.007281)
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+✅ 已切换到 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+🔍 正在验证 5 个行评论...
+✅ 已验证 5 个行评论
+🔄 恢复原来的 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
