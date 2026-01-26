@@ -3072,3 +3072,1265 @@ review:
   PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
   PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
   return self.__pydantic_serializer__.to_python(
+🔍 已过滤 diff：原始长度 118585 字符 -> 代码文件长度 94683 字符
+✅ 已在 diff 中添加实际行号注释
+📋 Task ID: fa52c22e-1e05-404c-b65a-ebb683acf1b0
+📦 Project ID: 37
+🔀 MR IID: 7
+🌿 Source Branch: phd -> Target Branch: main
+📝 Files Changed: 25
+🚀 Starting 10-dimension analysis for MR: version that can run
+
+...
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='review:\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
+
+==================== CONSISTENCY REPORT ====================
+Token 消耗: 38670 (Input: 37920, Output: 750, Cost: $0.005519)
+review:
+  score: 95
+  violations:
+    - category: |
+        Naming
+      file_path: backend/app/auth.py
+      start_line: 25
+      end_line: 28
+      description: |
+        用户模型新增的字段命名风格不一致，groups_raw和raw_info使用下划线命名法，而其他字段使用驼峰命名法
+      requirement_reference: |
+        项目应保持一致的命名风格，建议统一使用下划线命名法
+      code_suggestion:
+        existing_code: |
+          groups_raw: list = None
+          raw_info: dict = None
+        improved_code: |
+          groups_raw: List = None
+          raw_info: Dict = None
+      confidence: 90
+
+    - category: |
+        Structure
+      file_path: backend/app/path_manager.py
+      start_line: 86
+      end_line: 88
+      description: |
+        方法参数从commit_id拆分为branch和commit_sha，但未在方法签名中明确说明这两个参数的关系和必要性
+      requirement_reference: |
+        方法参数变更应保持清晰的文档说明，特别是当参数关系发生变化时
+      code_suggestion:
+        existing_code: |
+          branch: str = None,
+          commit_sha: str = None,
+        improved_code: |
+          branch: str = None,  # Git分支名，与commit_sha一起使用
+          commit_sha: str = None,  # Git commit SHA，与branch一起使用
+      confidence: 88
+
+    - category: |
+        Pattern
+      file_path: backend/app/container_manager.py
+      start_line: 250
+      end_line: 252
+      description: |
+        agent_dir路径构建方式使用了硬编码的父级目录跳转(../../..)，这种模式容易在项目结构调整时出现问题
+      requirement_reference: |
+        路径处理应使用更可靠的方式，如基于项目根目录的绝对路径
+      code_suggestion:
+        existing_code: |
+          agent_dir = Path(__file__).parent.parent.parent / "agent"
+        improved_code: |
+          from app.config import settings
+          agent_dir = Path(settings.BASE_DIR) / "agent"
+      confidence: 92
+
+    - category: |
+        Lint
+      file_path: frontend/src/app/page.tsx
+      start_line: 234
+      end_line: 234
+      description: |
+        方法签名从同步改为异步但未添加async关键字，可能导致运行时错误
+      requirement_reference: |
+        TypeScript方法签名应明确标识异步方法
+      code_suggestion:
+        existing_code: |
+          const handleSubmit = (e: React.FormEvent) => {
+        improved_code: |
+          const handleSubmit = async (e: React.FormEvent) => {
+      confidence: 95
+
+    - category: |
+        Pattern
+      file_path: agent/tools/retriever_tool.py
+      start_line: 21
+      end_line: 28
+      description: |
+        初始化方法参数过多，违反了单一职责原则，应考虑使用配置对象或拆分职责
+      requirement_reference: |
+        复杂初始化应使用配置对象模式
+      code_suggestion:
+        existing_code: |
+          def __init__(
+              self, 
+              executor: Executor,
+              vector_db_path: str,
+              embedding_model_name: str,
+              embedding_base_url: str,
+              embedding_api_key: str
+          ) -> None:
+        improved_code: |
+          def __init__(self, config: RetrieverToolConfig) -> None:
+      confidence: 89
+==================================================
+
+
+==================== BUSINESS REPORT ====================
+Token 消耗: 38761 (Input: 37659, Output: 1102, Cost: $0.005581)
+review:
+  score: 90
+  findings:
+    - requirement_name: |
+        RetrieverTool 初始化参数
+      file_path: agent/tools/retriever_tool.py
+      start_line: 21
+      end_line: 28
+      requirement_reference: |
+        需要支持 embedding 模型配置
+      analysis: |
+        RetrieverTool 初始化新增了 embedding_model_name, embedding_base_url, embedding_api_key 参数，但未在代码中验证这些参数是否为空或有效。这可能导致后续向量检索失败。
+      code_suggestion:
+        existing_code: |
+          def __init__(
+              self, 
+              executor: Executor,
+              vector_db_path: str,
+              embedding_model_name: str,
+              embedding_base_url: str,
+              embedding_api_key: str
+          ) -> None:
+        improved_code: |
+          def __init__(
+              self, 
+              executor: Executor,
+              vector_db_path: str,
+              embedding_model_name: str,
+              embedding_base_url: str,
+              embedding_api_key: str
+          ) -> None:
+              if not all([embedding_model_name, embedding_base_url, embedding_api_key]):
+                  raise ValueError("All embedding parameters must be provided")
+      confidence: 90
+
+    - requirement_name: |
+        容器名称生成安全性
+      file_path: backend/app/container_manager.py
+      start_line: 55
+      end_line: 72
+      requirement_reference: |
+        容器名称需要安全处理特殊字符
+      analysis: |
+        generate_container_name 方法中的 sanitize 函数虽然处理了非法字符，但直接使用 MD5 哈希可能存在安全问题，建议使用更安全的哈希算法如 SHA256。
+      code_suggestion:
+        existing_code: |
+          hash_val = hashlib.md5(s.encode('utf-8')).hexdigest()[:8]
+        improved_code: |
+          hash_val = hashlib.sha256(s.encode('utf-8')).hexdigest()[:8]
+      confidence: 85
+
+    - requirement_name: |
+        任务状态回调处理
+      file_path: backend/app/routers/callback.py
+      start_line: 31
+      end_line: 40
+      requirement_reference: |
+        需要正确处理各种回调状态
+      analysis: |
+        回调处理函数中虽然更新了任务状态，但没有对无效状态进行验证，可能导致状态不一致。
+      code_suggestion:
+        existing_code: |
+          task_manager.update_task_from_callback(
+              task_id=request.task_id,
+              status=request.status,
+              message=request.message,
+              total_files=request.total_files,
+              processed_files=request.processed_files,
+              total_chunks=request.total_chunks,
+              processed_chunks=request.processed_chunks,
+              callback_type="vector_db"
+          )
+        improved_code: |
+          if request.status not in ["running", "finished", "failed"]:
+              logger.error(f"Invalid status received: {request.status}")
+              return {"success": False, "message": "Invalid status"}
+          task_manager.update_task_from_callback(...)
+      confidence: 88
+
+    - requirement_name: |
+        前端任务提交处理
+      file_path: frontend/src/app/page.tsx
+      start_line: 250
+      end_line: 295
+      requirement_reference: |
+        需要正确处理任务提交错误
+      analysis: |
+        前端任务提交逻辑中虽然处理了错误，但没有区分不同类型的错误（如网络错误、验证错误等），用户体验不够友好。
+      code_suggestion:
+        existing_code: |
+          } catch (err) {
+            console.error('Error starting task:', err);
+            setError('创建任务失败，请重试');
+          }
+        improved_code: |
+          } catch (err) {
+            console.error('Error starting task:', err);
+            if (err instanceof TypeError) {
+              setError('网络错误，请检查连接');
+            } else if (err.response?.status === 400) {
+              setError('输入参数无效');
+            } else {
+              setError('创建任务失败，请重试');
+            }
+          }
+      confidence: 85
+
+  risks:
+    - file_path: backend/app/container_manager.py
+      start_line: 250
+      end_line: 356
+      risk: |
+        run_script 方法中直接执行外部命令，存在命令注入风险
+      mitigation: |
+        应使用 subprocess.run 的数组参数形式而非字符串拼接，并对输入参数进行严格验证
+      confidence: 90
+
+    - file_path: backend/app/auth.py
+      start_line: 74
+      end_line: 92
+      risk: |
+        Tokfinity API 调用缺乏重试机制，网络波动可能导致认证失败
+      mitigation: |
+        添加指数退避重试机制，并考虑使用更可靠的 HTTP 客户端
+      confidence: 88
+
+    - file_path: agent/tools/retriever_tool.py
+      start_line: 196
+      end_line: 209
+      risk: |
+        OpenAI embedding 调用没有超时和重试机制，可能导致长时间阻塞
+      mitigation: |
+        添加超时参数和重试逻辑，使用更健壮的 API 调用方式
+      confidence: 85
+==================================================
+
+
+==================== PERFORMANCE REPORT ====================
+Token 消耗: 38228 (Input: 37326, Output: 902, Cost: $0.005478)
+review:
+  score: 85
+  bottlenecks:
+    - file_path: "agent/code_chunker.py"
+      start_line: 94
+      end_line: 140
+      severity: |
+        HIGH
+      description: |
+        滑动窗口切块算法存在潜在性能问题：在循环中频繁进行字符串拼接和列表切片操作，当处理大文件时会导致内存和CPU开销增加。
+      requirement_reference: |
+        代码切块需要高效处理大代码仓库
+      code_suggestion:
+        existing_code: |
+          while start_line_idx < len(lines):
+              # 计算当前窗口
+              end_line_idx = start_line_idx
+              char_count = 0
+              
+              # 向后扩展，直到超过 chunk_size
+              while end_line_idx < len(lines) and char_count < self.chunk_size:
+                  char_count += len(lines[end_line_idx]) + 1  # +1 for newline
+                  end_line_idx += 1
+              
+              # 提取当前块的内容
+              chunk_lines = lines[start_line_idx:end_line_idx]
+              chunk_content = "\n".join(chunk_lines)
+      improved_code: |
+          # 预计算每行的字符数
+          line_lengths = [len(line) + 1 for line in lines]
+          total_chars = sum(line_lengths)
+          
+          # 使用生成器逐步处理
+          while start_line_idx < len(lines):
+              char_count = 0
+              end_line_idx = start_line_idx
+              
+              # 累计字符数
+              while end_line_idx < len(lines) and char_count < self.chunk_size:
+                  char_count += line_lengths[end_line_idx]
+                  end_line_idx += 1
+              
+              # 使用join一次性拼接
+              chunk_content = "\n".join(lines[start_line_idx:end_line_idx])
+      confidence: 90
+
+    - file_path: "agent/generate_sub_docs.py"
+      start_line: 136
+      end_line: 141
+      severity: |
+        HIGH
+      description: |
+        文件大小检查时对每个文件都执行docker exec命令，会产生大量容器操作开销，建议批量获取文件大小。
+      requirement_reference: |
+        需要高效处理大量代码文件
+      code_suggestion:
+        existing_code: |
+          size_result = subprocess.run(
+              ["docker", "exec", container_id, "stat", "-c", "%s", f],
+              capture_output=True,
+              text=True,
+              timeout=5
+          )
+      improved_code: |
+          # 批量获取文件大小
+          file_list = "\n".join(files)
+          size_cmd = f"echo '{file_list}' | xargs -I{{}} stat -c %s {{}}"
+          size_result = subprocess.run(
+              ["docker", "exec", container_id, "sh", "-c", size_cmd],
+              capture_output=True,
+              text=True,
+              timeout=10
+          )
+      confidence: 88
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 302
+      end_line: 318
+      severity: |
+        HIGH
+      description: |
+        Python版本检查逻辑存在潜在性能问题：顺序执行多个subprocess调用，且没有缓存检查结果。
+      requirement_reference: |
+        需要快速启动任务容器
+      code_suggestion:
+        existing_code: |
+          for py in python_candidates:
+              try:
+                  result = subprocess.run(
+                      [py, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                      capture_output=True,
+                      text=True,
+                      timeout=5
+                  )
+      improved_code: |
+          # 缓存Python版本检查结果
+          PYTHON_PATH_CACHE = None
+          
+          def get_python_path():
+              if PYTHON_PATH_CACHE:
+                  return PYTHON_PATH_CACHE
+              
+              for py in python_candidates:
+                  try:
+                      result = subprocess.run(
+                          [py, "--version"],
+                          capture_output=True,
+                          text=True,
+                          timeout=2
+                      )
+                      if "Python 3.12" in result.stdout:
+                          PYTHON_PATH_CACHE = py
+                          return py
+      confidence: 85
+==================================================
+
+
+==================== SECURITY REPORT ====================
+Token 消耗: 38646 (Input: 37338, Output: 1308, Cost: $0.005594)
+review:
+  score: 85
+  vulnerabilities:
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 28
+      severity: |
+        MEDIUM
+      category: |
+        A01:2021-Broken Access Control
+      description: |
+        User类新增了groups_raw和raw_info字段，可能暴露敏感用户信息。如果这些字段未经适当过滤直接返回给前端，可能导致信息泄露。
+      requirement_reference: |
+        用户信息最小化原则，只返回必要字段
+      code_suggestion:
+        existing_code: |
+          def full_dict(self) -> Dict:
+              return {
+                  "sub": self.user_id,
+                  "name": self.raw_info.get("name", self.name),
+                  "display_name": self.raw_info.get("display_name", self.name),
+                  "is_admin": self.raw_info.get("is_admin", False),
+                  "groups": self.groups_raw,
+                  "email": self.email,
+                  "email_verified": self.raw_info.get("email_verified", False),
+                  "phone": self.raw_info.get("phone", ""),
+                  "country_code": self.raw_info.get("country_code", ""),
+                  "created_time": self.raw_info.get("CreatedTime", ""),
+              }
+        improved_code: |
+          def full_dict(self) -> Dict:
+              return {
+                  "sub": self.user_id,
+                  "name": self.name,
+                  "display_name": self.name,
+                  "is_admin": False,  # 默认不返回管理员状态
+                  "groups": [g.get("display_name") for g in self.groups_raw],  # 只返回显示名
+                  "email": self.email if self.email_verified else "",  # 未验证邮箱不返回
+                  # 移除phone/country_code等敏感信息
+              }
+      exploit_scenario: |
+        攻击者通过调用/userinfo接口获取包含敏感信息的完整用户数据，包括手机号、国家代码等，可用于社会工程学攻击或账户接管。
+      confidence: 90
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 173
+      end_line: 177
+      severity: |
+        HIGH
+      category: |
+        A06:2021-Vulnerable and Outdated Components
+      description: |
+        在Git克隆操作中直接将access_token插入到URL中，这可能导致token在日志或错误消息中泄露。如果URL被记录或传输，敏感令牌可能被暴露。
+      requirement_reference: |
+        敏感凭证应使用环境变量或安全存储，避免硬编码或明文传输
+      code_suggestion:
+        existing_code: |
+          if git_url.startswith("https://"):
+              git_url_with_token = git_url.replace("https://", f"https://{access_token}@")
+          else:
+              git_url_with_token = git_url
+        improved_code: |
+          # 使用Git的凭证存储或环境变量
+          # 或者在容器内配置临时凭证文件
+          if access_token:
+              # 写入临时凭证文件
+              cred_file = "/tmp/.git-credentials"
+              with open(cred_file, "w") as f:
+                  f.write(f"https://{access_token}@github.com")
+              # 配置git使用凭证文件
+              container.exec_run(["git", "config", "--global", "credential.helper", f"store --file {cred_file}"])
+      exploit_scenario: |
+        攻击者通过查看容器日志或错误消息获取包含access_token的Git URL，然后使用该token访问私有仓库或进行其他恶意操作。
+      confidence: 95
+
+    - file_path: "backend/app/config.py"
+      start_line: 51
+      end_line: 60
+      severity: |
+        HIGH
+      category: |
+        A03:2021-Injection
+      description: |
+        LLM和Embedding API密钥以明文形式存储在配置中，如果配置文件泄露或服务器被入侵，可能导致API密钥被盗用。
+      requirement_reference: |
+        敏感配置应使用环境变量或密钥管理服务
+      code_suggestion:
+        existing_code: |
+          LLM_API_KEY: str = ""
+          EMBEDDING_API_KEY: str = ""
+        improved_code: |
+          # 从环境变量或密钥管理服务获取
+          LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+          EMBEDDING_API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
+      exploit_scenario: |
+        攻击者获取服务器访问权限后，读取配置文件中的API密钥，滥用这些密钥进行高额API调用或数据泄露。
+      confidence: 100
+
+    - file_path: "agent/tools/retriever_tool.py"
+      start_line: 196
+      end_line: 209
+      severity: |
+        MEDIUM
+      category: |
+        A02:2021-Cryptographic Failures
+      description: |
+        Embedding生成过程中直接使用API密钥，没有实现请求速率限制或重试机制，可能导致API滥用或密钥被封禁。
+      requirement_reference: |
+        API调用应实现速率限制和错误处理
+      code_suggestion:
+        existing_code: |
+          response = client.embeddings.create(
+              model=self.embedding_model_name,
+              input=text
+          )
+          embedding = response.data[0].embedding
+        improved_code: |
+          from tenacity import retry, stop_after_attempt, wait_exponential
+
+          @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+          def safe_get_embedding(client, text):
+              response = client.embeddings.create(
+                  model=self.embedding_model_name,
+                  input=text,
+                  timeout=10  # 添加超时
+              )
+              return response.data[0].embedding
+
+          embedding = safe_get_embedding(client, text)
+      exploit_scenario: |
+        恶意用户通过大量查询导致API调用激增，产生高额费用或导致服务中断。
+      confidence: 88
+==================================================
+
+
+==================== TESTING REPORT ====================
+Token 消耗: 38367 (Input: 37524, Output: 843, Cost: $0.005489)
+review:
+  score: 90
+  findings:
+    - type: |
+        Missing Test
+      file_path: agent/code_chunker.py
+      start_line: 39
+      end_line: 183
+      description: |
+        CodeChunker 类实现了核心的代码切块逻辑，但没有对应的单元测试。需要测试边界条件如空文件、超大文件、不同编程语言文件等场景。
+      requirement_reference: |
+        代码切块功能是向量化的基础，必须保证切块逻辑的健壮性
+      code_suggestion: |
+        # 示例测试用例
+        def test_chunk_empty_file():
+            chunker = CodeChunker()
+            chunks = chunker.chunk_code("empty.py", "")
+            assert len(chunks) == 0
+
+        def test_chunk_large_file():
+            large_content = "x" * 10000
+            chunker = CodeChunker(chunk_size=500)
+            chunks = chunker.chunk_code("large.py", large_content)
+            assert len(chunks) > 0
+            assert all(chunk.char_count <= 500 for chunk in chunks)
+      confidence: 95
+
+    - type: |
+        Missing Test
+      file_path: agent/tools/retriever_tool.py
+      start_line: 16
+      end_line: 244
+      description: |
+        RetrieverTool 实现了向量检索的核心功能，但没有测试覆盖。需要测试不同查询、边界条件和错误场景。
+      requirement_reference: |
+        向量检索是核心功能，必须保证在各种输入下的稳定性
+      code_suggestion: |
+        # 示例测试用例
+        def test_retrieve_with_empty_query():
+            tool = RetrieverTool(...)
+            result = tool.container_execute({"query": ""})
+            assert "error" in result
+
+        def test_retrieve_with_valid_query():
+            tool = RetrieverTool(...)
+            result = tool.container_execute({"query": "user auth"})
+            assert "output" in result
+      confidence: 90
+
+    - type: |
+        Missing Test
+      file_path: backend/app/container_manager.py
+      start_line: 16
+      end_line: 393
+      description: |
+        ContainerManager 管理 Docker 容器的生命周期，但没有测试覆盖容器创建、删除等关键操作。
+      requirement_reference: |
+        容器管理是任务执行的基础，必须保证操作可靠性
+      code_suggestion: |
+        # 示例测试用例
+        @mock.patch('docker.from_env')
+        def test_create_container(mock_docker):
+            manager = ContainerManager()
+            container_id = manager.create_container("test")
+            assert container_id is not None
+
+        def test_delete_nonexistent_container():
+            manager = ContainerManager()
+            manager.delete_container("nonexistent")  # 不应抛出异常
+      confidence: 90
+
+    - type: |
+        Missing Test
+      file_path: backend/app/path_manager.py
+      start_line: 1
+      end_line: 347
+      description: |
+        PathManager 处理复杂的路径逻辑，但没有测试验证路径生成和版本管理的正确性。
+      requirement_reference: |
+        路径管理影响数据持久化，必须保证路径生成的准确性
+      code_suggestion: |
+        # 示例测试用例
+        def test_get_wiki_path_git():
+            manager = PathManager()
+            path = manager.get_wiki_path(
+                "group1", "git", "arch", 1,
+                "github.com", "owner", "repo", "main", "abc123"
+            )
+            assert "github.com/owner/repo/main/abc123" in str(path)
+
+        def test_version_increment():
+            manager = PathManager()
+            v1 = manager.get_next_version("group1", "git", "arch", ...)
+            v2 = manager.get_next_version("group1", "git", "arch", ...)
+            assert v2 == v1 + 1
+      confidence: 85
+==================================================
+
+
+==================== DOCUMENTATION REPORT ====================
+Token 消耗: 38560 (Input: 37325, Output: 1235, Cost: $0.005571)
+review:
+  score: 95
+  findings:
+    - type: |
+        Missing Doc
+      file_path: backend/app/container_manager.py
+      start_line: 16
+      end_line: 393
+      description: |
+        ContainerManager类作为核心Docker容器管理组件，缺少完整的类级别文档字符串。该类负责创建、管理和删除任务容器，是系统关键组件，需要详细说明其职责、主要方法和使用场景。
+      requirement_reference: |
+        系统架构文档中关于容器管理的章节
+      code_suggestion: |
+        class ContainerManager:
+            """
+            Docker容器管理器
+            
+            职责：
+            - 创建和管理任务容器
+            - 处理容器生命周期（创建、克隆仓库、执行脚本、删除）
+            - 提供容器命名和路径管理
+            
+            主要方法：
+            - create_container: 创建新容器
+            - clone_repo: 在容器内克隆代码仓库
+            - run_script: 在容器内执行脚本
+            - delete_container: 清理容器资源
+            
+            使用场景：
+            - 代码文档生成任务
+            - 向量数据库构建
+            - 批量子文档生成
+            """
+      confidence: 95
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/models.py
+      start_line: 1
+      end_line: 214
+      description: |
+        模型文件缺少模块级文档字符串，未说明该文件包含所有Pydantic请求/响应模型的定义。作为API契约的核心文件，需要明确说明其作用和包含的主要模型类别。
+      requirement_reference: |
+        API设计文档中的模型定义章节
+      code_suggestion: |
+        """
+        请求和响应的Pydantic模型定义
+        
+        包含以下主要类别：
+        - 任务管理模型（TaskStartRequest/TaskStatusResponse等）
+        - Wiki文档模型（WikiContentResponse/WikiStatusResponse等）
+        - 仓库管理模型（RepoDeleteRequest/RepoDeleteResponse等）
+        - Agent回调模型（BuildVectorDBStatusRequest等）
+        
+        注意：
+        - 所有模型都继承自Pydantic的BaseModel
+        - 使用Field提供额外元数据
+        - 包含严格的输入验证
+        """
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/routers/callback.py
+      start_line: 1
+      end_line: 102
+      description: |
+        回调路由模块缺少模块级文档字符串，未说明该模块处理Agent到Backend的状态回调，以及支持的回调类型和处理流程。
+      requirement_reference: |
+        系统架构文档中的回调机制章节
+      code_suggestion: |
+        """
+        Agent回调路由（Agent → Backend）
+        
+        功能：
+        - 处理Agent推送的状态更新
+        - 实时同步任务状态到前端
+        - 支持三种回调类型：
+          1. 向量库构建状态（/build_vector_db_status）
+          2. 架构文档生成状态（/generate_structure_doc_status）
+          3. 子文档生成状态（/generate_sub_doc_status）
+        
+        处理流程：
+        1. 接收Agent推送的状态
+        2. 验证任务ID有效性
+        3. 更新任务管理器中的任务状态
+        4. 触发前端状态更新（通过WebSocket）
+        """
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/routers/task.py
+      start_line: 1
+      end_line: 186
+      description: |
+        任务路由模块缺少模块级文档字符串，未说明该模块提供的核心API端点及其功能，包括任务启动、取消和状态查询。
+      requirement_reference: |
+        API设计文档中的任务管理章节
+      code_suggestion: |
+        """
+        任务管理路由
+        
+        提供以下核心API端点：
+        - POST /start: 启动文档生成任务
+        - POST /cancel: 取消正在执行的任务
+        - GET /status: 查询任务状态
+        
+        功能特点：
+        - 支持游客访问（无需认证）
+        - 内置防重复检查机制
+        - 实时进度跟踪
+        - 错误处理和日志记录
+        
+        状态流转：
+        queued → running → indexing → generating_arch → generating_subdocs → completed
+        """
+      confidence: 90
+
+    - type: |
+        Missing Doc
+      file_path: backend/app/path_manager.py
+      start_line: 86
+      end_line: 164
+      description: |
+        get_vector_db_path方法缺少参数说明文档，特别是新增的branch和commit_sha参数未在文档中说明，这会影响其他开发人员正确使用该方法。
+      requirement_reference: |
+        路径管理规范文档
+      code_suggestion: |
+        def get_vector_db_path(
+            self,
+            group_id: str,
+            source_type: str,
+            platform: str = None,
+            owner: str = None,
+            repo: str = None,
+            branch: str = None,
+            commit_sha: str = None,
+            upload_id: str = None
+        ) -> Path:
+            """
+            生成vector_db路径（到commit级别，不分版本）
+            
+            Args:
+                group_id: 组ID
+                source_type: 源类型("git"|"upload")
+                platform: Git平台(github.com, gitlab.com等)
+                owner: 仓库owner
+                repo: 仓库名
+                branch: Git分支名（新增）
+                commit_sha: Git commit SHA（新增）
+                upload_id: 上传ID
+                
+            Returns:
+                Path: .deepmap/vector_db/{group_id}/github.com/{owner}/{repo}/{branch}/{commit_sha[:8]}/
+                      或.deepmap/vector_db/{group_id}/upload/{upload_id}/
+            """
+      confidence: 85
+==================================================
+
+
+==================== ERROR_HANDLING REPORT ====================
+Token 消耗: 38179 (Input: 37332, Output: 847, Cost: $0.005464)
+review:
+  score: 92
+  issues:
+    - category: "Silent Failure"
+      file_path: "backend/app/auth.py"
+      start_line: 89
+      end_line: 89
+      description: "Token验证失败时仅记录日志而不返回具体错误信息，可能导致调试困难"
+      requirement_reference: "Core Principle 1 - No Silent Failures"
+      code_suggestion:
+        existing_code: |
+          except Exception as e:
+              log_error("token_validation_error", str(e))
+              return None
+        improved_code: |
+          except Exception as e:
+              log_error("token_validation_error", f"Token validation failed: {str(e)}")
+              raise HTTPException(
+                  status_code=401,
+                  detail="Token validation failed"
+              )
+      confidence: 92
+
+    - category: "Resource Leak"
+      file_path: "backend/app/container_manager.py"
+      start_line: 341
+      end_line: 349
+      description: "日志文件句柄未在子进程结束后关闭，可能导致资源泄漏"
+      requirement_reference: "Core Principle 4 - Cleanup"
+      code_suggestion:
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+      confidence: 95
+
+    - category: "Poor Observability"
+      file_path: "agent/tools/retriever_tool.py"
+      start_line: 188
+      end_line: 190
+      description: "向量数据库加载失败时仅记录错误而未提供足够上下文"
+      requirement_reference: "Core Principle 3 - Observability"
+      code_suggestion:
+        existing_code: |
+          except Exception as e:
+              logging.error(f"Failed to load vector database: {e}")
+              raise
+        improved_code: |
+          except Exception as e:
+              logging.error(
+                  f"Failed to load vector database from {self.vector_db_path}: {e}\n"
+                  f"Ensure FAISS index and chunks files exist"
+              )
+              raise RuntimeError(f"Vector database initialization failed: {str(e)}") from e
+      confidence: 90
+
+    - category: "Silent Failure"
+      file_path: "frontend/src/app/api/wiki/repos/route.ts"
+      start_line: 22
+      end_line: 25
+      description: "后端API错误响应处理不够完善，可能丢失错误详情"
+      requirement_reference: "Core Principle 1 - No Silent Failures"
+      code_suggestion:
+        existing_code: |
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('Backend error:', errorData);
+          return NextResponse.json(
+              { error: errorData.detail || 'Failed to fetch repos from backend' },
+              { status: response.status }
+          );
+        improved_code: |
+          try {
+              const errorData = await response.json();
+              console.error('Backend error:', {
+                  status: response.status,
+                  url: response.url,
+                  error: errorData
+              });
+              return NextResponse.json(
+                  { 
+                      error: 'Backend request failed',
+                      detail: errorData.detail || errorData.message,
+                      status: response.status
+                  },
+                  { status: response.status }
+              );
+          } catch (parseError) {
+              console.error('Failed to parse error response:', parseError);
+              return NextResponse.json(
+                  { 
+                      error: 'Backend request failed',
+                      detail: await response.text(),
+                      status: response.status
+                  },
+                  { status: response.status }
+              );
+          }
+      confidence: 88
+==================================================
+
+
+==================== READABILITY REPORT ====================
+Token 消耗: 38326 (Input: 37312, Output: 1014, Cost: $0.005508)
+review:
+  score: 90
+  suggestions:
+    - file_path: "agent/code_chunker.py"
+      start_line: 42
+      end_line: 48
+      issue: |
+        构造函数参数默认值直接使用可变对象（如列表、字典）可能导致意外行为
+      requirement_reference: |
+        Python最佳实践：避免使用可变对象作为默认参数
+      code_suggestion: |
+        existing_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: str = "python"
+          ):
+        improved_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: Optional[str] = None
+          ):
+            self.language = language or "python"
+      confidence: 95
+
+    - file_path: "agent/doc_utils.py"
+      start_line: 76
+      end_line: 104
+      issue: |
+        函数名send_build_vector_db_status与返回值Dict[str, Any]类型不匹配，建议使用更具体的返回类型
+      requirement_reference: |
+        类型提示最佳实践：返回值类型应尽可能具体
+      code_suggestion: |
+        existing_code: |
+          def send_build_vector_db_status(callback_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        improved_code: |
+          def send_build_vector_db_status(
+              callback_url: str,
+              payload: Dict[str, Any]
+          ) -> Dict[str, Union[bool, str]]:
+      confidence: 90
+
+    - file_path: "backend/app/auth.py"
+      start_line: 25
+      end_line: 28
+      issue: |
+        User类初始化参数groups_raw和raw_info缺乏类型提示
+      requirement_reference: |
+        Python类型提示规范：所有参数应有明确类型
+      code_suggestion: |
+        existing_code: |
+          def __init__(self, user_id: str, name: str, email: str = None, groups: list = None, groups_raw: list = None, raw_info: dict = None):
+        improved_code: |
+          def __init__(
+              self,
+              user_id: str,
+              name: str,
+              email: Optional[str] = None,
+              groups: Optional[List[str]] = None,
+              groups_raw: Optional[List[Dict]] = None,
+              raw_info: Optional[Dict] = None
+          ):
+      confidence: 92
+
+    - file_path: "backend/app/container_manager.py"
+      start_line: 340
+      end_line: 348
+      issue: |
+        日志文件句柄未在异常情况下关闭，可能导致资源泄漏
+      requirement_reference: |
+        资源管理最佳实践：确保文件句柄被正确关闭
+      code_suggestion: |
+        existing_code: |
+          log_fh = open(log_file, "w")
+          process = subprocess.Popen(
+              cmd,
+              stdout=log_fh,
+              stderr=subprocess.STDOUT,
+              start_new_session=True
+          )
+        improved_code: |
+          with open(log_file, "w") as log_fh:
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=log_fh,
+                  stderr=subprocess.STDOUT,
+                  start_new_session=True
+              )
+      confidence: 94
+
+    - file_path: "backend/app/path_manager.py"
+      start_line: 86
+      end_line: 88
+      issue: |
+        方法参数命名不一致（commit_id vs commit_sha），建议统一
+      requirement_reference: |
+        代码一致性规范：相同概念应使用相同命名
+      code_suggestion: |
+        existing_code: |
+          def get_wiki_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: str = None,
+              owner: str = None,
+              repo: str = None,
+              branch: str = None,
+              commit_sha: str = None,
+              upload_id: str = None
+          ) -> Path:
+        improved_code: |
+          def get_wiki_path(
+              self,
+              group_id: str,
+              source_type: str,
+              doc_type: str,
+              version: int,
+              platform: Optional[str] = None,
+              owner: Optional[str] = None,
+              repo: Optional[str] = None,
+              branch: Optional[str] = None,
+              commit_id: Optional[str] = None,
+              upload_id: Optional[str] = None
+          ) -> Path:
+      confidence: 88
+==================================================
+
+
+==================== MAINTAINABILITY REPORT ====================
+Token 消耗: 38337 (Input: 37273, Output: 1064, Cost: $0.005516)
+review:
+  score: 90
+  findings:
+    - category: |
+        Technical Debt
+      file_path: "agent/code_chunker.py"
+      start_line: 42
+      end_line: 48
+      description: |
+        CodeChunker 类的初始化参数中硬编码了多个默认值（chunk_size=500, chunk_overlap=50等），这些配置应该从外部配置文件或环境变量中读取，以提高灵活性和可维护性。
+      requirement_reference: |
+        系统配置应支持灵活调整
+      code_suggestion: |
+        existing_code: |
+          def __init__(
+              self,
+              chunk_size: int = 500,
+              chunk_overlap: int = 50,
+              max_chunks_per_file: int = 100,
+              language: str = "python"
+          ):
+        improved_code: |
+          def __init__(
+              self,
+              chunk_size: int = settings.CODE_CHUNK_SIZE,
+              chunk_overlap: int = settings.CODE_CHUNK_OVERLAP,
+              max_chunks_per_file: int = settings.CODE_MAX_CHUNKS_PER_FILE,
+              language: str = settings.DEFAULT_LANGUAGE
+          ):
+      confidence: 90
+
+    - category: |
+        Coupling
+      file_path: "agent/tools/retriever_tool.py"
+      start_line: 21
+      end_line: 28
+      description: |
+        RetrieverTool 类直接依赖具体的 embedding 模型配置参数（embedding_model_name, embedding_base_url等），这导致工具类与外部服务强耦合。应该通过依赖注入方式解耦。
+      requirement_reference: |
+        模块间应保持松耦合
+      code_suggestion: |
+        existing_code: |
+          def __init__(
+              self, 
+              executor: Executor,
+              vector_db_path: str,
+              embedding_model_name: str,
+              embedding_base_url: str,
+              embedding_api_key: str
+          ):
+        improved_code: |
+          def __init__(
+              self,
+              executor: Executor,
+              vector_db_path: str,
+              embedding_client: EmbeddingClient  # 抽象接口
+          ):
+      confidence: 88
+
+    - category: |
+        Duplication
+      file_path: "backend/app/path_manager.py"
+      start_line: 86
+      end_line: 164
+      description: |
+        get_wiki_path 和 get_vector_db_path 方法中存在相似的路径构建逻辑，可以提取为公共方法以避免重复。
+      requirement_reference: |
+        遵循DRY原则
+      code_suggestion: |
+        existing_code: |
+          def get_wiki_path(...):
+              if source_type == "git":
+                  path = base / platform / owner / repo / branch / commit_short / doc_type / f"v{version}"
+              elif source_type == "upload":
+                  path = base / "upload" / upload_id / doc_type / f"v{version}"
+
+          def get_vector_db_path(...):
+              if source_type == "git":
+                  path = base / platform / owner / repo / branch / commit_short
+              elif source_type == "upload":
+                  path = base / "upload" / upload_id
+        improved_code: |
+          def _build_base_path(base, source_type, platform, owner, repo, branch=None, commit_short=None, upload_id=None):
+              if source_type == "git":
+                  return base / platform / owner / repo / branch / commit_short
+              elif source_type == "upload":
+                  return base / "upload" / upload_id
+
+          def get_wiki_path(...):
+              base_path = self._build_base_path(...)
+              return base_path / doc_type / f"v{version}"
+      confidence: 85
+
+    - category: |
+        Technical Debt
+      file_path: "backend/app/container_manager.py"
+      start_line: 262
+      end_line: 300
+      description: |
+        Python版本检查逻辑过于复杂且硬编码，应该封装为独立的方法或使用专门的版本管理工具。
+      requirement_reference: |
+        代码应保持简洁可维护
+      code_suggestion: |
+        existing_code: |
+          # 候选 Python 路径（包括 pyenv 直接路径）
+          pyenv_home = Path.home() / ".pyenv" / "versions"
+          python_candidates = [
+              "python3.12", "python3.13", "python3", "python"
+          ]
+          
+          # 如果 pyenv 存在，添加直接路径
+          if pyenv_home.exists():
+              for version_dir in pyenv_home.glob("3.1*"):
+                  py_bin = version_dir / "bin" / "python3"
+                  if py_bin.exists():
+                      python_candidates.insert(0, str(py_bin))
+        improved_code: |
+          def _find_python_executable(min_version=(3, 12)):
+              # 封装为独立方法，支持配置最小版本
+              from packaging import version
+              ...
+      confidence: 87
+==================================================
+
+
+==================== DEPENDENCY REPORT ====================
+Token 消耗: 38197 (Input: 37287, Output: 910, Cost: $0.005475)
+review:
+  score: 85
+  analysis:
+    - type: Security
+      file_path: backend/app/auth.py
+      start_line: 74
+      end_line: 75
+      description: |
+        在Tokfinity API调用中增加了超时时间到10秒，但未考虑重试机制，在网络不稳定时可能导致认证失败。
+      requirement_reference: |
+        认证服务应具备基本的重试机制以提高可靠性
+      code_suggestion: |
+        response = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0  # 增加超时时间
+        )
+      improved_code: |
+        from httpx import Timeout
+        response = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=Timeout(10.0, read=10.0),
+            retries=3  # 增加重试机制
+        )
+      confidence: 90
+
+    - type: Versioning
+      file_path: backend/app/config.py
+      start_line: 51
+      end_line: 53
+      description: |
+        LLM配置参数使用了硬编码的API地址和密钥，未提供环境变量覆盖机制，不利于不同环境的部署。
+      requirement_reference: |
+        关键配置应支持环境变量覆盖
+      code_suggestion: |
+        LLM_MODEL_NAME: str = "deepseek/deepseek-chat-v3.1"
+        LLM_BASE_URL: str = "https://api.openai.com/v1"
+        LLM_API_KEY: str = ""
+      improved_code: |
+        LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "deepseek/deepseek-chat-v3.1")
+        LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+        LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+      confidence: 95
+
+    - type: Security
+      file_path: backend/app/container_manager.py
+      start_line: 173
+      end_line: 175
+      description: |
+        Git URL中直接插入access token，存在token泄露风险，建议使用更安全的方式传递认证信息。
+      requirement_reference: |
+        敏感信息不应直接拼接到URL中
+      code_suggestion: |
+        if git_url.startswith("https://"):
+            git_url_with_token = git_url.replace("https://", f"https://{access_token}@")
+      improved_code: |
+        if git_url.startswith("https://"):
+            headers = {"Authorization": f"Bearer {access_token}"}
+            clone_cmd = f"git -c http.extraHeader='Authorization: Bearer {access_token}' clone {git_url} {repo_path}"
+      confidence: 92
+
+    - type: Versioning
+      file_path: frontend/src/app/page.tsx
+      start_line: 265
+      end_line: 272
+      description: |
+        任务启动API调用未处理可能的网络错误和超时情况，缺乏重试机制。
+      requirement_reference: |
+        关键操作应具备错误处理和重试机制
+      code_suggestion: |
+        const response = await apiPost('/api/task/start', {
+            git_url: finalUrl,
+            language: language,
+            operation: generateSubdocs ? 'generate_architecture_and_subdocs' : 'generate_architecture',
+            access_token: accessToken.trim() || undefined,
+            force_rebuild_paths: forceRebuildPaths.trim() ? forceRebuildPaths.split('\n').filter(p => p.trim()) : undefined,
+            template: template.trim() || undefined
+        });
+      improved_code: |
+        const maxRetries = 3;
+        let retries = 0;
+        let response;
+        while (retries < maxRetries) {
+            try {
+                response = await apiPost('/api/task/start', {...});
+                if (response.ok) break;
+            } catch (err) {
+                if (retries === maxRetries - 1) throw err;
+                await new Promise(resolve => setTimeout(resolve, 1000 * (retries + 1)));
+                retries++;
+            }
+        }
+      confidence: 88
+==================================================
+
+📝 All expert reports complete. Aggregating...
+Summary Agent Token 消耗: 50894 (Input: 48449, Output: 2445, Cost: $0.007467)
+✅ 成功解析 Summary Agent 输出为 JSON 格式
+🔄 切换到 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+✅ 已切换到 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+🔍 正在验证 6 个行评论...
+✅ 已验证 6 个行评论
+🔄 恢复原来的 commit: 29fcef617c532805dd57d1c6dfc8168b62f88efd
+/opt/homebrew/Caskroom/miniconda/base/envs/cragent/lib/python3.11/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected 10 fields but got 5: Expected `Message` - serialized value may not be as expected [field_name='message', input_value=Message(content='```json\...one, 'reasoning': None}), input_type=Message])
+  PydanticSerializationUnexpectedValue(Expected `StreamingChoices` - serialized value may not be as expected [field_name='choices', input_value=Choices(finish_reason='st...finish_reason': 'stop'}), input_type=Choices])
+  return self.__pydantic_serializer__.to_python(
