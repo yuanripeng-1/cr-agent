@@ -17,119 +17,156 @@
 # 代码评审报告（Code Review Report）
 
 ## 📋 结论概览
-**决策：** Request Changes （总分：90/100）
+**决策：** Request Changes （总分：88/100）
 
 **原因（Rationale）：**
 - 存在多个高置信度的安全问题需要修复
-- 部分核心功能缺乏单元测试
-- 代码可维护性和一致性有待提高
+- 部分关键代码缺乏测试覆盖
+- 需要改进错误处理和资源管理
 
 **⛔ 必须修改项（Blockers）：**
-- 修复 User 类中的默认权限安全问题
-- 修复 Tokfinity API 调用未强制使用 HTTPS 的问题
-- 为代码切块器和向量检索工具添加单元测试
+- Git URL中直接插入access token存在安全风险
+- 敏感配置应使用环境变量而非硬编码
+- RetrieverTool初始化参数缺乏验证
 
 ## ✅ 检查通过项
-- **业务逻辑**：未发现高置信度问题。
-- **文档**：未发现高置信度问题。
+- **文档质量**：文档字符串整体质量良好，部分模块需要补充
+- **功能实现**：核心功能逻辑完整
 
 ---
 
 ## 🧩 评审摘要（聚合输出）
 
-### <风险（Risk）>
+### 风险（Risk）
 **维度覆盖：** 安全性、错误处理
 
-1. **权限控制问题**（置信度：90；影响：安全性）
-   - **分析**：User类中的groups字段默认值为["guest"]，可能导致权限提升漏洞
+1. **Git凭证安全风险**（置信度：95；影响：安全性）
+   - **分析**：在Git克隆操作中直接将access_token插入到URL中，可能导致token在日志或错误消息中泄露
    - **证据代码**：
      ```python
-     def __init__(self, user_id: str, name: str, email: str = None, groups: list = None):
-         self.groups = groups or ["guest"]  # 默认 guest 组
+     if git_url.startswith("https://"):
+         git_url_with_token = git_url.replace("https://", f"https://{access_token}@")
      ```
    - **💡 修改建议**：
      ```python
-     def __init__(self, user_id: str, name: str, email: str = None, groups: list = None):
-         if groups is None:
-             raise ValueError("groups must be explicitly set")
-         self.groups = groups
+     # 修改前 (Before)
+     git_url_with_token = git_url.replace("https://", f"https://{access_token}@")
+     
+     # 修改后 (After)
+     cred_file = "/tmp/.git-credentials"
+     with open(cred_file, "w") as f:
+         f.write(f"https://{access_token}@github.com")
+     container.exec_run(["git", "config", "--global", "credential.helper", f"store --file {cred_file}"])
      ```
 
-2. **TLS加密缺失**（置信度：85；影响：安全性）
-   - **分析**：Tokfinity API调用使用明文HTTP连接，可能导致token泄露
+2. **敏感信息硬编码**（置信度：100；影响：安全性）
+   - **分析**：LLM和Embedding API密钥以明文形式存储在配置中
    - **证据代码**：
      ```python
-     url = f"{settings.TOKFINITY_API_URL}/acode/v1/userinfo"
+     LLM_API_KEY: str = ""
+     EMBEDDING_API_KEY: str = ""
      ```
    - **💡 修改建议**：
      ```python
-     if not settings.TOKFINITY_API_URL.startswith('https://'):
-         raise ValueError("Tokfinity API URL must use HTTPS")
-     url = f"{settings.TOKFINITY_API_URL}/acode/v1/userinfo"
+     # 修改前 (Before)
+     LLM_API_KEY: str = ""
+     
+     # 修改后 (After)
+     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
      ```
 
-### <测试（Testing）>
-**维度覆盖：** 测试覆盖率
+3. **RetrieverTool初始化参数验证**（置信度：90；影响：安全性）
+   - **分析**：RetrieverTool初始化新增了embedding参数，但未验证这些参数是否为空或有效
+   - **证据代码**：
+     ```python
+     def __init__(
+         self, 
+         executor: Executor,
+         vector_db_path: str,
+         embedding_model_name: str,
+         embedding_base_url: str,
+         embedding_api_key: str
+     ) -> None:
+     ```
+   - **💡 修改建议**：
+     ```python
+     # 修改前 (Before)
+     def __init__(...):
+         self.embedding_model_name = embedding_model_name
+     
+     # 修改后 (After)
+     def __init__(...):
+         if not all([embedding_model_name, embedding_base_url, embedding_api_key]):
+             raise ValueError("All embedding parameters must be provided")
+     ```
 
-1. **缺少单元测试**（置信度：95；影响：可维护性）
-   - **分析**：代码切块器和向量检索工具等核心功能缺乏单元测试
+### 测试（Testing）
+**维度覆盖：** 可测试性
+
+1. **CodeChunker测试缺失**（置信度：95；影响：可测试性）
+   - **分析**：CodeChunker类实现了核心的代码切块逻辑，但没有对应的单元测试
    - **证据代码**：
      ```python
      class CodeChunker:
-         def __init__(self, chunk_size=500, chunk_overlap=50, max_chunks_per_file=100, language="python"):
-             self.chunk_size = chunk_size
-             self.chunk_overlap = chunk_overlap
-             self.max_chunks_per_file = max_chunks_per_file
-             self.language = language
+         def chunk_code(self, file_path: str, content: str) -> List[CodeChunk]:
      ```
    - **💡 修改建议**：
      ```python
-     def test_code_chunker():
-         # 测试空文件
+     # 示例测试用例
+     def test_chunk_empty_file():
          chunker = CodeChunker()
-         assert len(chunker.chunk_code("test.py", "")) == 0
-         
-         # 测试小文件
-         content = "print('hello world')"
-         chunks = chunker.chunk_code("test.py", content)
-         assert len(chunks) == 1
-         assert chunks[0].content == content
+         chunks = chunker.chunk_code("empty.py", "")
+         assert len(chunks) == 0
      ```
 
-### <一致性（Consistency）>
-**维度覆盖：** 代码风格、模式
+### 错误处理（Error Handling）
+**维度覆盖：** 可靠性
 
-1. **返回格式不一致**（置信度：95；影响：可维护性）
-   - **分析**：User类的dict()方法未包含新增的groups_raw和raw_info字段，与full_dict()方法不一致
+1. **Token验证错误处理不足**（置信度：92；影响：可靠性）
+   - **分析**：Token验证失败时仅记录日志而不返回具体错误信息，可能导致调试困难
    - **证据代码**：
      ```python
-     def dict(self) -> Dict:
-         return {
-             "user_id": self.user_id,
-             "name": self.name,
-             "email": self.email,
-             "groups": self.groups,
-             "primary_group": self.primary_group
-         }
+     except Exception as e:
+         log_error("token_validation_error", str(e))
+         return None
      ```
    - **💡 修改建议**：
      ```python
-     def dict(self) -> Dict:
-         return {
-             "user_id": self.user_id,
-             "name": self.name,
-             "email": self.email,
-             "groups": self.groups,
-             "primary_group": self.primary_group,
-             "groups_raw": self.groups_raw,
-             "raw_info": self.raw_info
-         }
+     # 修改前 (Before)
+     return None
+     
+     # 修改后 (After)
+     raise HTTPException(
+         status_code=401,
+         detail="Token validation failed"
+     )
+     ```
+
+2. **资源泄漏风险**（置信度：95；影响：可靠性）
+   - **分析**：日志文件句柄未在子进程结束后关闭，可能导致资源泄漏
+   - **证据代码**：
+     ```python
+     log_fh = open(log_file, "w")
+     process = subprocess.Popen(
+         cmd,
+         stdout=log_fh,
+         stderr=subprocess.STDOUT,
+         start_new_session=True
+     )
+     ```
+   - **💡 修改建议**：
+     ```python
+     # 修改前 (Before)
+     log_fh = open(log_file, "w")
+     
+     # 修改后 (After)
+     with open(log_file, "w") as log_fh:
      ```
 
 ---
 
 ## 📎 需求归纳（PRD 引用汇总）
-- 所有核心功能模块必须包含单元测试，覆盖率不低于80%
-- 所有密钥必须加密存储
-- 所有外部API调用必须使用TLS加密
-- 相似概念应使用一致的命名和返回格式
+- 系统配置应支持灵活调整
+- 模块间应保持松耦合
+- 认证服务应具备基本的重试机制以提高可靠性
+- 关键配置应支持环境变量覆盖

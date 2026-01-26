@@ -2,8 +2,28 @@ import subprocess
 import os
 import litellm
 import asyncio
+import json
 from typing import List, Dict, Any
 from .prompts import *
+
+# Import litellm exceptions for better error handling
+try:
+    from litellm.exceptions import (
+        APIError,
+        APIConnectionError,
+        APITimeoutError,
+        RateLimitError,
+        ServiceUnavailableError,
+        ContentFilterViolationError
+    )
+except ImportError:
+    # Fallback if litellm exceptions are not available
+    APIError = Exception
+    APIConnectionError = Exception
+    APITimeoutError = Exception
+    RateLimitError = Exception
+    ServiceUnavailableError = Exception
+    ContentFilterViolationError = Exception
 
 class BaseAgent:
     def __init__(self, model: str = "gpt-4", max_retries: int = 3, retry_delay: float = 2.0):
@@ -11,9 +31,69 @@ class BaseAgent:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
+    def _is_retryable_error(self, exception: Exception) -> tuple[bool, str]:
+        """
+        Determine if an error is retryable and return (is_retryable, error_category).
+        
+        Returns:
+            tuple: (is_retryable, error_category)
+        """
+        error_str = str(exception).lower()
+        error_type = type(exception).__name__.lower()
+        
+        # Check for litellm specific exceptions
+        if isinstance(exception, (APIConnectionError, ConnectionError, OSError)):
+            return True, "connection"
+        elif isinstance(exception, (APITimeoutError, TimeoutError)):
+            return True, "timeout"
+        elif isinstance(exception, RateLimitError):
+            return True, "rate_limit"
+        elif isinstance(exception, ServiceUnavailableError):
+            return True, "service_unavailable"
+        elif isinstance(exception, APIError):
+            # Some API errors might be retryable
+            if any(keyword in error_str for keyword in ["503", "502", "500", "429"]):
+                return True, "api_error"
+        
+        # Check error string for common retryable patterns
+        connection_keywords = [
+            "connection", "connect", "network", "ssl", "tls", 
+            "unreachable", "refused", "reset", "broken pipe"
+        ]
+        if any(keyword in error_str for keyword in connection_keywords):
+            return True, "connection"
+        
+        timeout_keywords = ["timeout", "timed out", "deadline exceeded"]
+        if any(keyword in error_str for keyword in timeout_keywords):
+            return True, "timeout"
+        
+        rate_limit_keywords = ["rate limit", "429", "too many requests", "quota exceeded"]
+        if any(keyword in error_str for keyword in rate_limit_keywords):
+            return True, "rate_limit"
+        
+        # JSON parsing errors (often transient)
+        json_keywords = [
+            "jsondecodeerror", "json decode", "unable to get json",
+            "expecting value", "invalid json", "malformed json",
+            "parse error", "unexpected token"
+        ]
+        if any(keyword in error_str for keyword in json_keywords) or "json" in error_type:
+            return True, "json_parse"
+        
+        # Server errors (5xx)
+        server_error_keywords = ["500", "502", "503", "504", "service unavailable", "bad gateway"]
+        if any(keyword in error_str for keyword in server_error_keywords):
+            return True, "server_error"
+        
+        # Content filter violations are usually not retryable
+        if isinstance(exception, ContentFilterViolationError) or "content filter" in error_str:
+            return False, "content_filter"
+        
+        return False, "unknown"
+
     async def call_llm(self, system_prompt: str, user_prompt: str) -> tuple[str, dict]:
         """
-        Call LLM with retry mechanism for network errors.
+        Call LLM with robust retry mechanism for network errors, timeouts, and transient failures.
         
         Returns:
             tuple: (content, usage_info) where usage_info contains tokens and cost
@@ -32,14 +112,21 @@ class BaseAgent:
                     timeout=120  # 2 minutes timeout
                 )
                 
+                # Validate response structure
+                if not response or not hasattr(response, 'choices') or not response.choices:
+                    raise ValueError("Invalid response structure: missing choices")
+                
+                if not response.choices[0].message.content:
+                    raise ValueError("Empty response content")
+                
                 content = response.choices[0].message.content
                 
                 # Get token usage and cost
                 usage = getattr(response, 'usage', None)
                 usage_info = {
-                    "prompt_tokens": getattr(usage, 'prompt_tokens', 0),
-                    "completion_tokens": getattr(usage, 'completion_tokens', 0),
-                    "total_tokens": getattr(usage, 'total_tokens', 0),
+                    "prompt_tokens": getattr(usage, 'prompt_tokens', 0) if usage else 0,
+                    "completion_tokens": getattr(usage, 'completion_tokens', 0) if usage else 0,
+                    "total_tokens": getattr(usage, 'total_tokens', 0) if usage else 0,
                     "cost": 0.0
                 }
                 
@@ -49,48 +136,47 @@ class BaseAgent:
                 except Exception:
                     pass
                 
+                # Log success after retries
+                if attempt > 0:
+                    print(f"✅ LLM 调用成功 (第 {attempt + 1} 次尝试)")
+                
                 return content, usage_info
                 
             except Exception as e:
                 last_exception = e
-                error_str = str(e).lower()
-                error_type = type(e).__name__.lower()
+                is_retryable, error_category = self._is_retryable_error(e)
                 
-                # Check if it's a retryable error
-                is_retryable = any(keyword in error_str for keyword in [
-                    "connection", "connect", "timeout", "network", 
-                    "ssl", "tls", "unreachable", "refused",
-                    "jsondecodeerror", "json decode", "unable to get json",
-                    "expecting value", "invalid json", "malformed json"
-                ])
-                
-                # Check error type for JSON parsing errors
-                is_json_error = any(keyword in error_type for keyword in [
-                    "jsondecodeerror", "jsondecode", "json"
-                ]) or "json" in error_str
-                
-                # Rate limit errors should also be retried
-                is_rate_limit = "rate limit" in error_str or "429" in error_str
-                
-                # API response format errors (like invalid JSON) should be retried
-                is_api_error = any(keyword in error_str for keyword in [
-                    "unable to get json", "expecting value", "invalid response",
-                    "malformed", "parse error"
-                ])
-                
-                if (is_retryable or is_rate_limit or is_json_error or is_api_error) and attempt < self.max_retries - 1:
-                    # Exponential backoff: 2s, 4s, 8s...
-                    delay = self.retry_delay * (2 ** attempt)
-                    if is_rate_limit:
-                        # Rate limit errors need longer delay
-                        delay = max(delay, 10.0)
+                # Check if we should retry
+                if is_retryable and attempt < self.max_retries - 1:
+                    # Calculate delay with exponential backoff
+                    base_delay = self.retry_delay * (2 ** attempt)
                     
-                    print(f"⚠️  LLM 调用失败 (尝试 {attempt + 1}/{self.max_retries}): {str(e)[:100]}")
+                    # Adjust delay based on error category
+                    if error_category == "rate_limit":
+                        delay = max(base_delay, 10.0)  # Rate limits need longer delay
+                    elif error_category == "server_error":
+                        delay = max(base_delay, 5.0)   # Server errors need moderate delay
+                    elif error_category == "timeout":
+                        delay = base_delay * 1.5        # Timeouts need slightly longer delay
+                    else:
+                        delay = base_delay
+                    
+                    # Log retry attempt
+                    error_msg = str(e)[:200]  # Limit error message length
+                    print(f"⚠️  LLM 调用失败 (尝试 {attempt + 1}/{self.max_retries})")
+                    print(f"   错误类型: {error_category}")
+                    print(f"   错误信息: {error_msg}")
                     print(f"🔄 {delay:.1f} 秒后重试...")
+                    
                     await asyncio.sleep(delay)
                     continue
                 else:
                     # Non-retryable error or max retries reached
+                    if attempt == self.max_retries - 1:
+                        error_msg = str(e)[:200]
+                        print(f"❌ LLM 调用失败，已达到最大重试次数 ({self.max_retries})")
+                        print(f"   错误类型: {error_category}")
+                        print(f"   错误信息: {error_msg}")
                     raise
         
         # If we exhausted all retries, raise the last exception

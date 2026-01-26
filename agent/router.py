@@ -82,6 +82,7 @@ class CRRouter:
             mr_message=mr_message,
             requirements_content=requirements_content,
             code_diff=code_diff,
+            previous_review=previous_review,
         )
         
         print(f"Summary Agent Token 消耗: {summary_usage.get('total_tokens', 0)} (Input: {summary_usage.get('prompt_tokens', 0)}, Output: {summary_usage.get('completion_tokens', 0)}, Cost: ${summary_usage.get('cost', 0.0):.6f})")
@@ -100,7 +101,7 @@ class CRRouter:
             "usage": total_usage
         }
 
-    async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "") -> tuple[str, dict]:
+    async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "", previous_review: Dict[str, Any] = None) -> tuple[str, dict]:
         system_prompt = SUMMARY_AGENT_PROMPT
         user_prompt = "### MR MESSAGE\n"
         user_prompt += f"{mr_message}\n\n"
@@ -114,5 +115,23 @@ class CRRouter:
         
         if previous_summary:
             user_prompt += f"\n### PREVIOUS REVIEW SUMMARY\n{previous_summary}"
+            
+            # Also include previous line_comments to help identify fixed issues
+            if previous_review and isinstance(previous_review, dict):
+                prev_line_comments = previous_review.get("line_comments", {})
+                if prev_line_comments and isinstance(prev_line_comments, dict):
+                    prev_comments = prev_line_comments.get("comments", [])
+                    if prev_comments and isinstance(prev_comments, list):
+                        user_prompt += f"\n### PREVIOUS REVIEW LINE COMMENTS\n"
+                        user_prompt += "以下是在上一轮评审中提出的问题（line_comments）：\n\n"
+                        for i, comment in enumerate(prev_comments, 1):
+                            if isinstance(comment, dict):
+                                file_path = comment.get("new_path", "unknown")
+                                start_line = comment.get("start_line", "?")
+                                end_line = comment.get("end_line", "?")
+                                body = comment.get("body", "")[:200]  # Limit length
+                                user_prompt += f"{i}. {file_path}:{start_line}-{end_line}\n"
+                                user_prompt += f"   问题: {body}\n\n"
+                        user_prompt += "\n**重要**：请对比当前 CODE DIFF，如果上述问题已经修复，在增量追踪中标记为 [FIXED]，但不要将其放入新的 line_comments 中。\n"
             
         return await self.aggregator.call_llm(system_prompt, user_prompt)

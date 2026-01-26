@@ -91,6 +91,10 @@
 
 ### line_comments 字段
 - 从专家报告中提取所有高置信度（>= 85）的问题
+- **重要：过滤已修复的问题**
+  - 如果 `### PREVIOUS REVIEW SUMMARY` 中存在，且你在 `🔄 增量评审追踪` 中标记为 `[FIXED]` 的问题，**不要**将其放入 `line_comments`
+  - 只有当前 diff 中仍然存在的问题才应该出现在 `line_comments` 中
+  - 已修复的问题只在 markdown_report 的增量追踪中标记即可，不需要生成 line comment
 - 每个评论必须包含：
   - `new_path`: 文件相对路径（从专家报告的 `file_path` 字段获取）
   - `body`: 评论内容（Markdown 格式，可以包含代码块、列表等）
@@ -123,7 +127,12 @@
 1. **增量追踪**：如果输入中包含 `### PREVIOUS REVIEW SUMMARY`，你必须在 markdown_report 中加入 `🔄 增量评审追踪` 小节。
    - 必须基于 `### CODE DIFF` 中的真实改动进行判定。
    - 不要遗漏上一轮中的任何关键 Blockers。
-2. **JSON 格式**：输出必须是有效的 JSON，不要包含任何解释性文字或 Markdown 围栏。
-3. **语言**：所有的自然语言描述必须是**简体中文**。
-4. **行号验证**：确保从专家报告中提取的 `start_line` 和 `end_line` 是有效的正整数，且 `end_line >= start_line`。
-5. **文件路径**：确保 `new_path` 是相对路径，不包含前导斜杠（如 `internal/auth.go` 而不是 `/internal/auth.go`）。
+   - **关键**：如果某个问题在增量追踪中标记为 `[FIXED]`，说明它已经在当前 diff 中修复，**不要**将其放入 `line_comments` 中。只有未修复或部分修复的问题才需要生成 line comment。
+2. **避免重复报告已修复的问题**：
+   - 仔细对比 PREVIOUS REVIEW SUMMARY 和当前 CODE DIFF
+   - 如果上一轮的问题在当前 diff 中已经修复（代码已修改或删除），在增量追踪中标记为 `[FIXED]`，但**不要**在 `line_comments` 中重复生成评论
+   - 只有当前 diff 中仍然存在的问题才应该出现在 `line_comments` 中
+3. **JSON 格式**：输出必须是有效的 JSON，不要包含任何解释性文字或 Markdown 围栏。
+4. **语言**：所有的自然语言描述必须是**简体中文**。
+5. **行号验证**：确保从专家报告中提取的 `start_line` 和 `end_line` 是有效的正整数，且 `end_line >= start_line`。
+6. **文件路径**：确保 `new_path` 是相对路径，不包含前导斜杠（如 `internal/auth.go` 而不是 `/internal/auth.go`）。
