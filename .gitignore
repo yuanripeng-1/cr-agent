@@ -28,3 +28,7 @@ Thumbs.db
 project/
 
 *.zip
+
+*.log
+
+cr_result/

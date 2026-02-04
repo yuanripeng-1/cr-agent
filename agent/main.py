@@ -3,6 +3,10 @@ import json
 import os
 import subprocess
 import toml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 from .router import CRRouter
 from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers
 
@@ -193,16 +197,49 @@ async def main():
             else:
                 raise ValueError("不是有效的 summary JSON 格式")
         except (json.JSONDecodeError, ValueError) as e:
-            # 回退到旧格式（仅 Markdown）
-            print(f"⚠️ Summary 输出不是 JSON，使用旧格式: {e}")
-            # 去掉 summary 中的 markdown 代码块标记
-            if summary_content.startswith("```markdown"):
-                summary_content = summary_content[11:]
-            elif summary_content.startswith("```"):
-                summary_content = summary_content[3:]
-            if summary_content.endswith("```"):
-                summary_content = summary_content[:-3]
-            summary_content = summary_content.strip()
+            # 尝试解析为 YAML（兼容旧输出）
+            parsed_as_yaml = False
+            yaml_text = summary_content.strip()
+            if yaml_text.startswith("```yaml"):
+                yaml_text = yaml_text[7:]
+            elif yaml_text.startswith("```yml"):
+                yaml_text = yaml_text[6:]
+            elif yaml_text.startswith("```"):
+                yaml_text = yaml_text[3:]
+            if yaml_text.endswith("```"):
+                yaml_text = yaml_text[:-3]
+            yaml_text = yaml_text.strip()
+            
+            if yaml:
+                try:
+                    summary_yaml = yaml.safe_load(yaml_text)
+                    if isinstance(summary_yaml, dict) and "markdown_report" in summary_yaml:
+                        markdown_report = summary_yaml.get("markdown_report", "")
+                        line_comments_data = summary_yaml.get("line_comments", {})
+                        print("✅ 成功解析 Summary Agent 输出为 YAML 格式")
+                        
+                        if markdown_report.startswith("```markdown"):
+                            markdown_report = markdown_report[11:]
+                        elif markdown_report.startswith("```"):
+                            markdown_report = markdown_report[3:]
+                        if markdown_report.endswith("```"):
+                            markdown_report = markdown_report[:-3]
+                        summary_content = markdown_report.strip()
+                        parsed_as_yaml = True
+                except Exception as yaml_error:
+                    print(f"⚠️ Summary YAML 解析失败: {yaml_error}")
+            
+            if not parsed_as_yaml:
+                # 回退到旧格式（仅 Markdown）
+                print(f"⚠️ Summary 输出不是 JSON，使用旧格式: {e}")
+                # 去掉 summary 中的 markdown 代码块标记
+                if summary_content.startswith("```markdown"):
+                    summary_content = summary_content[11:]
+                elif summary_content.startswith("```"):
+                    summary_content = summary_content[3:]
+                if summary_content.endswith("```"):
+                    summary_content = summary_content[:-3]
+                summary_content = summary_content.strip()
 
         # 验证和修正 line_comments（如果存在）
         validated_comments = []

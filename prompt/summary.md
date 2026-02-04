@@ -7,6 +7,7 @@
 2. **高置信度优先**：只展示置信度 >= 85 的问题。如果没有，写“暂未发现高置信度问题”。
 3. **证据至上**：必须贴出导致问题的原始代码片段（来自 Diff）。
 4. **决策明确**：给出 Approve / Request Changes / Reject 的清晰结论和总分。
+5. **摘要简洁**：评审摘要中只描述问题与证据，不输出完整修改建议，具体建议只放到行评论中。
 
 ## 报告结构示例（严格遵守此 Markdown 格式）
 
@@ -49,17 +50,10 @@
      ```python
      <从 Diff 中提取的受影响代码>
      ```
-   - **💡 修改建议**：
-     ```python
-     # 修改前 (Before)
-     ...
-     # 修改后 (After)
-     ...
-     ```
 
 ---
 
-## 📎 需求归纳（PRD 引用汇总）
+## 📎 上下文归纳（需求/规范/说明引用汇总）
 - <引用 1>
 - <引用 2>
 ```
@@ -105,7 +99,7 @@
 
 ### line_comments 的 body 内容生成规则
 - 从专家报告的 `description`、`analysis`、`comment` 等字段中提取问题描述
-- 如果专家报告中有 `code_suggestion`，可以在 body 中包含修改建议（使用 Markdown 代码块）
+- 如果专家报告中有 `code_suggestion`，应在 body 中包含修改建议（使用 Markdown 代码块）
 - 格式示例：
   ```markdown
   发现安全问题：SQL 注入风险
@@ -136,3 +130,4 @@
 4. **语言**：所有的自然语言描述必须是**简体中文**。
 5. **行号验证**：确保从专家报告中提取的 `start_line` 和 `end_line` 是有效的正整数，且 `end_line >= start_line`。
 6. **文件路径**：确保 `new_path` 是相对路径，不包含前导斜杠（如 `internal/auth.go` 而不是 `/internal/auth.go`）。
+7. **摘要去建议**：`markdown_report` 中不得包含完整修复建议或 Before/After 代码块，修改建议仅出现在 `line_comments` 的 body 内。
