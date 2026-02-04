@@ -1,43 +1,37 @@
 {
-  "llm_result": "# 代码评审报告（Code Review Report）\n\n## 📋 结论概览\n**决策：** Request Changes （总分：88/100）\n\n**原因（Rationale）：\n- 存在多个高置信度的安全和性能问题需要修复\n- 部分核心功能缺乏单元测试，影响长期维护性\n\n**⛔ 必须修改项（Blockers）：\n- 修复文件描述符泄漏问题\n- 增加API密钥的安全处理\n- 修复代码切块器的性能瓶颈\n\n## ✅ 检查通过项\n- **文档**：文档覆盖率较高，仅需少量补充\n- **一致性**：大部分代码风格一致，仅少量命名问题\n\n---\n\n## 🧩 评审摘要（聚合输出）\n\n### 风险（Risk）\n**维度覆盖：** 安全性、性能、错误处理\n\n1. **文件描述符泄漏**（置信度：95；影响：性能、错误处理）\n   - **分析**：多处文件操作未正确关闭文件描述符，长期运行可能导致资源耗尽\n   - **证据代码**：\n     ```python\n     log_fh = open(log_file, \"w\")\n     process = subprocess.Popen(\n         cmd,\n         stdout=log_fh,\n         stderr=subprocess.STDOUT,\n         start_new_session=True\n     )\n     ```\n   - **💡 修改建议**：\n     ```python\n     with open(log_file, \"w\") as log_fh:\n         process = subprocess.Popen(\n             cmd,\n             stdout=log_fh,\n             stderr=subprocess.STDOUT,\n             start_new_session=True\n         )\n     ```\n\n2. **API密钥硬编码**（置信度：95；影响：安全性）\n   - **分析**：RetrieverTool直接使用硬编码API密钥，存在泄露风险\n   - **证据代码**：\n     ```python\n     client = OpenAI(\n         base_url=self.embedding_base_url,\n         api_key=self.embedding_api_key\n     )\n     ```\n   - **💡 修改建议**：\n     ```python\n     client = OpenAI(\n         base_url=os.getenv('EMBEDDING_BASE_URL'),\n         api_key=os.getenv('EMBEDDING_API_KEY')\n     )\n     ```\n\n3. **代码切块性能问题**（置信度：92；影响：性能）\n   - **分析**：滑动窗口算法存在O(N^2)复杂度问题，大文件处理效率低\n   - **证据代码**：\n     ```python\n     while end_line_idx < len(lines) and char_count < self.chunk_size:\n         char_count += len(lines[end_line_idx]) + 1\n         end_line_idx += 1\n     ```\n   - **💡 修改建议**：\n     ```python\n     line_lengths = [len(line) + 1 for line in lines]\n     while end_line_idx < len(lines) and char_count < self.chunk_size:\n         char_count += line_lengths[end_line_idx]\n         end_line_idx += 1\n     ```\n\n### 测试（Testing）\n**维度覆盖：** 可维护性\n\n1. **缺少单元测试**（置信度：95；影响：可维护性）\n   - **分析**：核心组件如CodeChunker、RetrieverTool缺乏单元测试\n   - **证据代码**：\n     ```python\n     class CodeChunker:\n         def __init__(self, chunk_size=500, chunk_overlap=50):\n             self.chunk_size = chunk_size\n             self.chunk_overlap = chunk_overlap\n     ```\n   - **💡 修改建议**：\n     ```python\n     def test_chunk_empty_file():\n         chunker = CodeChunker()\n         chunks = chunker.chunk_code(\"empty.py\", \"\")\n         assert len(chunks) == 0\n     ```\n\n---\n\n## 📎 需求归纳（PRD 引用汇总）",
+  "llm_result": "# 代码评审报告（Code Review Report）\n\n## 📋 结论概览\n**决策：** Request Changes （总分：90/100）\n\n**原因（Rationale）：**\n- 存在严重安全隐患，必须修复。\n- 部分核心功能缺乏测试覆盖，影响可靠性。\n\n**⛔ 必须修改项（Blockers）：**\n- Git URL中的access_token直接拼接导致凭证泄露风险\n- 子进程日志文件句柄未正确关闭可能导致资源泄漏\n- 用户模型敏感信息未过滤存在数据泄露风险\n\n## ✅ 检查通过项\n- **文档完整性**：未发现高置信度问题。\n- **性能优化**：未发现高置信度问题。\n\n---\n\n## 🧩 评审摘要（聚合输出）\n\n### 风险（Risk）\n**维度覆盖：** 安全性、错误处理\n\n1. **凭证泄露风险**（置信度：95；影响：安全性）\n   - **分析**：Git URL中的access_token直接拼接在URL中，可能导致token泄露\n   - **证据代码**：\n     ```python\n     if git_url.startswith(\"https://\"):\n         git_url_with_token = git_url.replace(\"https://\", f\"https://{access_token}@\")\n     ```\n\n2. **资源泄漏风险**（置信度：95；影响：错误处理）\n   - **分析**：子进程日志文件句柄未正确关闭，可能导致文件描述符泄漏\n   - **证据代码**：\n     ```python\n     log_fh = open(log_file, \"w\")\n     process = subprocess.Popen(\n         cmd,\n         stdout=log_fh,\n         stderr=subprocess.STDOUT,\n         start_new_session=True\n     )\n     ```\n\n3. **数据泄露风险**（置信度：90；影响：安全性）\n   - **分析**：用户模型新增的raw_info字段可能包含敏感信息但未过滤\n   - **证据代码**：\n     ```python\n     def full_dict(self) -> Dict:\n         return {\n             \"sub\": self.user_id,\n             \"name\": self.raw_info.get(\"name\", self.name),\n             \"display_name\": self.raw_info.get(\"display_name\", self.name),\n             \"is_admin\": self.raw_info.get(\"is_admin\", False),\n             \"groups\": self.groups_raw,\n             \"email\": self.email,\n             \"email_verified\": self.raw_info.get(\"email_verified\", False),\n             \"phone\": self.raw_info.get(\"phone\", \"\"),\n             \"country_code\": self.raw_info.get(\"country_code\", \"\"),\n             \"created_time\": self.raw_info.get(\"CreatedTime\", \"\"),\n         }\n     ```\n\n### 一致性（Consistency）\n**维度覆盖：** 一致性、可维护性\n\n1. **方法签名不一致**（置信度：95；影响：可维护性）\n   - **分析**：get_vector_db_path方法重构后参数列表与get_wiki_path不一致\n   - **证据代码**：\n     ```python\n     def get_vector_db_path(\n         self,\n         group_id: str,\n         source_type: str,\n         platform: str = None,\n         owner: str = None,\n         repo: str = None,\n         branch: str = None,\n         commit_sha: str = None,\n         upload_id: str = None\n     ) -> Path:\n     ```\n\n---\n\n## 📎 上下文归纳（需求/规范/说明引用汇总）\n- 安全要求：敏感凭证不应明文传输或记录\n- 核心组件文档要求\n- 用户信息一致性要求",
   "status": "success",
   "log_path": "./cr_result/7-29fcef61/run.log",
   "tokens_consume": {
-    "input_tokens": 422784,
-    "output_tokens": 11778,
-    "cost": 0.0624876
+    "input_tokens": 421567,
+    "output_tokens": 9949,
+    "cost": 0.0618051
   },
   "line_comments": {
     "comments": [
       {
-        "new_path": "agent/code_chunker.py",
-        "body": "问题代码范围：14:22\n\n发现命名不一致问题：字段命名风格不统一\n\n**问题分析**：CodeChunk类字段同时使用下划线命名法和驼峰命名法，违反Python命名规范\n\n**修改建议**：\n```python\n# 修改前\nchar_count: int        # 字符数\nline_count: int        # 行数\n\n# 修改后\nchar_count: int         # 字符数\nline_count: int         # 行数\n```",
-        "start_line": 14,
-        "end_line": 22
-      },
-      {
-        "new_path": "agent/doc_utils.py",
-        "body": "问题代码范围：76:103\n\n建议增加类型注解和超时参数\n\n**问题分析**：send_build_vector_db_status函数缺少完整类型注解和超时控制\n\n**修改建议**：\n```python\n# 修改前\ndef send_build_vector_db_status(callback_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:\n\n# 修改后\ndef send_build_vector_db_status(\n    callback_url: str,\n    payload: Dict[str, Any],\n    timeout: int = 30\n) -> Dict[str, Any]:\n```",
-        "start_line": 76,
-        "end_line": 103
-      },
-      {
         "new_path": "backend/app/auth.py",
-        "body": "问题代码范围：25:61\n\nUser类数据暴露风险\n\n**问题分析**：full_dict方法直接暴露原始用户信息，存在安全风险\n\n**修改建议**：\n```python\n# 修改前\ndef full_dict(self) -> Dict:\n    return {\n        \"sub\": self.user_id,\n        \"name\": self.name,\n        ...\n    }\n\n# 修改后\ndef full_dict(self) -> Dict:\n    return {\n        **self.dict(),  # 基础字段\n        \"display_name\": self.raw_info.get(\"display_name\", self.name),\n        \"groups\": [g for g in self.groups_raw if isinstance(g, str)],\n        ...\n    }\n```",
-        "start_line": 25,
-        "end_line": 61
+        "body": "问题代码范围：173:177\n\n发现安全问题：凭证泄露风险\n\n**问题分析**：Git URL中的access_token直接拼接在URL中，可能导致token通过日志或网络嗅探泄露。\n\n**修改建议**：\n```python\n# 使用环境变量或安全存储的凭证，避免在代码中直接拼接\n# 或使用Git的凭证存储机制\n```",
+        "start_line": 173,
+        "end_line": 177
       },
       {
         "new_path": "backend/app/container_manager.py",
-        "body": "问题代码范围：340:347\n\n文件描述符泄漏风险\n\n**问题分析**：日志文件句柄未正确关闭，可能导致资源泄漏\n\n**修改建议**：\n```python\n# 修改前\nlog_fh = open(log_file, \"w\")\nprocess = subprocess.Popen(...)\n\n# 修改后\nwith open(log_file, \"w\") as log_fh:\n    process = subprocess.Popen(...)\n```",
+        "body": "问题代码范围：340:347\n\n发现资源泄漏问题：文件句柄未关闭\n\n**问题分析**：子进程日志文件句柄未正确关闭，可能导致文件描述符泄漏。\n\n**修改建议**：\n```python\nwith open(log_file, \"w\") as log_fh:\n    process = subprocess.Popen(\n        cmd,\n        stdout=log_fh,\n        stderr=subprocess.STDOUT,\n        start_new_session=True\n    )\n```",
         "start_line": 340,
         "end_line": 347
       },
       {
-        "new_path": "agent/tools/retriever_tool.py",
-        "body": "问题代码范围：196:209\n\nAPI密钥安全风险\n\n**问题分析**：直接使用硬编码API密钥，存在泄露风险\n\n**修改建议**：\n```python\n# 修改前\nclient = OpenAI(\n    base_url=self.embedding_base_url,\n    api_key=self.embedding_api_key\n)\n\n# 修改后\nclient = OpenAI(\n    base_url=os.getenv('EMBEDDING_BASE_URL'),\n    api_key=os.getenv('EMBEDDING_API_KEY')\n)\n```",
-        "start_line": 196,
-        "end_line": 209
+        "new_path": "backend/app/auth.py",
+        "body": "问题代码范围：25:61\n\n发现数据泄露风险：敏感信息未过滤\n\n**问题分析**：User类的full_dict()方法直接返回所有字段，包含email_verified, phone等敏感信息。\n\n**修改建议**：\n```python\ndef full_dict(self) -> Dict:\n    # 过滤敏感字段或根据用户角色返回不同信息层级\n    return {\n        \"sub\": self.user_id,\n        \"name\": self.name,\n        \"groups\": self.groups,\n        # 仅返回必要的非敏感信息\n    }\n```",
+        "start_line": 25,
+        "end_line": 61
+      },
+      {
+        "new_path": "backend/app/path_manager.py",
+        "body": "问题代码范围：86:164\n\n发现一致性问题：方法签名不一致\n\n**问题分析**：get_vector_db_path方法缺少doc_type和version参数，与get_wiki_path方法签名不一致。\n\n**修改建议**：\n```python\ndef get_vector_db_path(\n    self,\n    group_id: str,\n    source_type: str,\n    doc_type: str,\n    version: int,\n    platform: str = None,\n    owner: str = None,\n    repo: str = None,\n    branch: str = None,\n    commit_sha: str = None,\n    upload_id: str = None\n) -> Path:\n```",
+        "start_line": 86,
+        "end_line": 164
       }
     ]
   }

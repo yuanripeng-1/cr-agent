@@ -6,6 +6,7 @@ COMMON_CONSTRAINTS = """
 - All natural language content (descriptions, analysis, rationale, comments) MUST be in Simplified Chinese.
 - 仅输出“高置信度”问题：每条问题必须包含 `confidence`（0-100），并且必须 >= 85；否则不要输出该条。
 - 如果未发现置信度 >= 85 的问题：对应列表字段必须输出空数组 `[]`，并明确写“暂未发现高置信度问题”。不要为了凑数而输出低价值建议。
+- 不审查或评论版本号相关变更（如版本号更新、依赖版本升级），不要输出此类问题或建议。
 """
 
 DIFF_FORMAT_NOTE = """
