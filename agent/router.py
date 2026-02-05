@@ -1,7 +1,12 @@
 import asyncio
+import json
 from typing import Dict, Any, List
 from .agents import GenericDimensionAgent, QualityLinterAgent, BaseAgent
 from .prompts import *
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 class CRRouter:
     def __init__(self, model: str = "gpt-4"):
@@ -134,4 +139,56 @@ class CRRouter:
                                 user_prompt += f"   问题: {body}\n\n"
                         user_prompt += "\n**重要**：请对比当前 CODE DIFF，如果上述问题已经修复，在增量追踪中标记为 [FIXED]，但不要将其放入新的 line_comments 中。\n"
             
-        return await self.aggregator.call_llm(system_prompt, user_prompt)
+        def has_markdown_report(content: str) -> bool:
+            text = (content or "").strip()
+            if not text:
+                return False
+            if text.startswith("```json"):
+                text = text[7:]
+            elif text.startswith("```yaml"):
+                text = text[7:]
+            elif text.startswith("```yml"):
+                text = text[6:]
+            elif text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+            try:
+                obj = json.loads(text)
+                if isinstance(obj, dict) and "markdown_report" in obj:
+                    return True
+            except Exception:
+                pass
+            if yaml:
+                try:
+                    obj = yaml.safe_load(text)
+                    if isinstance(obj, dict) and "markdown_report" in obj:
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        max_attempts = 2
+        total_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cost": 0.0
+        }
+        last_content = ""
+        for attempt in range(1, max_attempts + 1):
+            content, usage = await self.aggregator.call_llm(system_prompt, user_prompt)
+            last_content = content
+            total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+            total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+            total_usage["total_tokens"] += usage.get("total_tokens", 0)
+            total_usage["cost"] += usage.get("cost", 0.0)
+            if has_markdown_report(content):
+                total_usage["retry_count"] = attempt - 1
+                return content, total_usage
+            if attempt < max_attempts:
+                print("⚠️ Summary 输出未包含 markdown_report，触发重试")
+                user_prompt += "\n\n### RETRY INSTRUCTION\n上次输出不合规：必须输出 JSON 且包含 markdown_report 与 line_comments，禁止输出 YAML 或其他结构。请严格按照模板生成。"
+        total_usage["retry_count"] = max_attempts - 1
+        return last_content, total_usage

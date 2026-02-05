@@ -60,7 +60,7 @@
 
 ## 输出格式（CRITICAL）
 
-**你必须输出一个有效的 JSON 对象，包含以下两个字段：**
+**你必须输出一个有效的 JSON 对象，包含以下两个字段，禁止输出 YAML：**
 
 ```json
 {
@@ -82,6 +82,7 @@
 - 包含完整的 Markdown 格式评审报告（按照上面的报告结构示例）
 - 所有内容必须是有效的 Markdown 格式
 - 使用简体中文
+ - 必须存在且不可为空
 
 ### line_comments 字段
 - 从专家报告中提取所有高置信度（>= 85）的问题
@@ -96,6 +97,10 @@
   - `end_line`: 结束行号（从专家报告的 `end_line` 字段获取）
 - **去重规则**：如果多个维度提到同一个问题（相同文件、相同行号范围），只保留一个评论，但 `body` 中应该合并所有相关维度的信息
 - **单行 vs 多行**：统一使用 `start_line` 和 `end_line`，单行时两者相等
+- 如没有需要评论的问题，必须输出：
+  ```json
+  "line_comments": { "comments": [] }
+  ```
 
 ### line_comments 的 body 内容生成规则
 - 从专家报告的 `description`、`analysis`、`comment` 等字段中提取问题描述
@@ -126,7 +131,7 @@
    - 仔细对比 PREVIOUS REVIEW SUMMARY 和当前 CODE DIFF
    - 如果上一轮的问题在当前 diff 中已经修复（代码已修改或删除），在增量追踪中标记为 `[FIXED]`，但**不要**在 `line_comments` 中重复生成评论
    - 只有当前 diff 中仍然存在的问题才应该出现在 `line_comments` 中
-3. **JSON 格式**：输出必须是有效的 JSON，不要包含任何解释性文字或 Markdown 围栏。
+3. **JSON 格式**：输出必须是有效的 JSON，不要包含任何解释性文字或 Markdown 围栏，严禁输出 YAML。
 4. **语言**：所有的自然语言描述必须是**简体中文**。
 5. **行号验证**：确保从专家报告中提取的 `start_line` 和 `end_line` 是有效的正整数，且 `end_line >= start_line`。
 6. **文件路径**：确保 `new_path` 是相对路径，不包含前导斜杠（如 `internal/auth.go` 而不是 `/internal/auth.go`）。
