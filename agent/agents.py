@@ -28,10 +28,11 @@ except ImportError:
     Timeout = Exception
 
 class BaseAgent:
-    def __init__(self, model: str = "gpt-4", max_retries: int = 3, retry_delay: float = 2.0):
+    def __init__(self, model: str = "gpt-4", max_retries: int = 3, retry_delay: float = 2.0, api_base: str | None = None):
         self.model = model
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.api_base = api_base  # 私有化部署：自定义 API 地址，如 "https://your-server/v1"
 
     def _is_retryable_error(self, exception: Exception) -> tuple[bool, str]:
         """
@@ -113,15 +114,18 @@ class BaseAgent:
         for attempt in range(self.max_retries):
             try:
                 current_timeout = int(dynamic_timeout)
-                response = await litellm.acompletion(
-                    model=self.model,
-                    messages=[
+                kwargs = {
+                    "model": self.model,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    temperature=0.2,
-                    timeout=current_timeout  # Dynamic timeout based on prompt size
-                )
+                    "temperature": 0.2,
+                    "timeout": current_timeout,
+                }
+                if self.api_base:
+                    kwargs["api_base"] = self.api_base.rstrip("/")
+                response = await litellm.acompletion(**kwargs)
                 
                 # Validate response structure
                 if not response or not hasattr(response, 'choices') or not response.choices:
@@ -206,8 +210,8 @@ class BaseAgent:
 
 class GenericDimensionAgent(BaseAgent):
     """A generic agent for single-dimension review."""
-    def __init__(self, model: str, system_prompt: str, dimension_name: str):
-        super().__init__(model)
+    def __init__(self, model: str, system_prompt: str, dimension_name: str, api_base: str | None = None):
+        super().__init__(model, api_base=api_base)
         self.system_prompt = system_prompt
         self.dimension_name = dimension_name
 
@@ -242,6 +246,9 @@ class GenericDimensionAgent(BaseAgent):
 
 class QualityLinterAgent(BaseAgent):
     """Consistency & Style Agent that also runs physical Linter."""
+    def __init__(self, model: str, api_base: str | None = None):
+        super().__init__(model, api_base=api_base)
+
     async def run(self, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", previous_review: str = "") -> tuple[str, dict]:
         # Linter execution logic
         linter_output = ""

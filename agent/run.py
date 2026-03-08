@@ -540,13 +540,17 @@ async def run_agent():
         if requirements_path and os.path.exists(requirements_path):
             with open(requirements_path, "r") as f: requirements_content = f.read()
         
-        # Env Setup
+        # Env Setup（api_key 可选，私有化如 Ollama 可不填）
         llm_config = config.get("llm", {})
-        os.environ["OPENAI_API_KEY"] = llm_config.get("api_key")
-        os.environ["OPENROUTER_API_KEY"] = llm_config.get("api_key")
-        if llm_config.get("api_base"): os.environ["OPENAI_API_BASE"] = llm_config["api_base"]
-        
-        router = CRRouter(model=llm_config.get("model", "gpt-4"))
+        api_key = llm_config.get("api_key") or os.environ.get("OPENAI_API_KEY") or ""
+        if api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
+            os.environ["OPENROUTER_API_KEY"] = api_key
+        api_base = llm_config.get("api_base") or None
+        if api_base:
+            os.environ["OPENAI_API_BASE"] = api_base
+            os.environ["OPENAI_BASE_URL"] = api_base
+        router = CRRouter(model=llm_config.get("model", "gpt-4"), api_base=api_base)
         
         result = await router.route_and_aggregate(
             mr_message=mr_message, 

@@ -46,7 +46,15 @@
      if git_url.startswith("https://"):
          git_url_with_token = git_url.replace("https://", f"https://{access_token}@")
      ```
-
+   - **修复建议**：
+     ```python
+     # 使用 Git 凭据助手或环境变量，避免将 token 写入 URL
+     # 例如使用 GIT_ASKPASS 或 .netrc，或通过 subprocess 环境传入
+     env = os.environ.copy()
+     env["GIT_ASKPASS"] = "echo"
+     env["GIT_USERNAME"] = ""
+     env["GIT_PASSWORD"] = access_token
+     ```
 2. **资源泄漏风险**（置信度：95；影响：错误处理）
    - **分析**：子进程日志文件句柄未正确关闭，可能导致文件描述符泄漏
    - **证据代码**：
@@ -58,6 +66,17 @@
          stderr=subprocess.STDOUT,
          start_new_session=True
      )
+     ```
+   - **修复建议**：
+     ```python
+     with open(log_file, "w") as log_fh:
+         process = subprocess.Popen(
+             cmd,
+             stdout=log_fh,
+             stderr=subprocess.STDOUT,
+             start_new_session=True
+         )
+     # 或进程结束后显式 log_fh.close()
      ```
 
 3. **数据泄露风险**（置信度：90；影响：安全性）
@@ -78,6 +97,13 @@
              "created_time": self.raw_info.get("CreatedTime", ""),
          }
      ```
+   - **修复建议**：
+     ```python
+     # 对 raw_info 做白名单或脱敏后再暴露，避免泄露未预期的敏感字段
+     SAFE_KEYS = {"name", "display_name", "is_admin", "email_verified", "phone", "country_code", "CreatedTime"}
+     safe_info = {k: self.raw_info.get(k) for k in SAFE_KEYS if k in self.raw_info}
+     return {"sub": self.user_id, "name": ..., "display_name": ..., ...}  # 仅使用 safe_info
+     ```
 
 ### 一致性（Consistency）
 **维度覆盖：** 一致性、可维护性
@@ -97,6 +123,12 @@
          commit_sha: str = None,
          upload_id: str = None
      ) -> Path:
+     ```
+   - **修复建议**：
+     ```python
+     # 与 get_wiki_path 对齐参数列表与默认值，或提取公共参数到共享辅助函数
+     def get_vector_db_path(self, group_id: str, source_type: str, platform: str = None, ...) -> Path:
+         ...
      ```
 
 ---

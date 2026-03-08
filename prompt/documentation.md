@@ -25,8 +25,8 @@ review:
     - type: |
         <Missing Doc / Stale Comment / Ambiguous Explanation>
       file_path: <relative path, e.g. "internal/auth.go">
-      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
-      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
+      start_line: <int>  # Actual starting line number in the new file; prefer the annotated diff prefix, e.g. +[123]\t...
+      end_line: <int>    # Actual ending line number in the new file; equals start_line for single-line issues      
       description: |
         <Impact of the missing/poor documentation>
       requirement_reference: |

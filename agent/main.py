@@ -113,16 +113,18 @@ async def main():
     llm_config = config.get("llm", {})
     model = llm_config.get("model", "gpt-4o")
     
-    # Env Setup for LiteLLM
-    api_key = llm_config.get("api_key", os.environ.get("OPENAI_API_KEY", ""))
-    os.environ["OPENAI_API_KEY"] = api_key
-    os.environ["OPENROUTER_API_KEY"] = api_key # 确保 OpenRouter 也能读到 key
+    # Env Setup for LiteLLM（api_key 可选，私有化如 Ollama 可不填）
+    api_key = llm_config.get("api_key") or os.environ.get("OPENAI_API_KEY") or ""
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+        os.environ["OPENROUTER_API_KEY"] = api_key
     
-    if llm_config.get("api_base"):
-        os.environ["OPENAI_API_BASE"] = llm_config["api_base"]
-        # 如果是 OpenRouter，有时候不设置 OPENAI_API_BASE 反而更稳定，因为模型前缀自带路由
+    api_base = llm_config.get("api_base") or None
+    if api_base:
+        os.environ["OPENAI_API_BASE"] = api_base
+        os.environ["OPENAI_BASE_URL"] = api_base  # LiteLLM 兼容
 
-    router = CRRouter(model=model)
+    router = CRRouter(model=model, api_base=api_base)
     
     # Load Previous Review
     # Support: file path, JSON string, or markdown string

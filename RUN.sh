@@ -142,9 +142,9 @@ mkdir -p "$OUTPUT_DIR"
 ABS_CONFIG_FILE=$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")
 export CR_AGENT_CONFIG="$ABS_CONFIG_FILE"
 
-# 设置环境变量
-export OPENAI_API_KEY="$LLM_API_KEY"
-export OPENAI_API_BASE="$LLM_API_BASE"
+# 设置环境变量（api_key 可选，私有化如 Ollama 可不填）
+[ -n "$LLM_API_KEY" ] && export OPENAI_API_KEY="$LLM_API_KEY"
+[ -n "$LLM_API_BASE" ] && export OPENAI_API_BASE="$LLM_API_BASE"
 
 # 运行 cr-agent
 echo ""

@@ -23,8 +23,8 @@ review:
   score: <int> # Readability score (0-100)
   suggestions:
     - file_path: <relative path, e.g. "internal/auth.go">
-      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
-      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
+      start_line: <int>  # Actual starting line number in the new file; prefer the annotated diff prefix, e.g. +[123]\t...
+      end_line: <int>    # Actual ending line number in the new file; equals start_line for single-line issues      
       issue: |
         <description of the cognitive load or naming issue>
       requirement_reference: |
