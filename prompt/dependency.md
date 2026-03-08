@@ -25,8 +25,8 @@ review:
     - type: |
         <Redundancy / Security / Versioning / Licensing>
       file_path: <relative path, e.g. "go.mod" or "package.json">
-      start_line: <int>  # Starting line number in the new file (based on '+' lines in diff)
-      end_line: <int>    # Ending line number in the new file (equals start_line for single-line issues)
+      start_line: <int>  # Actual starting line number in the new file; prefer the annotated diff prefix, e.g. +[123]\t...
+      end_line: <int>    # Actual ending line number in the new file; equals start_line for single-line issues      
       description: |
         <The risk associated with this dependency change>
       requirement_reference: |

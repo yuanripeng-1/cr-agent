@@ -9,22 +9,27 @@ except ImportError:
     yaml = None
 
 class CRRouter:
-    def __init__(self, model: str = "gpt-4"):
+    def __init__(self, model: str = "gpt-4", api_base: str | None = None):
+        """
+        model: 模型名称，如 gpt-4o、qwen-turbo 等。
+        api_base: 私有化部署时填写 OpenAI 兼容 API 的 base URL，如 https://your-server/v1（末尾不要带 /chat/completions）。
+        """
         self.model = model
+        self.api_base = api_base
         # Initialize 10 Expert Agents
         self.agents = {
-            "business": GenericDimensionAgent(model, BUSINESS_AGENT_PROMPT, "Business"),
-            "performance": GenericDimensionAgent(model, PERFORMANCE_AGENT_PROMPT, "Performance"),
-            "security": GenericDimensionAgent(model, SECURITY_AGENT_PROMPT, "Security"),
-            "testing": GenericDimensionAgent(model, TESTING_AGENT_PROMPT, "Testing"),
-            "documentation": GenericDimensionAgent(model, DOCUMENTATION_AGENT_PROMPT, "Documentation"),
-            "error_handling": GenericDimensionAgent(model, ERROR_HANDLING_AGENT_PROMPT, "Error Handling"),
-            "readability": GenericDimensionAgent(model, READABILITY_AGENT_PROMPT, "Readability"),
-            "consistency": QualityLinterAgent(model), # Specialized with Linter
-            "maintainability": GenericDimensionAgent(model, MAINTAINABILITY_AGENT_PROMPT, "Maintainability"),
-            "dependency": GenericDimensionAgent(model, DEPENDENCY_AGENT_PROMPT, "Dependency")
+            "business": GenericDimensionAgent(model, BUSINESS_AGENT_PROMPT, "Business", api_base=api_base),
+            "performance": GenericDimensionAgent(model, PERFORMANCE_AGENT_PROMPT, "Performance", api_base=api_base),
+            "security": GenericDimensionAgent(model, SECURITY_AGENT_PROMPT, "Security", api_base=api_base),
+            "testing": GenericDimensionAgent(model, TESTING_AGENT_PROMPT, "Testing", api_base=api_base),
+            "documentation": GenericDimensionAgent(model, DOCUMENTATION_AGENT_PROMPT, "Documentation", api_base=api_base),
+            "error_handling": GenericDimensionAgent(model, ERROR_HANDLING_AGENT_PROMPT, "Error Handling", api_base=api_base),
+            "readability": GenericDimensionAgent(model, READABILITY_AGENT_PROMPT, "Readability", api_base=api_base),
+            "consistency": QualityLinterAgent(model, api_base=api_base),  # Specialized with Linter
+            "maintainability": GenericDimensionAgent(model, MAINTAINABILITY_AGENT_PROMPT, "Maintainability", api_base=api_base),
+            "dependency": GenericDimensionAgent(model, DEPENDENCY_AGENT_PROMPT, "Dependency", api_base=api_base)
         }
-        self.aggregator = BaseAgent(model)
+        self.aggregator = BaseAgent(model, api_base=api_base)
 
     async def route_and_aggregate(self, mr_message: str, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", requirements_content: str = "", previous_review: Dict[str, Any] = None) -> Dict[str, Any]:
         if previous_review is None: previous_review = {}

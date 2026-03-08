@@ -1,0 +1,48 @@
+# CR-Agent 配置文件示例
+# 复制为 config.toml 后按需修改
+
+[context]
+json_path = "./context.json"
+result_path = "."
+
+[project]
+language = "python"
+guidelines_path = ""
+requirements_path = ""
+
+# ========== LLM 配置（支持公有云与私有化部署）==========
+[llm]
+model = "gpt-4o"
+# api_key 可选：公有云必填；私有化（Ollama 等）可不填
+api_key = "sk-xxx"
+
+# 私有化部署：填写自建/内网 OpenAI 兼容 API 的 base URL 即可
+# 不填则使用默认（OpenAI / OpenRouter 等，由 model 前缀决定）
+# 示例：api_base = "https://your-llm-server/v1"
+# 注意：URL 末尾不要加 /chat/completions，LiteLLM 会自动拼接
+# 使用私有化时 model 填你服务端识别的名称（如 llama3.2、qwen2.5:7b、Qwen/Qwen2.5-7B-Instruct），不要用 openrouter/xxx
+# api_base = ""
+
+# Ollama 示例（api_key 可不填）：
+# [llm]
+# model = "llama3.2"
+# api_key = ""
+# api_base = "http://localhost:11434/v1"
+#
+# 如果使用其他 Ollama 模型，例如 qwen2.5:7b：
+# [llm]
+# model = "qwen2.5:7b"
+# api_key = ""
+# api_base = "http://localhost:11434/v1"
+#
+# vLLM 示例（需以 OpenAI-compatible server 模式启动）：
+# [llm]
+# model = "Qwen/Qwen2.5-7B-Instruct"
+# api_key = ""
+# api_base = "http://localhost:8000/v1"
+#
+# 如果你的 vLLM 服务要求鉴权，可填写 api_key：
+# [llm]
+# model = "Qwen/Qwen2.5-7B-Instruct"
+# api_key = "your-token"
+# api_base = "http://localhost:8000/v1"
