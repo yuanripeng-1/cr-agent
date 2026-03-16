@@ -10,6 +10,32 @@ except ImportError:
 from .router import CRRouter
 from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers
 
+def _get_int(config: dict, key: str, default: int) -> int:
+    value = config.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        print(f"⚠️ llm.{key} 配置无效（{value}），将使用默认值 {default}")
+        return default
+
+def _get_optional_int(config: dict, key: str) -> int | None:
+    value = config.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        print(f"⚠️ llm.{key} 配置无效（{value}），将忽略该项")
+        return None
+
+def _get_float(config: dict, key: str, default: float) -> float:
+    value = config.get(key, default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        print(f"⚠️ llm.{key} 配置无效（{value}），将使用默认值 {default}")
+        return default
+
 async def main():
     # Load config.toml from environment variable or default path
     config_path = os.environ.get("CR_AGENT_CONFIG")
@@ -100,7 +126,20 @@ async def main():
     if project_root and os.path.exists(project_root):
         diff_content = annotate_diff_with_line_numbers(diff_content, project_root)
         print(f"✅ 已在 diff 中添加实际行号注释")
-    
+
+    # Debug: Print CODE DIFF preview as it will be embedded into prompts.
+    # Keep output bounded to avoid overwhelming logs on very large diffs.
+    diff_lines = diff_content.splitlines()
+    preview_line_limit = 120
+    print("\n🔎 Prompt CODE DIFF 预览（用于确认传入格式）")
+    print("===== BEGIN CODE DIFF IN PROMPT =====")
+    print("### CODE DIFF")
+    for line in diff_lines[:preview_line_limit]:
+        print(line)
+    if len(diff_lines) > preview_line_limit:
+        print(f"... (已截断，剩余 {len(diff_lines) - preview_line_limit} 行未显示)")
+    print("===== END CODE DIFF IN PROMPT =====\n")
+
     file_paths = parse_diff_file_paths(diff_content)
     
     print(f"📋 Task ID: {task_id}")
@@ -124,7 +163,17 @@ async def main():
         os.environ["OPENAI_API_BASE"] = api_base
         os.environ["OPENAI_BASE_URL"] = api_base  # LiteLLM 兼容
 
-    router = CRRouter(model=model, api_base=api_base)
+    router = CRRouter(
+        model=model,
+        api_base=api_base,
+        max_agent_concurrency=max(1, _get_int(llm_config, "max_agent_concurrency", 10)),
+        timeout_seconds=_get_optional_int(llm_config, "timeout_seconds"),
+        timeout_base_seconds=max(1, _get_int(llm_config, "timeout_base_seconds", 180)),
+        timeout_per_1k_chars=max(0, _get_int(llm_config, "timeout_per_1k_chars", 1)),
+        timeout_max_seconds=max(1, _get_int(llm_config, "timeout_max_seconds", 600)),
+        max_retries=max(1, _get_int(llm_config, "max_retries", 3)),
+        retry_delay=max(0.0, _get_float(llm_config, "retry_delay", 2.0)),
+    )
     
     # Load Previous Review
     # Support: file path, JSON string, or markdown string

@@ -28,11 +28,25 @@ except ImportError:
     Timeout = Exception
 
 class BaseAgent:
-    def __init__(self, model: str = "gpt-4", max_retries: int = 3, retry_delay: float = 2.0, api_base: str | None = None):
+    def __init__(
+        self,
+        model: str = "gpt-4",
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
+        api_base: str | None = None,
+        timeout_seconds: int | None = None,
+        timeout_base_seconds: int = 180,
+        timeout_per_1k_chars: int = 1,
+        timeout_max_seconds: int = 600,
+    ):
         self.model = model
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.api_base = api_base  # 私有化部署：自定义 API 地址，如 "https://your-server/v1"
+        self.timeout_seconds = timeout_seconds
+        self.timeout_base_seconds = timeout_base_seconds
+        self.timeout_per_1k_chars = timeout_per_1k_chars
+        self.timeout_max_seconds = timeout_max_seconds
 
     def _is_retryable_error(self, exception: Exception) -> tuple[bool, str]:
         """
@@ -103,13 +117,18 @@ class BaseAgent:
         """
         last_exception = None
         
-        # Calculate dynamic timeout based on prompt length
-        # Base timeout: 180 seconds (3 minutes)
-        # Add 1 second per 1000 characters in prompt (rough estimate)
-        total_prompt_length = len(system_prompt) + len(user_prompt)
-        base_timeout = 180  # 3 minutes base timeout
-        additional_timeout = max(0, (total_prompt_length // 1000) * 1)  # +1s per 1k chars
-        dynamic_timeout = min(base_timeout + additional_timeout, 600)  # Cap at 10 minutes
+        # Timeout strategy:
+        # 1) If timeout_seconds is configured, use fixed timeout for each call.
+        # 2) Otherwise use dynamic timeout based on prompt length.
+        if self.timeout_seconds is not None:
+            dynamic_timeout = max(1, int(self.timeout_seconds))
+        else:
+            total_prompt_length = len(system_prompt) + len(user_prompt)
+            base_timeout = max(1, int(self.timeout_base_seconds))
+            per_1k_chars = max(0, int(self.timeout_per_1k_chars))
+            max_timeout = max(base_timeout, int(self.timeout_max_seconds))
+            additional_timeout = max(0, (total_prompt_length // 1000) * per_1k_chars)
+            dynamic_timeout = min(base_timeout + additional_timeout, max_timeout)
         
         for attempt in range(self.max_retries):
             try:
@@ -174,9 +193,13 @@ class BaseAgent:
                     elif error_category == "timeout":
                         # For timeouts, use longer delay and increase timeout for next attempt
                         delay = max(base_delay * 2.0, 5.0)  # Timeouts need longer delay
-                        # Increase timeout for next retry attempt (up to 10 minutes)
-                        dynamic_timeout = min(dynamic_timeout * 1.5, 600)
-                        print(f"   下次重试将使用更长的超时时间: {int(dynamic_timeout)} 秒")
+                        # Increase timeout for next retry attempt only for dynamic timeout mode.
+                        if self.timeout_seconds is None:
+                            max_timeout = max(1, int(self.timeout_max_seconds))
+                            dynamic_timeout = min(dynamic_timeout * 1.5, max_timeout)
+                            print(f"   下次重试将使用更长的超时时间: {int(dynamic_timeout)} 秒")
+                        else:
+                            print(f"   固定超时模式: {int(dynamic_timeout)} 秒")
                     else:
                         delay = base_delay
                     
@@ -210,8 +233,8 @@ class BaseAgent:
 
 class GenericDimensionAgent(BaseAgent):
     """A generic agent for single-dimension review."""
-    def __init__(self, model: str, system_prompt: str, dimension_name: str, api_base: str | None = None):
-        super().__init__(model, api_base=api_base)
+    def __init__(self, model: str, system_prompt: str, dimension_name: str, api_base: str | None = None, **base_agent_kwargs):
+        super().__init__(model, api_base=api_base, **base_agent_kwargs)
         self.system_prompt = system_prompt
         self.dimension_name = dimension_name
 
@@ -246,8 +269,8 @@ class GenericDimensionAgent(BaseAgent):
 
 class QualityLinterAgent(BaseAgent):
     """Consistency & Style Agent that also runs physical Linter."""
-    def __init__(self, model: str, api_base: str | None = None):
-        super().__init__(model, api_base=api_base)
+    def __init__(self, model: str, api_base: str | None = None, **base_agent_kwargs):
+        super().__init__(model, api_base=api_base, **base_agent_kwargs)
 
     async def run(self, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", previous_review: str = "") -> tuple[str, dict]:
         # Linter execution logic

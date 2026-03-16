@@ -9,27 +9,51 @@ except ImportError:
     yaml = None
 
 class CRRouter:
-    def __init__(self, model: str = "gpt-4", api_base: str | None = None):
+    def __init__(
+        self,
+        model: str = "gpt-4",
+        api_base: str | None = None,
+        max_agent_concurrency: int = 10,
+        timeout_seconds: int | None = None,
+        timeout_base_seconds: int = 180,
+        timeout_per_1k_chars: int = 1,
+        timeout_max_seconds: int = 600,
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
+    ):
         """
         model: 模型名称，如 gpt-4o、qwen-turbo 等。
         api_base: 私有化部署时填写 OpenAI 兼容 API 的 base URL，如 https://your-server/v1（末尾不要带 /chat/completions）。
         """
         self.model = model
         self.api_base = api_base
+        self.max_agent_concurrency = max(1, int(max_agent_concurrency))
+        base_agent_kwargs = {
+            "timeout_seconds": timeout_seconds,
+            "timeout_base_seconds": timeout_base_seconds,
+            "timeout_per_1k_chars": timeout_per_1k_chars,
+            "timeout_max_seconds": timeout_max_seconds,
+            "max_retries": max_retries,
+            "retry_delay": retry_delay,
+        }
         # Initialize 10 Expert Agents
         self.agents = {
-            "business": GenericDimensionAgent(model, BUSINESS_AGENT_PROMPT, "Business", api_base=api_base),
-            "performance": GenericDimensionAgent(model, PERFORMANCE_AGENT_PROMPT, "Performance", api_base=api_base),
-            "security": GenericDimensionAgent(model, SECURITY_AGENT_PROMPT, "Security", api_base=api_base),
-            "testing": GenericDimensionAgent(model, TESTING_AGENT_PROMPT, "Testing", api_base=api_base),
-            "documentation": GenericDimensionAgent(model, DOCUMENTATION_AGENT_PROMPT, "Documentation", api_base=api_base),
-            "error_handling": GenericDimensionAgent(model, ERROR_HANDLING_AGENT_PROMPT, "Error Handling", api_base=api_base),
-            "readability": GenericDimensionAgent(model, READABILITY_AGENT_PROMPT, "Readability", api_base=api_base),
-            "consistency": QualityLinterAgent(model, api_base=api_base),  # Specialized with Linter
-            "maintainability": GenericDimensionAgent(model, MAINTAINABILITY_AGENT_PROMPT, "Maintainability", api_base=api_base),
-            "dependency": GenericDimensionAgent(model, DEPENDENCY_AGENT_PROMPT, "Dependency", api_base=api_base)
+            "business": GenericDimensionAgent(model, BUSINESS_AGENT_PROMPT, "Business", api_base=api_base, **base_agent_kwargs),
+            "performance": GenericDimensionAgent(model, PERFORMANCE_AGENT_PROMPT, "Performance", api_base=api_base, **base_agent_kwargs),
+            "security": GenericDimensionAgent(model, SECURITY_AGENT_PROMPT, "Security", api_base=api_base, **base_agent_kwargs),
+            "testing": GenericDimensionAgent(model, TESTING_AGENT_PROMPT, "Testing", api_base=api_base, **base_agent_kwargs),
+            "documentation": GenericDimensionAgent(model, DOCUMENTATION_AGENT_PROMPT, "Documentation", api_base=api_base, **base_agent_kwargs),
+            "error_handling": GenericDimensionAgent(model, ERROR_HANDLING_AGENT_PROMPT, "Error Handling", api_base=api_base, **base_agent_kwargs),
+            "readability": GenericDimensionAgent(model, READABILITY_AGENT_PROMPT, "Readability", api_base=api_base, **base_agent_kwargs),
+            "consistency": QualityLinterAgent(model, api_base=api_base, **base_agent_kwargs),  # Specialized with Linter
+            "maintainability": GenericDimensionAgent(model, MAINTAINABILITY_AGENT_PROMPT, "Maintainability", api_base=api_base, **base_agent_kwargs),
+            "dependency": GenericDimensionAgent(model, DEPENDENCY_AGENT_PROMPT, "Dependency", api_base=api_base, **base_agent_kwargs)
         }
-        self.aggregator = BaseAgent(model, api_base=api_base)
+        self.aggregator = BaseAgent(model, api_base=api_base, **base_agent_kwargs)
+
+    async def _run_with_semaphore(self, semaphore: asyncio.Semaphore, coro):
+        async with semaphore:
+            return await coro
 
     async def route_and_aggregate(self, mr_message: str, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", requirements_content: str = "", previous_review: Dict[str, Any] = None) -> Dict[str, Any]:
         if previous_review is None: previous_review = {}
@@ -51,7 +75,13 @@ class CRRouter:
             tasks.append(self.agents[dim].run(code_diff, context_info, prev_reports.get(dim, ""), language=language))
 
         # results will be list of (content, usage) tuples
-        results = await asyncio.gather(*tasks)
+        if self.max_agent_concurrency >= len(tasks):
+            results = await asyncio.gather(*tasks)
+        else:
+            print(f"⚙️ Agent 并发限制已生效: {self.max_agent_concurrency}/{len(tasks)}")
+            semaphore = asyncio.Semaphore(self.max_agent_concurrency)
+            wrapped_tasks = [self._run_with_semaphore(semaphore, task) for task in tasks]
+            results = await asyncio.gather(*wrapped_tasks)
         
         # Aggregate reports and tokens
         report_map = {}

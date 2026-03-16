@@ -1,10 +1,10 @@
 COMMON_CONSTRAINTS_EN = """
-- Focus ONLY on new code added in the PR diff (lines starting with '+').
+- Focus ONLY on new code added in the PR diff (the added-code marker is `+`, which may appear directly as `+ ...` or in numbered form like `0438| + ...` / `~0438| + ...`).
 - You only see changed code hunks (diff hunks), not the entire codebase. Do NOT assume missing context.
-- Some added lines in `CODE DIFF` may include an injected line-number prefix for grounding, formatted like `+[106]\tactual code` or `+[~106]\tactual code`.
-- Treat the `[106]` / `[~106]` segment as metadata only, NOT as part of the real diff content, code, syntax, identifier, string, or business logic.
-- When reasoning about code semantics, mentally strip the injected line-number prefix and read `+[106]\treturn x` as `+return x`.
-- When outputting `start_line` / `end_line`, use the annotated new-file line number from the injected prefix if present. `~` means the line number is approximate, so only use it when the issue location is still clear from the diff.
+- Added `+` lines may be prefixed with line numbers, for example `0438| + ...` or `~0438| + ...`.
+- Treat the numeric prefix (`0438|` or `~0438|`) as metadata only, NOT as code.
+- When reasoning about semantics, ignore the numeric prefix and analyze the `+` code content.
+- When outputting `start_line` / `end_line`, use the numeric prefix when present. `~` means approximate line number; use it only when location is still clear.
 - Output MUST be valid YAML and NOTHING ELSE.
 - Every multi-line string field MUST use a block scalar with '|' and proper indentation.
 - All natural language content (descriptions, analysis, rationale, comments) MUST be in English unless the role prompt explicitly overrides it.
@@ -19,7 +19,7 @@ SUMMARY_LANGUAGE_CONSTRAINT = """
 
 DIFF_FORMAT_NOTE = """
 You will receive a PR diff with '+', '-', and ' ' lines. Base findings on '+' lines.
-Some '+' lines may be annotated as `+[123]\t...` or `+[~123]\t...`; the bracketed part is injected line-number metadata, not code.
+Some added lines may be numbered like `0438| + ...` or `~0438| + ...`; the `NNNN|` prefix is line-number metadata, not code.
 """
 
 import os
