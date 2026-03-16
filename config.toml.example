@@ -16,6 +16,22 @@ model = "gpt-4o"
 # api_key 可选：公有云必填；私有化（Ollama 等）可不填
 api_key = "sk-xxx"
 
+# ===== 运行参数（可手动调优）=====
+# 10 个专家 Agent 的最大并发数（1-10），默认 10
+# max_agent_concurrency = 10
+#
+# 每次 LLM 请求超时（秒）：配置后使用固定超时，优先级高于动态超时
+# timeout_seconds = 240
+#
+# 动态超时参数（当 timeout_seconds 未配置时生效）
+# timeout_base_seconds = 180      # 基础超时
+# timeout_per_1k_chars = 1        # 每 1000 字符额外增加秒数
+# timeout_max_seconds = 600       # 动态超时上限
+#
+# 重试参数
+# max_retries = 3
+# retry_delay = 2.0
+
 # 私有化部署：填写自建/内网 OpenAI 兼容 API 的 base URL 即可
 # 不填则使用默认（OpenAI / OpenRouter 等，由 model 前缀决定）
 # 示例：api_base = "https://your-llm-server/v1"

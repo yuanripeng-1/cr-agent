@@ -329,11 +329,9 @@ def annotate_diff_with_line_numbers(diff_content: str, project_root: str) -> str
                 code_content = line[1:].strip()  # 移除 '+' 前缀
                 file_line = current_file_lines[actual_line_num - 1].strip()
                 
-                # 如果内容匹配，添加行号注释
+                # 如果内容匹配，在行首添加行号前缀，格式：0438| + code
                 if code_content == file_line or code_content in file_line or file_line in code_content:
-                    # 在行前添加行号注释，格式：+[106]	代码内容
-                    annotated_line = f"+[{actual_line_num}]\t{line[1:]}"
-                    annotated_lines.append(annotated_line)
+                    annotated_lines.append(f"{actual_line_num:04d}| {line}")
                 else:
                     # 内容不匹配，尝试在文件中搜索
                     found_line = None
@@ -343,16 +341,13 @@ def annotate_diff_with_line_numbers(diff_content: str, project_root: str) -> str
                             break
                     
                     if found_line:
-                        annotated_line = f"+[{found_line}]\t{line[1:]}"
-                        annotated_lines.append(annotated_line)
+                        annotated_lines.append(f"{found_line:04d}| {line}")
                     else:
-                        # 找不到匹配，保持原样但添加估算的行号
-                        annotated_line = f"+[~{actual_line_num}]\t{line[1:]}"
-                        annotated_lines.append(annotated_line)
+                        # 找不到匹配，使用估算行号前缀
+                        annotated_lines.append(f"~{actual_line_num:04d}| {line}")
             else:
-                # 文件不存在或行号超出范围，使用估算的行号
-                annotated_line = f"+[~{actual_line_num}]\t{line[1:]}"
-                annotated_lines.append(annotated_line)
+                # 文件不存在或行号超出范围，使用估算行号前缀
+                annotated_lines.append(f"~{actual_line_num:04d}| {line}")
             
             i += 1
             continue

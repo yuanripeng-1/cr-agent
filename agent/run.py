@@ -9,6 +9,32 @@ import re
 from agent.router import CRRouter
 from agent.utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, parse_diff_line_ranges, filter_code_diff, annotate_diff_with_line_numbers
 
+def _get_int(config: dict, key: str, default: int) -> int:
+    value = config.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        print(f"⚠️ llm.{key} 配置无效（{value}），将使用默认值 {default}")
+        return default
+
+def _get_optional_int(config: dict, key: str) -> int | None:
+    value = config.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        print(f"⚠️ llm.{key} 配置无效（{value}），将忽略该项")
+        return None
+
+def _get_float(config: dict, key: str, default: float) -> float:
+    value = config.get(key, default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        print(f"⚠️ llm.{key} 配置无效（{value}），将使用默认值 {default}")
+        return default
+
 def clean_and_parse_yaml(text: str):
     """Robustly extract and parse YAML from LLM output."""
     if not text:
@@ -550,7 +576,17 @@ async def run_agent():
         if api_base:
             os.environ["OPENAI_API_BASE"] = api_base
             os.environ["OPENAI_BASE_URL"] = api_base
-        router = CRRouter(model=llm_config.get("model", "gpt-4"), api_base=api_base)
+        router = CRRouter(
+            model=llm_config.get("model", "gpt-4"),
+            api_base=api_base,
+            max_agent_concurrency=max(1, _get_int(llm_config, "max_agent_concurrency", 10)),
+            timeout_seconds=_get_optional_int(llm_config, "timeout_seconds"),
+            timeout_base_seconds=max(1, _get_int(llm_config, "timeout_base_seconds", 180)),
+            timeout_per_1k_chars=max(0, _get_int(llm_config, "timeout_per_1k_chars", 1)),
+            timeout_max_seconds=max(1, _get_int(llm_config, "timeout_max_seconds", 600)),
+            max_retries=max(1, _get_int(llm_config, "max_retries", 3)),
+            retry_delay=max(0.0, _get_float(llm_config, "retry_delay", 2.0)),
+        )
         
         result = await router.route_and_aggregate(
             mr_message=mr_message, 

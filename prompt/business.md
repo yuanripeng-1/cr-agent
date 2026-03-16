@@ -39,7 +39,7 @@ review:
     - requirement_name: |
         <name from PRD/MR>
       file_path: <relative path, e.g. "internal/auth.go">
-      start_line: <int>  # Actual starting line number in the new file; prefer the annotated diff prefix, e.g. +[123]\t...
+      start_line: <int>  # Actual starting line number in the new file; prefer numbered prefix, e.g. 0438| + ...
       end_line: <int>    # Actual ending line number in the new file; equals start_line for single-line issues
       requirement_reference: |
         <QUOTE exact text from PRD/MR>

@@ -29,7 +29,7 @@ review:
     - type: |
         <Redundancy / Security / Versioning / Licensing>
       file_path: <relative path, e.g. "go.mod" or "package.json">
-      start_line: <int>  # Actual starting line number in the new file; prefer the annotated diff prefix, e.g. +[123]\t...
+      start_line: <int>  # Actual starting line number in the new file; prefer numbered prefix, e.g. 0438| + ...
       end_line: <int>    # Actual ending line number in the new file; equals start_line for single-line issues      
       description: |
         <The risk associated with this dependency change>
