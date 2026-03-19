@@ -27,6 +27,9 @@ Thumbs.db
 
 project/
 
+# 运行时的 project_code 目录（如 180-6f4e47f0/project_code）
+*/project_code
+
 *.zip
 
 *.log

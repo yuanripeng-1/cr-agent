@@ -1,3 +1,4 @@
+import json
 import re
 import sys
 import os
@@ -406,6 +407,106 @@ def setup_log_redirection(log_path: str):
     sys.stdout = Tee(sys.stdout, log_file)
     sys.stderr = Tee(sys.stderr, log_file)
     return log_file
+
+
+def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """
+    解析 Summary Agent 的 LLM 输出，支持多种兜底格式。
+    兜底包括：Markdown 围栏、json\\n 前缀、从首尾大括号提取 JSON 等。
+
+    Returns:
+        (markdown_report, line_comments) 解析成功时返回；否则 (None, None)
+    """
+    if not raw or not raw.strip():
+        return None, None
+
+    def _strip_fences(text: str) -> str:
+        t = text.strip()
+        if t.startswith("```json"):
+            t = t[7:]
+        elif t.startswith("```"):
+            t = t[3:]
+        if t.endswith("```"):
+            t = t[:-3]
+        return t.strip()
+
+    def _strip_json_prefix(text: str) -> str:
+        for prefix in ("json\n", "JSON\n", "json\n\n", "JSON\n\n", "```json\n", "```\n"):
+            if text.startswith(prefix):
+                return text[len(prefix):].strip()
+        return text
+
+    def _extract_json_substring(text: str) -> Optional[str]:
+        """从文本中提取第一个完整 JSON 对象（从 { 到匹配的 }）。"""
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        in_str = False
+        escape = False
+        quote = None
+        i = start
+        while i < len(text):
+            c = text[i]
+            if escape:
+                escape = False
+                i += 1
+                continue
+            if c == "\\" and in_str:
+                escape = True
+                i += 1
+                continue
+            if not in_str:
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : i + 1]
+                elif c in ('"', "'"):
+                    in_str = True
+                    quote = c
+            elif c == quote:
+                in_str = False
+            i += 1
+        return None
+
+    def _parse_and_extract(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and "markdown_report" in obj:
+                md = obj.get("markdown_report", "")
+                lc = obj.get("line_comments", {})
+                if isinstance(md, str):
+                    md = _strip_fences(md)
+                return md.strip(), lc if isinstance(lc, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return None, None
+
+    # 1) 标准：去掉围栏后解析
+    json_text = _strip_fences(raw)
+    md, lc = _parse_and_extract(json_text)
+    if md is not None:
+        return md, lc
+
+    # 2) 兜底：去掉 json\n 等前缀
+    json_text = _strip_json_prefix(raw)
+    md, lc = _parse_and_extract(json_text)
+    if md is not None:
+        return md, lc
+
+    # 3) 兜底：从首尾大括号提取 JSON 子串
+    for candidate in (raw, _strip_fences(raw), _strip_json_prefix(raw)):
+        sub = _extract_json_substring(candidate)
+        if sub:
+            md, lc = _parse_and_extract(sub)
+            if md is not None:
+                return md, lc
+
+    return None, None
+
+
 def parse_diff_line_ranges(diff_content: str) -> Dict[str, List[Tuple[int, int]]]:
     """
     Parses git diff content to build a mapping of file paths to valid line number ranges.

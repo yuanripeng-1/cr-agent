@@ -7,7 +7,7 @@ import toml
 import yaml
 import re
 from agent.router import CRRouter
-from agent.utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, parse_diff_line_ranges, filter_code_diff, annotate_diff_with_line_numbers
+from agent.utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, parse_diff_line_ranges, filter_code_diff, annotate_diff_with_line_numbers, parse_summary_llm_output
 
 def _get_int(config: dict, key: str, default: int) -> int:
     value = config.get(key, default)
@@ -612,30 +612,16 @@ async def run_agent():
     line_comments_data = None
     try:
         raw_summary = result.get("summary", "").strip()
-        
-        # Try to parse as JSON first (new format)
-        try:
-            # Remove markdown code fences if present
-            json_text = raw_summary
-            if json_text.startswith("```json"):
-                json_text = json_text[7:]
-            elif json_text.startswith("```"):
-                json_text = json_text[3:]
-            if json_text.endswith("```"):
-                json_text = json_text[:-3]
-            json_text = json_text.strip()
-            
-            # Try to parse as JSON
-            summary_json = json.loads(json_text)
-            if isinstance(summary_json, dict) and "markdown_report" in summary_json:
-                md_output = summary_json.get("markdown_report", "")
-                line_comments_data = summary_json.get("line_comments", {})
-                print("✅ Successfully parsed Summary Agent output as JSON")
-            else:
-                raise ValueError("Not a valid summary JSON format")
-        except (json.JSONDecodeError, ValueError) as e:
+
+        # 优先使用统一解析（含 json\n 前缀、大括号提取等兜底）
+        parsed_md, parsed_lc = parse_summary_llm_output(raw_summary)
+        if parsed_md is not None:
+            md_output = parsed_md
+            line_comments_data = parsed_lc or {}
+            print("✅ Successfully parsed Summary Agent output as JSON")
+        else:
             # Fallback to old format (Markdown only)
-            print(f"⚠️ Summary output is not JSON, using legacy format: {e}")
+            print("⚠️ Summary output is not JSON/YAML, using legacy format")
             # Clean markdown fences if present
             if raw_summary.startswith("```"):
                 lines = raw_summary.splitlines()

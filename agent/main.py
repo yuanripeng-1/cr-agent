@@ -8,7 +8,7 @@ try:
 except ImportError:
     yaml = None
 from .router import CRRouter
-from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers
+from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers, parse_summary_llm_output
 
 def _get_int(config: dict, key: str, default: int) -> int:
     value = config.get(key, default)
@@ -217,37 +217,14 @@ async def main():
         # 解析 Summary Agent 输出（可能是 JSON 或 Markdown）
         summary_content = result.get("summary", "")
         line_comments_data = None
-        
-        # 尝试解析为 JSON（新格式）
-        try:
-            json_text = summary_content.strip()
-            # 移除 markdown 代码围栏
-            if json_text.startswith("```json"):
-                json_text = json_text[7:]
-            elif json_text.startswith("```"):
-                json_text = json_text[3:]
-            if json_text.endswith("```"):
-                json_text = json_text[:-3]
-            json_text = json_text.strip()
-            
-            # 尝试解析为 JSON
-            summary_json = json.loads(json_text)
-            if isinstance(summary_json, dict) and "markdown_report" in summary_json:
-                markdown_report = summary_json.get("markdown_report", "")
-                line_comments_data = summary_json.get("line_comments", {})
-                print("✅ 成功解析 Summary Agent 输出为 JSON 格式")
-                
-                # 去掉 markdown 代码块标记（如果有）
-                if markdown_report.startswith("```markdown"):
-                    markdown_report = markdown_report[11:]
-                elif markdown_report.startswith("```"):
-                    markdown_report = markdown_report[3:]
-                if markdown_report.endswith("```"):
-                    markdown_report = markdown_report[:-3]
-                summary_content = markdown_report.strip()
-            else:
-                raise ValueError("不是有效的 summary JSON 格式")
-        except (json.JSONDecodeError, ValueError) as e:
+
+        # 优先使用统一解析（含 json\n 前缀、大括号提取等兜底）
+        parsed_md, parsed_lc = parse_summary_llm_output(summary_content)
+        if parsed_md is not None:
+            summary_content = parsed_md
+            line_comments_data = parsed_lc or {}
+            print("✅ 成功解析 Summary Agent 输出为 JSON 格式")
+        else:
             # 尝试解析为 YAML（兼容旧输出）
             parsed_as_yaml = False
             yaml_text = summary_content.strip()
@@ -282,7 +259,7 @@ async def main():
             
             if not parsed_as_yaml:
                 # 回退到旧格式（仅 Markdown）
-                print(f"⚠️ Summary 输出不是 JSON，使用旧格式: {e}")
+                print("⚠️ Summary 输出不是 JSON/YAML，使用旧格式（纯 Markdown）")
                 # 去掉 summary 中的 markdown 代码块标记
                 if summary_content.startswith("```markdown"):
                     summary_content = summary_content[11:]
