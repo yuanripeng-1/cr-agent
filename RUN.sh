@@ -167,26 +167,16 @@ else
     exit 1
 fi
 
-# 检查是否生成了 CR_REPORT.md (兼容性检查)
-if [ -f "CR_REPORT.md" ]; then
+# 检查 cr_result.md 是否生成（Python 直接写入 OUTPUT_DIR，无需依赖根目录的 CR_REPORT.md）
+if [ -f "$OUTPUT_FILE" ]; then
     echo ""
     echo "✅ CR-Agent 运行完成"
-    
-    # 如果 OUTPUT_FILE 已经存在（由 Python 脚本生成），则不再执行 mv，除非文件不同
-    if [ ! -f "$OUTPUT_FILE" ]; then
-        echo "📦 移动结果到: $OUTPUT_FILE"
-        mv "CR_REPORT.md" "$OUTPUT_FILE"
-    else
-        echo "✨ 结果已直接生成在: $OUTPUT_FILE"
-        rm "CR_REPORT.md" # 删除临时生成的兼容性文件
-    fi
-    
     echo ""
     echo "========================================"
     echo "✨ 审查完成！结果已保存到: $OUTPUT_FILE"
     echo "========================================"
 else
     echo ""
-    echo "❌ 错误: 未生成 CR_REPORT.md"
+    echo "❌ 错误: 未生成结果文件: $OUTPUT_FILE"
     exit 1
 fi

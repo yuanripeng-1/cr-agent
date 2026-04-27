@@ -614,10 +614,11 @@ async def run_agent():
         raw_summary = result.get("summary", "").strip()
 
         # 优先使用统一解析（含 json\n 前缀、大括号提取等兜底）
-        parsed_md, parsed_lc = parse_summary_llm_output(raw_summary)
+        parsed_md, parsed_lc, parsed_issues = parse_summary_llm_output(raw_summary)
         if parsed_md is not None:
             md_output = parsed_md
             line_comments_data = parsed_lc or {}
+            _ = parsed_issues  # run.py 目前不写入 issues，仅保持兼容三元返回值
             print("✅ Successfully parsed Summary Agent output as JSON")
         else:
             # Fallback to old format (Markdown only)
@@ -722,19 +723,6 @@ async def run_agent():
                     # Remove validation metadata before saving
                     clean_comment = {k: v for k, v in validated.items() 
                                    if k not in ["validation_status", "original_start_line", "original_end_line"]}
-                    
-                    # 在 body 开头添加代码范围信息
-                    start_line = clean_comment.get("start_line")
-                    end_line = clean_comment.get("end_line")
-                    if start_line and end_line:
-                        if start_line == end_line:
-                            range_info = f"问题代码范围：{start_line}"
-                        else:
-                            range_info = f"问题代码范围：{start_line}:{end_line}"
-                        
-                        body = clean_comment.get("body", "")
-                        if body and not body.startswith("问题代码范围："):
-                            clean_comment["body"] = f"{range_info}\n\n{body}"
                     
                     validated_comments.append(clean_comment)
                 
