@@ -409,16 +409,16 @@ def setup_log_redirection(log_path: str):
     return log_file
 
 
-def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """
     解析 Summary Agent 的 LLM 输出，支持多种兜底格式。
     兜底包括：Markdown 围栏、json\\n 前缀、从首尾大括号提取 JSON 等。
 
     Returns:
-        (markdown_report, line_comments) 解析成功时返回；否则 (None, None)
+        (markdown_report, line_comments, issues) 解析成功时返回；否则 (None, None, None)
     """
     if not raw or not raw.strip():
-        return None, None
+        return None, None, None
 
     def _strip_fences(text: str) -> str:
         t = text.strip()
@@ -471,40 +471,43 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
             i += 1
         return None
 
-    def _parse_and_extract(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def _parse_and_extract(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
         try:
             obj = json.loads(text)
             if isinstance(obj, dict) and "markdown_report" in obj:
                 md = obj.get("markdown_report", "")
                 lc = obj.get("line_comments", {})
+                issues = obj.get("issues", [])
                 if isinstance(md, str):
                     md = _strip_fences(md)
-                return md.strip(), lc if isinstance(lc, dict) else {}
+                normalized_lc = lc if isinstance(lc, dict) else {}
+                normalized_issues = issues if isinstance(issues, list) else []
+                return md.strip(), normalized_lc, normalized_issues
         except (json.JSONDecodeError, TypeError):
             pass
-        return None, None
+        return None, None, None
 
     # 1) 标准：去掉围栏后解析
     json_text = _strip_fences(raw)
-    md, lc = _parse_and_extract(json_text)
+    md, lc, issues = _parse_and_extract(json_text)
     if md is not None:
-        return md, lc
+        return md, lc, issues
 
     # 2) 兜底：去掉 json\n 等前缀
     json_text = _strip_json_prefix(raw)
-    md, lc = _parse_and_extract(json_text)
+    md, lc, issues = _parse_and_extract(json_text)
     if md is not None:
-        return md, lc
+        return md, lc, issues
 
     # 3) 兜底：从首尾大括号提取 JSON 子串
     for candidate in (raw, _strip_fences(raw), _strip_json_prefix(raw)):
         sub = _extract_json_substring(candidate)
         if sub:
-            md, lc = _parse_and_extract(sub)
+            md, lc, issues = _parse_and_extract(sub)
             if md is not None:
-                return md, lc
+                return md, lc, issues
 
-    return None, None
+    return None, None, None
 
 
 def parse_diff_line_ranges(diff_content: str) -> Dict[str, List[Tuple[int, int]]]:
@@ -986,3 +989,4 @@ def validate_line_comment_by_file(
     # All validations passed
     result["validation_status"] = "valid"
     return result
+
