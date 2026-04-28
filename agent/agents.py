@@ -48,6 +48,19 @@ class BaseAgent:
         self.timeout_per_1k_chars = timeout_per_1k_chars
         self.timeout_max_seconds = timeout_max_seconds
 
+    def _log_full_llm_output(self, content: str, usage_info: dict) -> None:
+        """将 LLM 原始完整输出写入日志（stdout 已被重定向到 run.log）。"""
+        agent_label = getattr(self, "dimension_name", self.__class__.__name__)
+        print(f"\n{'='*20} LLM FULL OUTPUT [{agent_label}] {'='*20}")
+        print(
+            f"Token 消耗: {usage_info.get('total_tokens', 0)} "
+            f"(Input: {usage_info.get('prompt_tokens', 0)}, "
+            f"Output: {usage_info.get('completion_tokens', 0)}, "
+            f"Cost: ${usage_info.get('cost', 0.0):.6f})"
+        )
+        print(content)
+        print(f"{'='*72}\n")
+
     def _is_retryable_error(self, exception: Exception) -> tuple[bool, str]:
         """
         Determine if an error is retryable and return (is_retryable, error_category).
@@ -169,6 +182,9 @@ class BaseAgent:
                     usage_info["cost"] = litellm.completion_cost(completion_response=response) or 0.0
                 except Exception:
                     pass
+
+                # 将原始输出完整打到日志，便于排查模型行为与格式问题
+                self._log_full_llm_output(content, usage_info)
                 
                 # Log success after retries
                 if attempt > 0:
