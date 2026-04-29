@@ -22,7 +22,7 @@
 
 **重要：必须严格按照 `prompt/rules/summaryRule.md` 的分级规则生成报告，不得自行修改漏洞的 Critical/Major/Minor 等级。**
 
-llm_result 字段须包含以下内容（使用简体中文）：
+llm_result 字段须包含以下内容，禁止输出多余的内容（使用简体中文）：
 
 ```
 # 🤖 代码评审报告（Code Review Report）
@@ -39,7 +39,7 @@ llm_result 字段须包含以下内容（使用简体中文）：
 
 ### 🔴 Critical（严重问题）
 
-<details>
+<details open>
 <summary><问题标题>（x<出现次数>）</summary>
 
 - **问题描述**：<详细描述>
@@ -78,7 +78,7 @@ llm_result 字段须包含以下内容（使用简体中文）：
 
 ## 输出格式（CRITICAL）
 
-**你必须输出一个有效的 JSON 对象，包含以下三个字段，禁止输出 YAML：**
+**你必须输出一个有效的 JSON 对象，包含以下三个字段，禁止输出 YAML。**
 
 **额外硬性约束：**
 - 最终回复的第一个非空字符必须是 `{`
@@ -93,20 +93,20 @@ llm_result 字段须包含以下内容（使用简体中文）：
   "line_comments": {
     "comments": [
       {
-        "new_path": "internal/auth.go",
-        "body": "建议增加对空token的校验，避免空指针异常",
+        "new_path": "crates/agent-core/src/agent/executor/stateful_agent.rs",
+        "body": "🟠 Major｜中高风险，建议修复\n\n**工具调用分发逻辑完全重复**...",
         "start_line": 15,
-        "end_line": 15
+        "end_line": 17
       }
     ]
   },
   "issues": [
     {
       "severity": "critical",
-      "title": "空值判断缺失",
-      "count": 2,
+      "title": "工具调用分发逻辑完全重复",
+      "count": 1,
       "locations": [
-        { "path": "frontend/src/app/page.tsx", "start_line": 15, "end_line": 17 }
+        { "path": "crates/agent-core/src/agent/executor/stateful_agent.rs", "start_line": 15, "end_line": 17 }
       ]
     }
   ]
@@ -126,12 +126,16 @@ llm_result 字段须包含以下内容（使用简体中文）：
   - `body`: 评论内容（Markdown 格式，可以包含代码块、列表等）
   - `start_line`: 起始行号（从专家报告的 `start_line` 字段获取）
   - `end_line`: 结束行号（从专家报告的 `end_line` 字段获取）
-- **去重规则**：如果多个维度提到同一个问题（相同文件、相同行号范围），只保留一个评论，但 `body` 中应该合并所有相关维度的信息
 - **单行 vs 多行**：统一使用 `start_line` 和 `end_line`，单行时两者相等
 - 如没有需要评论的问题，必须输出：
   ```json
   "line_comments": { "comments": [] }
   ```
+
+#### line_comments 与 issues.locations 条数对齐（强制）
+- 记 `L = sum(len(issue["locations"]))`（即所有 `issues` 中 `locations` 条目总数，每一处待标注代码位置计为 1）。
+- **必须**满足：`len(line_comments.comments) == L`。每一处出现在 `issues[].locations` 中的代码漏洞都**必须**有对应的一条行评论；**禁止**将同一 `issues` 条目下的多条 `locations` 合并成更少的行评论条数。
+- 当 `L == 0` 时：`issues` 为 `[]`，且 `line_comments` 为 `{ "comments": [] }`。
 
 ### line_comments 的 body 内容生成规则（严格格式，不可变形）
 - 每条 `body` 必须严格按以下固定结构输出，字段顺序、标题文本、空行、`<details>`/`<summary>`、代码围栏都不可改动；只允许替换变量内容（如严重级别、标题、文件路径、行号、问题描述、修复建议）。
@@ -144,9 +148,9 @@ llm_result 字段须包含以下内容（使用简体中文）：
   ```md
   <严重级别行>
   
-  <漏洞标题>
-  问题描述：<一句话说明风险与触发原因>
-  修复建议：<一句话给出可执行修复方向>
+  **<漏洞标题>**
+  **问题描述**：<说明风险与触发原因>
+  **修复建议**：<给出可执行修复方向>
   
   <details>
   <summary>🤖 Agent Prompt 提示</summary>
