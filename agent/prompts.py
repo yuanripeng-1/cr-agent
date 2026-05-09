@@ -8,8 +8,8 @@ COMMON_CONSTRAINTS_EN = """
 - Output MUST be valid YAML and NOTHING ELSE.
 - Every multi-line string field MUST use a block scalar with '|' and proper indentation.
 - All natural language content (descriptions, analysis, rationale, comments) MUST be in English unless the role prompt explicitly overrides it.
-- Only report high-confidence issues: every reported issue must include `confidence` (0-100) and must be >= 85; otherwise do not output it.
-- If no issue with confidence >= 85 is found, the relevant list fields MUST be empty arrays `[]`. Do not fabricate low-value suggestions just to fill the schema.
+- Each reported issue MUST include a `score` field (0-100) assigned according to the dimension-specific Rule file. The minimum reportable score varies by dimension and is specified in the role prompt below.
+- If no issue meets the minimum score threshold, the relevant list fields MUST be empty arrays `[]`. Do not fabricate low-value suggestions just to fill the schema.
 - Do not review or comment on version-only changes (for example dependency version bumps or version string updates).
 """
 
@@ -24,9 +24,36 @@ Some added lines may be numbered like `0438| + ...` or `~0438| + ...`; the `NNNN
 
 import os
 
+# 维度名称到对应 rules 文件名的映射
+_DIMENSION_RULES_MAP = {
+    "business": "businessRule",
+    "security": "securityRule",
+    "performance": "performanceRule",
+    "dependency": "dependencyRule",
+    "maintainability": "maintainabilityRule",
+    "testing": "testingRule",
+    "error_handling": "errorHandlingRule",
+    "consistency": "consistencyRule",
+    "readability": "readabilityRule",
+    "documentation": "documentationRule",
+    "summary": "summaryRule",
+}
+
+def load_rules(name: str) -> str:
+    """Load dimension-specific rules file content."""
+    rules_name = _DIMENSION_RULES_MAP.get(name)
+    if not rules_name:
+        return ""
+    path = os.path.join("prompt", "rules", f"{rules_name}.md")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return f.read()
+    return ""
+
 def load_prompt(name: str) -> str:
     """
     Load role prompt markdown and prepend common constraints to improve compliance.
+    For dimension agents, also inject the corresponding rules file.
     """
     path = os.path.join("prompt", f"{name}.md")
     base_constraints = COMMON_CONSTRAINTS_EN
@@ -35,6 +62,9 @@ def load_prompt(name: str) -> str:
     if os.path.exists(path):
         with open(path, "r") as f:
             role_prompt = f.read()
+        rules_content = load_rules(name)
+        if rules_content:
+            return f"{base_constraints}\n{DIFF_FORMAT_NOTE}\n\n### DIMENSION SCORING RULES\n{rules_content}\n\n{role_prompt}"
         return f"{base_constraints}\n{DIFF_FORMAT_NOTE}\n\n{role_prompt}"
     return f"{base_constraints}\n{DIFF_FORMAT_NOTE}\n\nPrompt {name} not found."
 

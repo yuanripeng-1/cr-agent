@@ -138,7 +138,7 @@ class CRRouter:
             "report_usages": report_usages,
             "summary": final_summary,
             "summary_usage": summary_usage,
-            "usage": total_usage
+            "usage": total_usage,
         }
 
     async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "", previous_review: Dict[str, Any] = None) -> tuple[str, dict]:
@@ -174,7 +174,7 @@ class CRRouter:
                                 user_prompt += f"   问题: {body}\n\n"
                         user_prompt += "\n**重要**：请对比当前 CODE DIFF，如果上述问题已经修复，在增量追踪中标记为 [FIXED]，但不要将其放入新的 line_comments 中。\n"
             
-        def has_markdown_report(content: str) -> bool:
+        def has_llm_result(content: str) -> bool:
             text = (content or "").strip()
             if not text:
                 return False
@@ -191,14 +191,14 @@ class CRRouter:
             text = text.strip()
             try:
                 obj = json.loads(text)
-                if isinstance(obj, dict) and "markdown_report" in obj:
+                if isinstance(obj, dict) and "llm_result" in obj:
                     return True
             except Exception:
                 pass
             if yaml:
                 try:
                     obj = yaml.safe_load(text)
-                    if isinstance(obj, dict) and "markdown_report" in obj:
+                    if isinstance(obj, dict) and "llm_result" in obj:
                         return True
                 except Exception:
                     pass
@@ -219,11 +219,11 @@ class CRRouter:
             total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
             total_usage["total_tokens"] += usage.get("total_tokens", 0)
             total_usage["cost"] += usage.get("cost", 0.0)
-            if has_markdown_report(content):
+            if has_llm_result(content):
                 total_usage["retry_count"] = attempt - 1
                 return content, total_usage
             if attempt < max_attempts:
-                print("⚠️ Summary 输出未包含 markdown_report，触发重试")
-                user_prompt += "\n\n### RETRY INSTRUCTION\n上次输出不合规：必须输出 JSON 且包含 markdown_report 与 line_comments，禁止输出 YAML 或其他结构。请严格按照模板生成。"
+                print("⚠️ Summary 输出未包含 llm_result，触发重试")
+                user_prompt += "\n\n### RETRY INSTRUCTION\n上次输出不合规：必须输出 JSON 且包含 llm_result、line_comments、issues，禁止输出 YAML 或其他结构。请严格按照模板生成。"
         total_usage["retry_count"] = max_attempts - 1
         return last_content, total_usage

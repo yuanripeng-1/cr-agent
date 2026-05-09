@@ -201,6 +201,7 @@ async def main():
     result = {}
     md_output = ""
     line_comments_data = None
+    issues_data = None
     summary_content = ""  # 初始化，避免在异常情况下未定义
 
     try:
@@ -217,12 +218,14 @@ async def main():
         # 解析 Summary Agent 输出（可能是 JSON 或 Markdown）
         summary_content = result.get("summary", "")
         line_comments_data = None
+        issues_data = None
 
         # 优先使用统一解析（含 json\n 前缀、大括号提取等兜底）
-        parsed_md, parsed_lc = parse_summary_llm_output(summary_content)
+        parsed_md, parsed_lc, parsed_issues = parse_summary_llm_output(summary_content)
         if parsed_md is not None:
             summary_content = parsed_md
             line_comments_data = parsed_lc or {}
+            issues_data = parsed_issues or []
             print("✅ 成功解析 Summary Agent 输出为 JSON 格式")
         else:
             # 尝试解析为 YAML（兼容旧输出）
@@ -244,6 +247,7 @@ async def main():
                     if isinstance(summary_yaml, dict) and "markdown_report" in summary_yaml:
                         markdown_report = summary_yaml.get("markdown_report", "")
                         line_comments_data = summary_yaml.get("line_comments", {})
+                        issues_data = summary_yaml.get("issues", [])
                         print("✅ 成功解析 Summary Agent 输出为 YAML 格式")
                         
                         if markdown_report.startswith("```markdown"):
@@ -368,19 +372,6 @@ async def main():
                     clean_comment = {k: v for k, v in validated.items() 
                                    if k not in ["validation_status", "original_start_line", "original_end_line", "validation_feedback", "validation_error"]}
                     
-                    # 在 body 开头添加代码范围信息
-                    start_line = clean_comment.get("start_line")
-                    end_line = clean_comment.get("end_line")
-                    if start_line and end_line:
-                        if start_line == end_line:
-                            range_info = f"问题代码范围：{start_line}"
-                        else:
-                            range_info = f"问题代码范围：{start_line}:{end_line}"
-                        
-                        body = clean_comment.get("body", "")
-                        if body and not body.startswith("问题代码范围："):
-                            clean_comment["body"] = f"{range_info}\n\n{body}"
-                    
                     validated_comments.append(clean_comment)
                 
                 line_comments_data["comments"] = validated_comments
@@ -447,12 +438,17 @@ async def main():
     # 添加 line_comments（如果可用）
     if line_comments_data:
         result_json["line_comments"] = line_comments_data
-    
+
+    # 添加 issues（由 Summary Agent 按 summaryRule 评级后输出）
+    if isinstance(issues_data, list):
+        result_json["issues"] = issues_data
+
     with open(os.path.join(result_path, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result_json, f, indent=2, ensure_ascii=False)
 
-    # 兼容旧路径，如果需要的话 (RUN.sh 期待 CR_REPORT.md)
-    with open("CR_REPORT.md", "w", encoding="utf-8") as f:
+    # 兼容旧路径：写入 result_path 目录，避免多实例并发写同一文件
+    cr_report_path = os.path.join(result_path, "CR_REPORT.md")
+    with open(cr_report_path, "w", encoding="utf-8") as f:
         f.write(md_output)
 
 if __name__ == "__main__":

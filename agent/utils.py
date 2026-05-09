@@ -409,16 +409,16 @@ def setup_log_redirection(log_path: str):
     return log_file
 
 
-def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """
     解析 Summary Agent 的 LLM 输出，支持多种兜底格式。
     兜底包括：Markdown 围栏、json\\n 前缀、从首尾大括号提取 JSON 等。
 
     Returns:
-        (markdown_report, line_comments) 解析成功时返回；否则 (None, None)
+        (markdown_report, line_comments, issues) 解析成功时返回；否则 (None, None, None)
     """
     if not raw or not raw.strip():
-        return None, None
+        return None, None, None
 
     def _strip_fences(text: str) -> str:
         t = text.strip()
@@ -471,40 +471,238 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
             i += 1
         return None
 
-    def _parse_and_extract(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def _load_json_dict(text: str) -> Optional[Dict[str, Any]]:
         try:
             obj = json.loads(text)
-            if isinstance(obj, dict) and "markdown_report" in obj:
-                md = obj.get("markdown_report", "")
-                lc = obj.get("line_comments", {})
-                if isinstance(md, str):
-                    md = _strip_fences(md)
-                return md.strip(), lc if isinstance(lc, dict) else {}
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return None
+
+    def _extract_from_obj(obj: Dict[str, Any]) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        md = None
+        for key in ("markdown_report", "llm_result"):
+            value = obj.get(key)
+            if isinstance(value, str):
+                md = value
+                break
+        if md is None:
+            return None, None, None
+
+        lc = obj.get("line_comments", {})
+        issues = obj.get("issues", [])
+        normalized_lc = lc if isinstance(lc, dict) else {}
+        normalized_issues = issues if isinstance(issues, list) else []
+        return _strip_fences(md).strip(), normalized_lc, normalized_issues
+
+    def _parse_nested_payload_from_markdown(md_text: str) -> Optional[Dict[str, Any]]:
+        """
+        部分模型会把结构化 JSON 放到 llm_result 字符串里（双层 JSON）。
+        这里尝试从 markdown 字段中再次提取 JSON 对象。
+        """
+        candidates = [md_text, _strip_fences(md_text), _strip_json_prefix(md_text)]
+        for candidate in candidates:
+            obj = _load_json_dict(candidate)
+            if obj is not None:
+                return obj
+            sub = _extract_json_substring(candidate)
+            if sub:
+                obj = _load_json_dict(sub)
+                if obj is not None:
+                    return obj
+        return None
+
+    def _parse_malformed_summary_payload(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        """
+        兼容“看起来像 JSON，但 llm_result 内部引号未转义”的坏格式：
+        {"llm_result":"...","line_comments":{...},"issues":[...]}
+        """
+        if '"llm_result"' not in text:
+            return None, None, None
+
+        llm_key = '"llm_result":'
+        line_comments_marker = '","line_comments":'
+        issues_marker = ',"issues":'
+
+        llm_key_idx = text.find(llm_key)
+        if llm_key_idx == -1:
+            return None, None, None
+
+        llm_value_start = llm_key_idx + len(llm_key)
+        if llm_value_start >= len(text) or text[llm_value_start] != '"':
+            return None, None, None
+
+        lc_idx = text.find(line_comments_marker, llm_value_start)
+        if lc_idx == -1:
+            return None, None, None
+
+        llm_raw = text[llm_value_start + 1 : lc_idx]
+        llm_raw = llm_raw.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t")
+        llm_raw = llm_raw.replace('\\"', '"').replace("\\\\", "\\")
+        md = _strip_fences(llm_raw).strip()
+
+        issues_idx = text.find(issues_marker, lc_idx + len(line_comments_marker))
+        if issues_idx == -1:
+            return md, {}, []
+
+        lc_text = text[lc_idx + len(line_comments_marker) : issues_idx].strip()
+        end_brace = text.rfind("}")
+        if end_brace == -1 or end_brace <= issues_idx:
+            return md, {}, []
+        issues_text = text[issues_idx + len(issues_marker) : end_brace].strip()
+
+        def _decode_escaped_text(value: str) -> str:
+            return (
+                value.replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace('\\"', '"')
+                .replace("\\\\", "\\")
+            )
+
+        def _parse_line_comments_fallback(raw_line_comments: str) -> Dict[str, Any]:
+            comments: List[Dict[str, Any]] = []
+            cursor = 0
+            while True:
+                path_key = '"new_path":"'
+                body_key = '","body":"'
+                start_key = '","start_line":'
+                end_key = ',"end_line":'
+
+                path_idx = raw_line_comments.find(path_key, cursor)
+                if path_idx == -1:
+                    break
+                path_start = path_idx + len(path_key)
+                body_idx = raw_line_comments.find(body_key, path_start)
+                if body_idx == -1:
+                    break
+                path_raw = raw_line_comments[path_start:body_idx]
+
+                body_start = body_idx + len(body_key)
+                start_idx = raw_line_comments.find(start_key, body_start)
+                if start_idx == -1:
+                    break
+                body_raw = raw_line_comments[body_start:start_idx]
+
+                start_val_begin = start_idx + len(start_key)
+                end_idx = raw_line_comments.find(end_key, start_val_begin)
+                if end_idx == -1:
+                    break
+                start_raw = raw_line_comments[start_val_begin:end_idx].strip()
+
+                end_val_begin = end_idx + len(end_key)
+                obj_end = raw_line_comments.find("}", end_val_begin)
+                if obj_end == -1:
+                    break
+                end_raw = raw_line_comments[end_val_begin:obj_end].strip()
+
+                try:
+                    start_line = int(start_raw)
+                    end_line = int(end_raw)
+                    comments.append(
+                        {
+                            "new_path": _decode_escaped_text(path_raw),
+                            "body": _decode_escaped_text(body_raw),
+                            "start_line": start_line,
+                            "end_line": end_line,
+                        }
+                    )
+                except Exception:
+                    pass
+
+                cursor = obj_end + 1
+
+            return {"comments": comments}
+
+        line_comments: Dict[str, Any] = {}
+        issues: List[Dict[str, Any]] = []
+        try:
+            parsed_lc = json.loads(lc_text)
+            if isinstance(parsed_lc, dict):
+                line_comments = parsed_lc
+        except Exception:
+            # 二次兜底：直接按字段边界提取 comments
+            line_comments = _parse_line_comments_fallback(lc_text)
+
+        try:
+            parsed_issues = json.loads(issues_text)
+            if isinstance(parsed_issues, list):
+                issues = parsed_issues
+        except Exception:
+            pass
+
+        return md, line_comments, issues
+
+    def _parse_and_extract(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        try:
+            obj = json.loads(text)
+            # 兼容双层 JSON 字符串：第一层解码后仍是 "{...}" 字符串
+            if isinstance(obj, str):
+                nested = _load_json_dict(obj)
+                if nested is None:
+                    sub = _extract_json_substring(obj)
+                    if sub:
+                        nested = _load_json_dict(sub)
+                if nested is None:
+                    return None, None, None
+                obj = nested
+
+            if isinstance(obj, dict):
+                merged_lc: Dict[str, Any] = {}
+                merged_issues: List[Dict[str, Any]] = []
+                current = obj
+
+                # 最多展开 3 层，防止异常输出导致无限递归。
+                for _ in range(3):
+                    md, lc, issues = _extract_from_obj(current)
+                    if md is None:
+                        return None, None, None
+
+                    if lc:
+                        merged_lc = lc
+                    if issues:
+                        merged_issues = issues
+
+                    nested_obj = _parse_nested_payload_from_markdown(md)
+                    if nested_obj and any(
+                        key in nested_obj for key in ("markdown_report", "llm_result", "line_comments", "issues")
+                    ):
+                        current = nested_obj
+                        continue
+
+                    return md, merged_lc, merged_issues
         except (json.JSONDecodeError, TypeError):
             pass
-        return None, None
+        return None, None, None
 
     # 1) 标准：去掉围栏后解析
     json_text = _strip_fences(raw)
-    md, lc = _parse_and_extract(json_text)
+    md, lc, issues = _parse_and_extract(json_text)
     if md is not None:
-        return md, lc
+        return md, lc, issues
 
     # 2) 兜底：去掉 json\n 等前缀
     json_text = _strip_json_prefix(raw)
-    md, lc = _parse_and_extract(json_text)
+    md, lc, issues = _parse_and_extract(json_text)
     if md is not None:
-        return md, lc
+        return md, lc, issues
 
     # 3) 兜底：从首尾大括号提取 JSON 子串
     for candidate in (raw, _strip_fences(raw), _strip_json_prefix(raw)):
         sub = _extract_json_substring(candidate)
         if sub:
-            md, lc = _parse_and_extract(sub)
+            md, lc, issues = _parse_and_extract(sub)
             if md is not None:
-                return md, lc
+                return md, lc, issues
 
-    return None, None
+    # 4) 兜底：坏 JSON 容错提取（llm_result 内未转义引号）
+    for candidate in (raw, _strip_fences(raw), _strip_json_prefix(raw)):
+        md, lc, issues = _parse_malformed_summary_payload(candidate)
+        if md is not None:
+            return md, lc, issues
+
+    return None, None, None
 
 
 def parse_diff_line_ranges(diff_content: str) -> Dict[str, List[Tuple[int, int]]]:
@@ -986,3 +1184,4 @@ def validate_line_comment_by_file(
     # All validations passed
     result["validation_status"] = "valid"
     return result
+
