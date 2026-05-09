@@ -131,7 +131,7 @@ llm_result 字段须包含以下内容，禁止输出多余的内容（使用简
   ```json
   "line_comments": { "comments": [] }
   ```
-
+  
 #### line_comments 与 issues.locations 条数对齐（强制）
 - 记 `L = sum(len(issue["locations"]))`（即所有 `issues` 中 `locations` 条目总数，每一处待标注代码位置计为 1）。
 - **必须**满足：`len(line_comments.comments) == L`。每一处出现在 `issues[].locations` 中的代码漏洞都**必须**有对应的一条行评论；**禁止**将同一 `issues` 条目下的多条 `locations` 合并成更少的行评论条数。
