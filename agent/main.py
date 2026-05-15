@@ -203,6 +203,7 @@ async def main():
     line_comments_data = None
     issues_data = None
     summary_content = ""  # 初始化，避免在异常情况下未定义
+    summary_usage: dict = {}
 
     try:
         # 执行流程
@@ -219,6 +220,8 @@ async def main():
         summary_content = result.get("summary", "")
         line_comments_data = None
         issues_data = None
+        summary_usage = result.get("summary_usage", {}) if isinstance(result, dict) else {}
+        summary_parse_failed = summary_usage.get("summary_parsed") is False
 
         # 优先使用统一解析（含 json\n 前缀、大括号提取等兜底）
         parsed_md, parsed_lc, parsed_issues = parse_summary_llm_output(summary_content)
@@ -227,6 +230,14 @@ async def main():
             line_comments_data = parsed_lc or {}
             issues_data = parsed_issues or []
             print("✅ 成功解析 Summary Agent 输出为 JSON 格式")
+        elif summary_parse_failed:
+            status = "failure"
+            error_msg = (
+                "Summary Agent 输出在规范化解析后仍无效（已重试 2 次）。"
+                "请查看 run.log 中的原始输出。"
+            )
+            print(f"❌ {error_msg}")
+            summary_content = error_msg
         else:
             # 尝试解析为 YAML（兼容旧输出）
             parsed_as_yaml = False
@@ -434,7 +445,11 @@ async def main():
         "log_path": log_path,
         "tokens_consume": tokens_consume
     }
-    
+    if status == "failure" and summary_usage.get("summary_parsed") is False:
+        result_json["error"] = (
+            "summary_parse_failed: Summary Agent 输出在 3 次请求后仍无法被规范化解析"
+        )
+
     # 添加 line_comments（如果可用）
     if line_comments_data:
         result_json["line_comments"] = line_comments_data

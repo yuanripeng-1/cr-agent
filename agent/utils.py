@@ -521,19 +521,42 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
         if '"llm_result"' not in text:
             return None, None, None
 
-        llm_key = '"llm_result":'
-        line_comments_marker = '","line_comments":'
-        issues_marker = ',"issues":'
+        llm_key = '"llm_result"'
+        line_comments_markers = (
+            '","line_comments":',
+            '", "line_comments":',
+            '",\n  "line_comments":',
+            '",\n "line_comments":',
+        )
+        issues_markers = (
+            ',"issues":',
+            ', "issues":',
+            ',\n  "issues":',
+            ',\n "issues":',
+            ',\n  "issues": [',
+        )
 
         llm_key_idx = text.find(llm_key)
         if llm_key_idx == -1:
             return None, None, None
 
-        llm_value_start = llm_key_idx + len(llm_key)
+        colon_idx = text.find(":", llm_key_idx + len(llm_key))
+        if colon_idx == -1:
+            return None, None, None
+
+        llm_value_start = colon_idx + 1
+        while llm_value_start < len(text) and text[llm_value_start] in " \t\n\r":
+            llm_value_start += 1
         if llm_value_start >= len(text) or text[llm_value_start] != '"':
             return None, None, None
 
-        lc_idx = text.find(line_comments_marker, llm_value_start)
+        lc_idx = -1
+        lc_marker_len = 0
+        for marker in line_comments_markers:
+            idx = text.find(marker, llm_value_start + 1)
+            if idx != -1 and (lc_idx == -1 or idx < lc_idx):
+                lc_idx = idx
+                lc_marker_len = len(marker)
         if lc_idx == -1:
             return None, None, None
 
@@ -542,15 +565,22 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
         llm_raw = llm_raw.replace('\\"', '"').replace("\\\\", "\\")
         md = _strip_fences(llm_raw).strip()
 
-        issues_idx = text.find(issues_marker, lc_idx + len(line_comments_marker))
+        issues_idx = -1
+        issues_marker_len = 0
+        search_from = lc_idx + lc_marker_len
+        for marker in issues_markers:
+            idx = text.find(marker, search_from)
+            if idx != -1 and (issues_idx == -1 or idx < issues_idx):
+                issues_idx = idx
+                issues_marker_len = len(marker)
         if issues_idx == -1:
             return md, {}, []
 
-        lc_text = text[lc_idx + len(line_comments_marker) : issues_idx].strip()
+        lc_text = text[lc_idx + lc_marker_len : issues_idx].strip()
         end_brace = text.rfind("}")
         if end_brace == -1 or end_brace <= issues_idx:
             return md, {}, []
-        issues_text = text[issues_idx + len(issues_marker) : end_brace].strip()
+        issues_text = text[issues_idx + issues_marker_len : end_brace].strip()
 
         def _decode_escaped_text(value: str) -> str:
             return (
@@ -561,41 +591,77 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
                 .replace("\\\\", "\\")
             )
 
+        def _find_field_value(raw: str, field: str, cursor: int) -> Tuple[int, int]:
+            """定位 JSON 字段值的起止下标（支持冒号后可选空格）。"""
+            patterns = (
+                f'"{field}": "',
+                f'"{field}":"',
+                f'"{field}":\\"',
+            )
+            for pattern in patterns:
+                key_idx = raw.find(pattern, cursor)
+                if key_idx == -1:
+                    continue
+                value_start = key_idx + len(pattern)
+                i = value_start
+                escape = False
+                while i < len(raw):
+                    ch = raw[i]
+                    if escape:
+                        escape = False
+                        i += 1
+                        continue
+                    if ch == "\\":
+                        escape = True
+                        i += 1
+                        continue
+                    if ch == '"':
+                        return value_start, i
+                    i += 1
+            return -1, -1
+
         def _parse_line_comments_fallback(raw_line_comments: str) -> Dict[str, Any]:
             comments: List[Dict[str, Any]] = []
             cursor = 0
             while True:
-                path_key = '"new_path":"'
-                body_key = '","body":"'
-                start_key = '","start_line":'
-                end_key = ',"end_line":'
-
-                path_idx = raw_line_comments.find(path_key, cursor)
-                if path_idx == -1:
+                path_start, path_end = _find_field_value(raw_line_comments, "new_path", cursor)
+                if path_start == -1:
                     break
-                path_start = path_idx + len(path_key)
-                body_idx = raw_line_comments.find(body_key, path_start)
-                if body_idx == -1:
-                    break
-                path_raw = raw_line_comments[path_start:body_idx]
+                path_raw = raw_line_comments[path_start:path_end]
 
-                body_start = body_idx + len(body_key)
-                start_idx = raw_line_comments.find(start_key, body_start)
+                body_start, body_end = _find_field_value(raw_line_comments, "body", path_end)
+                if body_start == -1:
+                    break
+                body_raw = raw_line_comments[body_start:body_end]
+
+                start_key_variants = ('"start_line":', '"start_line": ')
+                start_idx = -1
+                start_key_len = 0
+                for sk in start_key_variants:
+                    idx = raw_line_comments.find(sk, body_end)
+                    if idx != -1 and (start_idx == -1 or idx < start_idx):
+                        start_idx = idx
+                        start_key_len = len(sk)
                 if start_idx == -1:
                     break
-                body_raw = raw_line_comments[body_start:start_idx]
 
-                start_val_begin = start_idx + len(start_key)
-                end_idx = raw_line_comments.find(end_key, start_val_begin)
+                end_key_variants = ('"end_line":', '"end_line": ')
+                end_idx = -1
+                end_key_len = 0
+                for ek in end_key_variants:
+                    idx = raw_line_comments.find(ek, start_idx + start_key_len)
+                    if idx != -1 and (end_idx == -1 or idx < end_idx):
+                        end_idx = idx
+                        end_key_len = len(ek)
                 if end_idx == -1:
                     break
-                start_raw = raw_line_comments[start_val_begin:end_idx].strip()
 
-                end_val_begin = end_idx + len(end_key)
+                start_raw = raw_line_comments[start_idx + start_key_len : end_idx].strip().rstrip(",")
+                end_val_begin = end_idx + end_key_len
                 obj_end = raw_line_comments.find("}", end_val_begin)
                 if obj_end == -1:
                     break
-                end_raw = raw_line_comments[end_val_begin:obj_end].strip()
+                end_raw = raw_line_comments[end_val_begin:obj_end].strip().rstrip(",")
 
                 try:
                     start_line = int(start_raw)
@@ -703,6 +769,20 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
             return md, lc, issues
 
     return None, None, None
+
+
+def build_canonical_summary_payload(
+    markdown_report: str,
+    line_comments: Optional[Dict[str, Any]] = None,
+    issues: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """将解析结果序列化为标准 Summary JSON，供下游再次解析或落盘。"""
+    payload = {
+        "llm_result": markdown_report,
+        "line_comments": line_comments if isinstance(line_comments, dict) else {},
+        "issues": issues if isinstance(issues, list) else [],
+    }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def parse_diff_line_ranges(diff_content: str) -> Dict[str, List[Tuple[int, int]]]:
