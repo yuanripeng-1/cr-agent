@@ -3,10 +3,20 @@ import json
 from typing import Dict, Any, List
 from .agents import GenericDimensionAgent, QualityLinterAgent, BaseAgent
 from .prompts import *
-try:
-    import yaml
-except ImportError:
-    yaml = None
+from .utils import build_canonical_summary_payload, parse_summary_llm_output
+
+SUMMARY_PARSE_RETRY_INSTRUCTION = (
+    "\n\n### RETRY INSTRUCTION\n"
+    "上次输出无法被程序解析。请严格修正后重新输出：\n"
+    "1. 最终回复的第一个非空字符必须是 `{`，最后一个非空字符必须是 `}`。\n"
+    "2. 禁止输出 `json` 前缀、` ```json ` 围栏或任何解释性文字。\n"
+    "3. 必须输出合法 JSON，且包含 `llm_result`、`line_comments`、`issues` 三个字段。\n"
+    "4. `llm_result` 字符串内的双引号必须转义为 `\\\"`，换行使用 `\\n`。\n"
+    "5. `line_comments` 必须是 `{ \"comments\": [...] }` 结构；无评论时输出 `{ \"comments\": [] }`。\n"
+)
+
+# 首次请求 + 2 次重试（解析失败时触发）
+SUMMARY_PARSE_MAX_ATTEMPTS = 3
 
 class CRRouter:
     def __init__(
@@ -174,56 +184,41 @@ class CRRouter:
                                 user_prompt += f"   问题: {body}\n\n"
                         user_prompt += "\n**重要**：请对比当前 CODE DIFF，如果上述问题已经修复，在增量追踪中标记为 [FIXED]，但不要将其放入新的 line_comments 中。\n"
             
-        def has_llm_result(content: str) -> bool:
-            text = (content or "").strip()
-            if not text:
-                return False
-            if text.startswith("```json"):
-                text = text[7:]
-            elif text.startswith("```yaml"):
-                text = text[7:]
-            elif text.startswith("```yml"):
-                text = text[6:]
-            elif text.startswith("```"):
-                text = text[3:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-            try:
-                obj = json.loads(text)
-                if isinstance(obj, dict) and "llm_result" in obj:
-                    return True
-            except Exception:
-                pass
-            if yaml:
-                try:
-                    obj = yaml.safe_load(text)
-                    if isinstance(obj, dict) and "llm_result" in obj:
-                        return True
-                except Exception:
-                    pass
-            return False
-
-        max_attempts = 2
         total_usage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
-            "cost": 0.0
+            "cost": 0.0,
+            "summary_parsed": False,
         }
         last_content = ""
-        for attempt in range(1, max_attempts + 1):
+        for attempt in range(1, SUMMARY_PARSE_MAX_ATTEMPTS + 1):
             content, usage = await self.aggregator.call_llm(system_prompt, user_prompt)
             last_content = content
             total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
             total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
             total_usage["total_tokens"] += usage.get("total_tokens", 0)
             total_usage["cost"] += usage.get("cost", 0.0)
-            if has_llm_result(content):
+
+            parsed_md, parsed_lc, parsed_issues = parse_summary_llm_output(content)
+            if parsed_md is not None:
+                canonical = build_canonical_summary_payload(parsed_md, parsed_lc, parsed_issues)
                 total_usage["retry_count"] = attempt - 1
-                return content, total_usage
-            if attempt < max_attempts:
-                print("⚠️ Summary 输出未包含 llm_result，触发重试")
-                user_prompt += "\n\n### RETRY INSTRUCTION\n上次输出不合规：必须输出 JSON 且包含 llm_result、line_comments、issues，禁止输出 YAML 或其他结构。请严格按照模板生成。"
-        total_usage["retry_count"] = max_attempts - 1
+                total_usage["summary_parsed"] = True
+                print(f"✅ Summary 输出解析成功（第 {attempt} 次请求）")
+                return canonical, total_usage
+
+            if attempt < SUMMARY_PARSE_MAX_ATTEMPTS:
+                print(
+                    f"⚠️ Summary 输出解析失败（第 {attempt}/{SUMMARY_PARSE_MAX_ATTEMPTS} 次），"
+                    "将重新请求 Summary Agent…"
+                )
+                user_prompt += SUMMARY_PARSE_RETRY_INSTRUCTION
+
+        total_usage["retry_count"] = SUMMARY_PARSE_MAX_ATTEMPTS - 1
+        total_usage["summary_parsed"] = False
+        print(
+            f"❌ Summary 输出在 {SUMMARY_PARSE_MAX_ATTEMPTS} 次请求后仍无法解析，"
+            "将标记为失败"
+        )
         return last_content, total_usage
