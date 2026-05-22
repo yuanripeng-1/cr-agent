@@ -1,10 +1,8 @@
-import subprocess
-import os
 import litellm
 import asyncio
-import json
 from typing import List, Dict, Any
 from .prompts import *
+from .utils import RunLog
 
 # Import litellm exceptions for better error handling
 try:
@@ -48,9 +46,12 @@ class BaseAgent:
         self.timeout_per_1k_chars = timeout_per_1k_chars
         self.timeout_max_seconds = timeout_max_seconds
 
-    def _log_full_llm_output(self, content: str, usage_info: dict) -> None:
-        """将 LLM 原始完整输出写入日志（stdout 已被重定向到 run.log）。"""
-        agent_label = getattr(self, "dimension_name", self.__class__.__name__)
+    def _agent_label(self) -> str:
+        return getattr(self, "dimension_name", self.__class__.__name__)
+
+    def _print_llm_output_to_terminal(self, content: str, usage_info: dict) -> None:
+        """将 LLM 原始完整输出打印到终端（不写入 run.log）。"""
+        agent_label = self._agent_label()
         print(f"\n{'='*20} LLM FULL OUTPUT [{agent_label}] {'='*20}")
         print(
             f"Token 消耗: {usage_info.get('total_tokens', 0)} "
@@ -129,6 +130,7 @@ class BaseAgent:
             tuple: (content, usage_info) where usage_info contains tokens and cost
         """
         last_exception = None
+        agent_label = self._agent_label()
         
         # Timeout strategy:
         # 1) If timeout_seconds is configured, use fixed timeout for each call.
@@ -183,8 +185,8 @@ class BaseAgent:
                 except Exception:
                     pass
 
-                # 将原始输出完整打到日志，便于排查模型行为与格式问题
-                self._log_full_llm_output(content, usage_info)
+                RunLog.write_agent_output(agent_label, content)
+                self._print_llm_output_to_terminal(content, usage_info)
                 
                 # Log success after retries
                 if attempt > 0:
@@ -239,10 +241,12 @@ class BaseAgent:
                         print(f"   错误信息: {error_msg}")
                         if error_category == "timeout":
                             print(f"   最终超时设置: {int(dynamic_timeout)} 秒")
+                    RunLog.write_agent_error(agent_label, e)
                     raise
         
         # If we exhausted all retries, raise the last exception
         if last_exception:
+            RunLog.write_agent_error(agent_label, last_exception)
             raise last_exception
         else:
             raise Exception("LLM call failed after all retries")
@@ -282,46 +286,3 @@ class GenericDimensionAgent(BaseAgent):
         user_prompt += "\n\nIMPORTANT: 仅输出置信度>=85的问题；每条必须带confidence字段(0-100)。如果没有高置信度问题，输出空数组并写明“暂未发现高置信度问题”。严禁为了凑数输出低价值建议。"
         
         return await self.call_llm(self.system_prompt, user_prompt)
-
-class QualityLinterAgent(BaseAgent):
-    """Consistency & Style Agent that also runs physical Linter."""
-    def __init__(self, model: str, api_base: str | None = None, **base_agent_kwargs):
-        super().__init__(model, api_base=api_base, **base_agent_kwargs)
-
-    async def run(self, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", previous_review: str = "") -> tuple[str, dict]:
-        # Linter execution logic
-        linter_output = ""
-        linter_cmd = []
-        if language.lower() == "python":
-            linter_cmd = ["pylint", "--output-format=text"]
-        elif language.lower() == "go":
-            linter_cmd = ["golangci-lint", "run"]
-        
-        if linter_cmd:
-            for path in file_paths:
-                try:
-                    cmd = linter_cmd + [path]
-                    process = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True, timeout=30)
-                    linter_output += f"\nFile: {path}\n{process.stdout}\n{process.stderr}"
-                except Exception as e:
-                    linter_output += f"\nLinter Error on {path}: {str(e)}"
-
-        # Guidelines
-        guidelines_content = "No specific guidelines provided."
-        if guidelines_path:
-            lang_map = {"python": "python_style.md", "go": "go_style.md", "java": "java_style.md", "javascript": "nodejs_style.md"}
-            fname = lang_map.get(language.lower())
-            if fname:
-                full_path = os.path.join(guidelines_path, fname)
-                if os.path.exists(full_path):
-                    with open(full_path, "r") as f: guidelines_content = f.read()
-
-        user_prompt = (
-            f"### TEAM CODING GUIDELINES\n{guidelines_content}\n\n"
-            f"### LINTER OUTPUT\n{linter_output}\n\n"
-            f"### CODE DIFF\n{code_diff}\n"
-        )
-        if previous_review:
-            user_prompt += f"\n\n{ITERATIVE_REVIEW_INSTRUCTION}\n\n### PREVIOUS REVIEW REPORT\n{previous_review}"
-        
-        return await self.call_llm(CONSISTENCY_AGENT_PROMPT, user_prompt)

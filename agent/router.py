@@ -1,7 +1,6 @@
 import asyncio
-import json
-from typing import Dict, Any, List
-from .agents import GenericDimensionAgent, QualityLinterAgent, BaseAgent
+from typing import Dict, Any
+from .agents import GenericDimensionAgent, BaseAgent
 from .prompts import *
 from .utils import build_canonical_summary_payload, parse_summary_llm_output
 
@@ -17,6 +16,20 @@ SUMMARY_PARSE_RETRY_INSTRUCTION = (
 
 # 首次请求 + 2 次重试（解析失败时触发）
 SUMMARY_PARSE_MAX_ATTEMPTS = 3
+
+# 十个子 Agent 统一处理顺序（与任务派发顺序一致）
+SUB_AGENT_DIMS_ORDER = [
+    "consistency",
+    "business",
+    "performance",
+    "security",
+    "testing",
+    "documentation",
+    "error_handling",
+    "readability",
+    "maintainability",
+    "dependency",
+]
 
 class CRRouter:
     def __init__(
@@ -46,7 +59,7 @@ class CRRouter:
             "max_retries": max_retries,
             "retry_delay": retry_delay,
         }
-        # Initialize 10 Expert Agents
+        # 十个子 Agent 均使用 GenericDimensionAgent，输入构造方式一致
         self.agents = {
             "business": GenericDimensionAgent(model, BUSINESS_AGENT_PROMPT, "Business", api_base=api_base, **base_agent_kwargs),
             "performance": GenericDimensionAgent(model, PERFORMANCE_AGENT_PROMPT, "Performance", api_base=api_base, **base_agent_kwargs),
@@ -55,75 +68,84 @@ class CRRouter:
             "documentation": GenericDimensionAgent(model, DOCUMENTATION_AGENT_PROMPT, "Documentation", api_base=api_base, **base_agent_kwargs),
             "error_handling": GenericDimensionAgent(model, ERROR_HANDLING_AGENT_PROMPT, "Error Handling", api_base=api_base, **base_agent_kwargs),
             "readability": GenericDimensionAgent(model, READABILITY_AGENT_PROMPT, "Readability", api_base=api_base, **base_agent_kwargs),
-            "consistency": QualityLinterAgent(model, api_base=api_base, **base_agent_kwargs),  # Specialized with Linter
+            "consistency": GenericDimensionAgent(model, CONSISTENCY_AGENT_PROMPT, "Consistency", api_base=api_base, **base_agent_kwargs),
             "maintainability": GenericDimensionAgent(model, MAINTAINABILITY_AGENT_PROMPT, "Maintainability", api_base=api_base, **base_agent_kwargs),
-            "dependency": GenericDimensionAgent(model, DEPENDENCY_AGENT_PROMPT, "Dependency", api_base=api_base, **base_agent_kwargs)
+            "dependency": GenericDimensionAgent(model, DEPENDENCY_AGENT_PROMPT, "Dependency", api_base=api_base, **base_agent_kwargs),
         }
         self.aggregator = BaseAgent(model, api_base=api_base, **base_agent_kwargs)
+        self.aggregator.dimension_name = "summary"
 
     async def _run_with_semaphore(self, semaphore: asyncio.Semaphore, coro):
         async with semaphore:
             return await coro
 
-    async def route_and_aggregate(self, mr_message: str, code_diff: str, file_paths: List[str], project_root: str = ".", language: str = "python", guidelines_path: str = "", requirements_content: str = "", previous_review: Dict[str, Any] = None) -> Dict[str, Any]:
-        if previous_review is None: previous_review = {}
+    async def route_and_aggregate(
+        self,
+        mr_message: str,
+        code_diff: str,
+        requirements_content: str = "",
+        previous_review: Dict[str, Any] = None,
+        language: str = "python",
+    ) -> Dict[str, Any]:
+        if previous_review is None:
+            previous_review = {}
         prev_reports = previous_review.get("reports", {})
 
         print(f"🚀 Starting 10-dimension analysis for MR: {mr_message[:50]}...")
-        
-        # 统一上下文：包括 MR 信息（标题+描述）和 需求文档内容
-        context_info = f"MR TITLE & DESCRIPTION:\n{mr_message}\n\nPRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
-        
-        # Dispatch 10 agents
-        tasks = []
-        # Consistency needs file_paths and language
-        tasks.append(self.agents["consistency"].run(code_diff, file_paths, project_root, language, guidelines_path, prev_reports.get("consistency", "")))
-        
-        # Business logic and others use the same context_info
-        dims_to_run = ["business", "performance", "security", "testing", "documentation", "error_handling", "readability", "maintainability", "dependency"]
-        for dim in dims_to_run:
-            tasks.append(self.agents[dim].run(code_diff, context_info, prev_reports.get(dim, ""), language=language))
+        context_info = (
+            f"MR TITLE & DESCRIPTION:\n{mr_message}\n\n"
+            f"PRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
+        )
 
-        # results will be list of (content, usage) tuples
+        tasks = []
+        for dim in SUB_AGENT_DIMS_ORDER:
+            tasks.append(
+                self.agents[dim].run(
+                    code_diff,
+                    context_info,
+                    prev_reports.get(dim, ""),
+                    language=language,
+                )
+            )
+
         if self.max_agent_concurrency >= len(tasks):
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         else:
             print(f"⚙️ Agent 并发限制已生效: {self.max_agent_concurrency}/{len(tasks)}")
             semaphore = asyncio.Semaphore(self.max_agent_concurrency)
             wrapped_tasks = [self._run_with_semaphore(semaphore, task) for task in tasks]
-            results = await asyncio.gather(*wrapped_tasks)
-        
-        # Aggregate reports and tokens
+            results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
+
         report_map = {}
         report_usages = {}
         total_usage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
-            "cost": 0.0
+            "cost": 0.0,
         }
 
-        # Order must match tasks.append order
-        dims_order = ["consistency", "business", "performance", "security", "testing", "documentation", "error_handling", "readability", "maintainability", "dependency"]
-        
-        for i, dim in enumerate(dims_order):
-            content, usage = results[i]
+        for i, dim in enumerate(SUB_AGENT_DIMS_ORDER):
+            result = results[i]
+            if isinstance(result, Exception):
+                report_map[dim] = f"Error calling LLM: {repr(result)}"
+                report_usages[dim] = {}
+                print(f"❌ 子 Agent [{dim}] 调用失败: {repr(result)}")
+                continue
+            content, usage = result
             report_map[dim] = content
             report_usages[dim] = usage
-            # Aggregate usage
             total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
             total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
             total_usage["total_tokens"] += usage.get("total_tokens", 0)
             total_usage["cost"] += usage.get("cost", 0.0)
 
-        # --- 新增：打印每个维度报告和 Token 消耗到终端 ---
         for dim, content in report_map.items():
             usage = report_usages.get(dim, {})
             print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
             print(f"Token 消耗: {usage.get('total_tokens', 0)} (Input: {usage.get('prompt_tokens', 0)}, Output: {usage.get('completion_tokens', 0)}, Cost: ${usage.get('cost', 0.0):.6f})")
             print(content)
             print(f"{'='*50}\n")
-        # ---------------------------------------------------
 
         print("📝 All expert reports complete. Aggregating...")
         final_summary, summary_usage = await self.generate_final_summary(
@@ -134,15 +156,14 @@ class CRRouter:
             code_diff=code_diff,
             previous_review=previous_review,
         )
-        
+
         print(f"Summary Agent Token 消耗: {summary_usage.get('total_tokens', 0)} (Input: {summary_usage.get('prompt_tokens', 0)}, Output: {summary_usage.get('completion_tokens', 0)}, Cost: ${summary_usage.get('cost', 0.0):.6f})")
-        
-        # Aggregate summary tokens
+
         total_usage["prompt_tokens"] += summary_usage.get("prompt_tokens", 0)
         total_usage["completion_tokens"] += summary_usage.get("completion_tokens", 0)
         total_usage["total_tokens"] += summary_usage.get("total_tokens", 0)
         total_usage["cost"] += summary_usage.get("cost", 0.0)
-        
+
         return {
             "reports": report_map,
             "report_usages": report_usages,
@@ -162,11 +183,10 @@ class CRRouter:
         user_prompt += "### EXPERT REPORTS (YAML)\n"
         for dim, content in report_map.items():
             user_prompt += f"--- {dim.upper()} REPORT ---\n{content}\n\n"
-        
+
         if previous_summary:
             user_prompt += f"\n### PREVIOUS REVIEW SUMMARY\n{previous_summary}"
-            
-            # Also include previous line_comments to help identify fixed issues
+
             if previous_review and isinstance(previous_review, dict):
                 prev_line_comments = previous_review.get("line_comments", {})
                 if prev_line_comments and isinstance(prev_line_comments, dict):
@@ -179,11 +199,11 @@ class CRRouter:
                                 file_path = comment.get("new_path", "unknown")
                                 start_line = comment.get("start_line", "?")
                                 end_line = comment.get("end_line", "?")
-                                body = comment.get("body", "")[:200]  # Limit length
+                                body = comment.get("body", "")[:200]
                                 user_prompt += f"{i}. {file_path}:{start_line}-{end_line}\n"
                                 user_prompt += f"   问题: {body}\n\n"
                         user_prompt += "\n**重要**：请对比当前 CODE DIFF，如果上述问题已经修复，在增量追踪中标记为 [FIXED]，但不要将其放入新的 line_comments 中。\n"
-            
+
         total_usage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,

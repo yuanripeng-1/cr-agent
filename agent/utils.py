@@ -2,6 +2,7 @@ import json
 import re
 import sys
 import os
+import traceback
 from typing import List, Dict, Tuple, Optional, Any
 
 # 代码文件扩展名列表（需要 review 的文件）
@@ -388,25 +389,54 @@ def parse_diff_file_paths(diff_content: str) -> List[str]:
     
     return list(file_paths)
 
-class Tee(object):
-    def __init__(self, *files):
-        self.files = files
-    def write(self, obj):
-        for f in self.files:
-            f.write(obj)
-            f.flush()
-    def flush(self):
-        for f in self.files:
-            f.flush()
+class RunLog:
+    """Structured run.log writer: sub-agent outputs, summary output, model errors only."""
+
+    _path: Optional[str] = None
+
+    @classmethod
+    def init(cls, log_path: str) -> None:
+        cls._path = log_path
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("十个子 Agent 处理方式完全相同\n\n")
+
+    @classmethod
+    def _append(cls, text: str) -> None:
+        if not cls._path:
+            return
+        with open(cls._path, "a", encoding="utf-8") as f:
+            f.write(text)
+            if text and not text.endswith("\n"):
+                f.write("\n")
+
+    @classmethod
+    def write_agent_output(cls, agent: str, content: str) -> None:
+        cls._append(
+            f"===== BEGIN AGENT OUTPUT: {agent} =====\n"
+            f"{content}\n"
+            f"===== END AGENT OUTPUT: {agent} =====\n"
+        )
+
+    @classmethod
+    def write_agent_error(cls, agent: str, exc: BaseException) -> None:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        cls._append(
+            f"===== BEGIN AGENT ERROR: {agent} =====\n"
+            f"exception_type: {type(exc).__name__}\n"
+            f"exception_repr: {repr(exc)}\n"
+            f"exception_str: {str(exc)}\n"
+            f"traceback:\n{tb}"
+            f"===== END AGENT ERROR: {agent} =====\n"
+        )
+
 
 def setup_log_redirection(log_path: str):
     """
-    Redirects stdout and stderr to both console and a log file.
+    Initialize run.log for structured agent output only.
+    Terminal stdout/stderr are unchanged (not tee'd into run.log).
     """
-    log_file = open(log_path, 'a', encoding='utf-8')
-    sys.stdout = Tee(sys.stdout, log_file)
-    sys.stderr = Tee(sys.stderr, log_file)
-    return log_file
+    RunLog.init(log_path)
+    return None
 
 
 def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
