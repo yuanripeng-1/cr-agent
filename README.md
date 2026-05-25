@@ -14,7 +14,7 @@ cr-agent/
 │   ├── main.py          # 当前 RUN.sh 实际调用的主入口
 │   ├── run.py           # 旧版/兼容入口，当前 RUN.sh 不调用
 │   ├── router.py        # CRRouter：创建 10 个维度 Agent，并发调度和聚合
-│   ├── agents.py        # BaseAgent、GenericDimensionAgent、QualityLinterAgent
+│   ├── agents.py        # BaseAgent、GenericDimensionAgent
 │   ├── prompts.py       # 加载 prompt/*.md 和 prompt/rules/*.md，注入通用约束
 │   └── utils.py         # diff 过滤、行号标注、Summary 解析、行评论校验等工具
 ├── prompt/
@@ -37,7 +37,7 @@ cr-agent/
 ├── RUN.sh               # 审查任务启动脚本
 ├── INSTALL.sh           # Conda 环境和依赖安装脚本
 ├── config.toml.example  # 运行配置模板
-├── requirements.txt     # Python 依赖：litellm、toml、pylint、pyyaml
+├── requirements.txt     # Python 依赖：litellm、toml、pyyaml
 ├── context_v*.json      # 示例任务上下文
 ├── previous_*.json      # 示例历史审查结果
 ├── CR_RESULT*.md/json   # 示例或历史输出
@@ -115,10 +115,10 @@ api_key = "sk-xxx"
 
 1. 读取 `CR_AGENT_CONFIG` 指向的 TOML；没有环境变量时默认找项目根目录下的 `config.toml`。
 2. 读取 `context.json`，提取任务信息、MR 信息、diff、项目目录、需求文档路径和历史报告。
-3. 创建 `result_path`，并把 stdout/stderr 同时输出到控制台和 `<result_path>/run.log`。
+3. 创建 `result_path`，初始化 `<result_path>/run.log`（仅写入十个子 Agent 与 Summary 的完整输出及模型调用错误；终端输出逻辑不变）。
 4. 过滤 diff：`utils.filter_code_diff()` 只保留代码文件变更，跳过图片、压缩包、日志、锁文件等非代码内容。
 5. 标注行号：如果 `project_root` 存在，`utils.annotate_diff_with_line_numbers()` 会把新增行标成类似 `0438| + ...`，方便模型输出准确行号。
-6. 解析变更文件列表：`utils.parse_diff_file_paths()` 提供给一致性/linter 维度使用。
+6. 解析变更文件列表：`utils.parse_diff_file_paths()` 用于统计变更文件数量。
 7. 初始化 `CRRouter`，传入模型、API 地址、并发数、超时和重试配置。
 8. 调用 `router.route_and_aggregate()`：
    - 先并发运行 10 个维度 Agent。
@@ -146,7 +146,7 @@ api_key = "sk-xxx"
 | `documentation` | `GenericDimensionAgent` | 公共接口、关键配置、复杂逻辑说明与文档一致性 |
 | `error_handling` | `GenericDimensionAgent` | 静默失败、异常吞噬、超时/回滚/恢复机制、错误可观测性 |
 | `readability` | `GenericDimensionAgent` | 命名、结构、嵌套复杂度、抽象层次、阅读路径 |
-| `consistency` | `QualityLinterAgent` | 项目规范、命名/风格一致性，并会对 Python/Go 尝试运行 linter |
+| `consistency` | `GenericDimensionAgent` | 项目规范、命名/风格一致性 |
 | `maintainability` | `GenericDimensionAgent` | 重复逻辑、耦合、职责混乱、硬编码扩展点、长期修改成本 |
 | `dependency` | `GenericDimensionAgent` | 依赖漏洞、版本锁定、供应链、许可证和不必要依赖 |
 
@@ -176,8 +176,7 @@ Summary 分级阈值大致如下：
 核心类：
 
 - `BaseAgent`：封装 LiteLLM 异步调用、动态/固定超时、重试、错误分类、token 和 cost 统计。
-- `GenericDimensionAgent`：单维度审查 Agent，拼装 `CODE DIFF`、语言特定检查、需求上下文和历史报告，然后调用 LLM。
-- `QualityLinterAgent`：一致性维度的特殊 Agent，会先运行本地 linter，再把 linter 输出和 diff 一起交给 LLM。
+- `GenericDimensionAgent`：十个子 Agent 均使用此类，统一拼装 `CODE DIFF`、语言特定检查、需求上下文和历史报告，然后调用 LLM。
 - `CRRouter`：调度器。负责创建 10 个维度 Agent、控制并发、汇总 token、调用 Summary Agent。
 - Summary Agent：不是独立类，而是 `BaseAgent` 加上 `SUMMARY_AGENT_PROMPT`，由 `CRRouter.generate_final_summary()` 调用。
 
@@ -225,7 +224,7 @@ Summary 分级阈值大致如下：
    - `cr_result.md` 会被后完成的任务覆盖。
    - `result.json` 会被后完成的任务覆盖。
    - `CR_REPORT.md` 会被后完成的任务覆盖。
-   - `run.log` 以 append 方式打开，多进程同时写可能交错，日志难以区分。
+   - `run.log` 会被后完成的任务覆盖（每次运行以写入模式重建）。
 3. 如果多个任务共用同一个 `project_root`，存在更严重风险：
    - 行评论校验阶段可能执行 `git checkout <head_sha>`。
    - 两个进程同时 checkout 同一个工作树，会互相切换分支/提交，导致行号校验基于错误版本。
@@ -261,7 +260,6 @@ workspace/<task_id>/result/
 - 没有全局并发锁，不能防止相同任务重复启动或多个任务写同一目录。
 - 没有任务队列、取消、暂停、恢复机制。
 - 没有对同一 `project_root` 的 git checkout 做互斥保护。
-- `QualityLinterAgent` 只显式支持 Python 的 `pylint` 和 Go 的 `golangci-lint`；其他语言主要依赖 LLM prompt。
 - 评审主要基于 diff，不读取完整项目语义；prompt 明确要求不要假设 diff 外上下文，因此复杂跨文件问题可能漏检。
 
 ## 输出文件
@@ -270,7 +268,7 @@ workspace/<task_id>/result/
 
 ```text
 <result_path>/
-├── run.log        # 运行日志、完整 LLM 输出、token 消耗
+├── run.log        # 十个子 Agent + Summary 的完整输出，以及模型调用失败时的完整错误
 ├── cr_result.md   # 最终 Markdown 审查报告
 ├── result.json    # 平台消费的结构化结果
 └── CR_REPORT.md   # 兼容旧路径的 Markdown 报告

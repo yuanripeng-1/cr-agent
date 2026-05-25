@@ -589,14 +589,11 @@ async def run_agent():
         )
         
         result = await router.route_and_aggregate(
-            mr_message=mr_message, 
-            code_diff=code_diff, 
-            file_paths=file_paths,
-            project_root=context.get("project_root", "."),
-            language=config["project"].get("language", "python"),
-            guidelines_path=config["project"].get("guidelines_path", ""),
+            mr_message=mr_message,
+            code_diff=code_diff,
             requirements_content=requirements_content,
-            previous_review=previous_review
+            previous_review=previous_review,
+            language=config["project"].get("language", "python"),
         )
         
     except Exception as e:

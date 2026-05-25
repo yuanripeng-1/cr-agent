@@ -210,10 +210,8 @@ async def main():
         result = await router.route_and_aggregate(
             mr_message=mr_message,
             code_diff=diff_content,
-            file_paths=file_paths,
-            project_root=project_root,
             requirements_content=requirements_content,
-            previous_review=previous_review
+            previous_review=previous_review,
         )
 
         # 解析 Summary Agent 输出（可能是 JSON 或 Markdown）
