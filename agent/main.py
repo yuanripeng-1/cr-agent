@@ -167,7 +167,7 @@ async def main():
         model=model,
         api_base=api_base,
         max_agent_concurrency=max(1, _get_int(llm_config, "max_agent_concurrency", 10)),
-        timeout_seconds=_get_optional_int(llm_config, "timeout_seconds"),
+        timeout_seconds=_get_optional_int(llm_config, "timeout_seconds") or 600,
         timeout_base_seconds=max(1, _get_int(llm_config, "timeout_base_seconds", 180)),
         timeout_per_1k_chars=max(0, _get_int(llm_config, "timeout_per_1k_chars", 1)),
         timeout_max_seconds=max(1, _get_int(llm_config, "timeout_max_seconds", 600)),
