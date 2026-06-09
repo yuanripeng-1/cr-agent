@@ -8,7 +8,19 @@ try:
 except ImportError:
     yaml = None
 from .router import CRRouter
-from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers, parse_summary_llm_output
+from .stats import ReviewStatsCollector
+from .utils import (
+    parse_diff_file_paths,
+    setup_log_redirection,
+    validate_line_comment_by_file,
+    filter_code_diff,
+    generate_line_number_feedback,
+    correct_line_number_with_feedback,
+    annotate_diff_with_line_numbers,
+    parse_summary_llm_output,
+    count_diff_line_changes,
+    get_file_line_count,
+)
 
 def _get_int(config: dict, key: str, default: int) -> int:
     value = config.get(key, default)
@@ -48,6 +60,9 @@ async def main():
 
     config = toml.load(config_path)
     context_cfg = config.get("context", {})
+    project_cfg = config.get("project", {})
+    project_language = project_cfg.get("language", "python")
+    stats_enabled = project_cfg.get("stats_enabled", True)
     json_path = context_cfg.get("json_path", "context.json")
     
     # Handle relative path for json_path
@@ -114,11 +129,14 @@ async def main():
             with open(requirements_doc_path, "r", encoding="utf-8") as f:
                 requirements_content = f.read()
     
+    stats = ReviewStatsCollector(task_id=task_id, mr_iid=str(mr_iid), head_sha=head_sha)
+
     # 过滤 diff，只保留代码文件的修改
     original_diff_length = len(diff_content)
     diff_content = filter_code_diff(diff_content)
     filtered_diff_length = len(diff_content)
-    
+    line_change_stats = count_diff_line_changes(diff_content)
+
     if original_diff_length != filtered_diff_length:
         print(f"🔍 已过滤 diff：原始长度 {original_diff_length} 字符 -> 代码文件长度 {filtered_diff_length} 字符")
     
@@ -141,8 +159,17 @@ async def main():
     print("===== END CODE DIFF IN PROMPT =====\n")
 
     file_paths = parse_diff_file_paths(diff_content)
-    
+    stats.record_diff_stats(
+        file_count=len(file_paths),
+        original_diff_chars=original_diff_length,
+        filtered_diff_chars=filtered_diff_length,
+        added_lines=line_change_stats.get("added_lines", 0),
+        removed_lines=line_change_stats.get("removed_lines", 0),
+        code_files=file_paths,
+    )
+
     print(f"📋 Task ID: {task_id}")
+    print(f"🈯 项目语言配置: {project_language}")
     print(f"📦 Project ID: {project_id}")
     print(f"🔀 MR IID: {mr_iid}")
     print(f"🌿 Source Branch: {source_branch} -> Target Branch: {target_branch}")
@@ -323,7 +350,15 @@ async def main():
                             print(f"⚠️ Git checkout 失败: {e}")
                 
                 print(f"🔍 正在验证 {len(comments)} 个行评论...")
+                validation_total = len(comments)
+                validation_valid = validation_corrected = validation_rejected = validation_needs_review = 0
+                seen_paths: set[str] = set()
                 for comment in comments:
+                    comment_path = comment.get("new_path") if isinstance(comment, dict) else None
+                    if comment_path and comment_path not in seen_paths:
+                        seen_paths.add(comment_path)
+                        line_count, readable = get_file_line_count(project_root, comment_path)
+                        stats.record_file_metric(comment_path, line_count, readable)
                     if not isinstance(comment, dict):
                         continue
                     
@@ -336,7 +371,15 @@ async def main():
                     )
                     
                     comment_status = validated.get("validation_status", "valid")
-                    
+                    if comment_status == "valid":
+                        validation_valid += 1
+                    elif comment_status == "corrected":
+                        validation_corrected += 1
+                    elif comment_status == "needs_review":
+                        validation_needs_review += 1
+                    elif comment_status == "invalid":
+                        validation_rejected += 1
+
                     # 如果验证失败，尝试使用 feedback 机制自动修正
                     if comment_status in ["invalid", "needs_review"]:
                         from .utils import generate_line_number_feedback, correct_line_number_with_feedback
@@ -384,6 +427,13 @@ async def main():
                     validated_comments.append(clean_comment)
                 
                 line_comments_data["comments"] = validated_comments
+                stats.record_validation_stats(
+                    total=validation_total,
+                    valid=validation_valid,
+                    corrected=validation_corrected,
+                    rejected=validation_rejected,
+                    needs_review=validation_needs_review,
+                )
                 print(f"✅ 已验证 {len(validated_comments)} 个行评论")
         
         # 恢复原来的 commit（如果之前切换过）- 移到 if 块外，确保总是执行
@@ -411,6 +461,14 @@ async def main():
         # 输出结果到文件
         with open(os.path.join(result_path, "cr_result.md"), "w", encoding="utf-8") as f:
             f.write(md_output)
+
+        if stats_enabled and isinstance(result, dict):
+            stats.record_agent_stats(result.get("report_usages", {}), result.get("reports", {}))
+            for phase, elapsed in (result.get("phase_timings") or {}).items():
+                stats.mark_phase(phase, elapsed)
+            stats_path = os.path.join(result_path, "review_stats.json")
+            stats.write_json(stats_path, result.get("usage", {}))
+            print(f"📊 审查统计已写入: {stats_path}")
             
     except Exception as e:
         status = "failure"
@@ -441,8 +499,12 @@ async def main():
         "llm_result": summary_content,  # 使用解析后的 Markdown 内容，而不是原始 JSON 字符串
         "status": status,
         "log_path": log_path,
-        "tokens_consume": tokens_consume
+        "tokens_consume": tokens_consume,
     }
+    if stats_enabled and status == "success":
+        stats_file = os.path.join(result_path, "review_stats.json")
+        if os.path.exists(stats_file):
+            result_json["stats_path"] = stats_file
     if status == "failure" and summary_usage.get("summary_parsed") is False:
         result_json["error"] = (
             "summary_parse_failed: Summary Agent 输出在 3 次请求后仍无法被规范化解析"

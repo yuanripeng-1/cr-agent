@@ -97,6 +97,9 @@ fi
 echo "📄 Context JSON: $CONTEXT_JSON_PATH"
 echo "🌐 LLM Model: $LLM_MODEL"
 echo "📖 Requirements: $REQUIREMENTS_PATH"
+if [ -n "$PROJECT_LANGUAGE" ]; then
+    echo "🈯 Project Language: $PROJECT_LANGUAGE"
+fi
 
 # 检查 context.json 是否存在
 if [ ! -f "$CONTEXT_JSON_PATH" ]; then
@@ -168,12 +171,17 @@ else
 fi
 
 # 检查 cr_result.md 是否生成（Python 直接写入 OUTPUT_DIR，无需依赖根目录的 CR_REPORT.md）
+STATS_FILE="${OUTPUT_DIR}/review_stats.json"
+
 if [ -f "$OUTPUT_FILE" ]; then
     echo ""
     echo "✅ CR-Agent 运行完成"
     echo ""
     echo "========================================"
     echo "✨ 审查完成！结果已保存到: $OUTPUT_FILE"
+    if [ -f "$STATS_FILE" ]; then
+        echo "📊 运行统计: $STATS_FILE"
+    fi
     echo "========================================"
 else
     echo ""

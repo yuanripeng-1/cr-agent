@@ -1,0 +1,382 @@
+diff --git a/README.md b/README.md
+index 67c2134..0776227 100644
+--- a/README.md
++++ b/README.md
+@@ -16,6 +16,7 @@ cr-agent/
+ │   ├── router.py        # CRRouter：创建 10 个维度 Agent，并发调度和聚合
+ │   ├── agents.py        # BaseAgent、GenericDimensionAgent
+ │   ├── prompts.py       # 加载 prompt/*.md 和 prompt/rules/*.md，注入通用约束
++│   ├── stats.py         # 审查运行统计收集与 JSON 导出
+ │   └── utils.py         # diff 过滤、行号标注、Summary 解析、行评论校验等工具
+ ├── prompt/
+ │   ├── business.md
+@@ -81,6 +82,7 @@ result_path = "."
+ 
+ [project]
+ language = "python"
++stats_enabled = true
+ guidelines_path = ""
+ requirements_path = ""
+ 
+@@ -131,6 +133,7 @@ api_key = "sk-xxx"
+ 11. 写出结果文件：
+     - `<result_path>/cr_result.md`：人读 Markdown 报告。
+     - `<result_path>/result.json`：平台消费的结构化结果，包含 `llm_result`、`status`、`log_path`、`tokens_consume`、`line_comments`、`issues`。
++    - `<result_path>/review_stats.json`：审查运行统计（diff 规模、各维度 token、行评论校验结果、阶段耗时）。
+     - `<result_path>/CR_REPORT.md`：兼容旧路径的 Markdown 输出。
+ 
+ ## 评审维度
+@@ -175,7 +178,7 @@ Summary 分级阈值大致如下：
+ 
+ 核心类：
+ 
+-- `BaseAgent`：封装 LiteLLM 异步调用、动态/固定超时、重试、错误分类、token 和 cost 统计。
++- `BaseAgent`：封装 LiteLLM 异步调用、动态/固定超时（未配置 `timeout_seconds` 时按 prompt 长度计算）、重试、错误分类、token 和 cost 统计。
+ - `GenericDimensionAgent`：十个子 Agent 均使用此类，统一拼装 `CODE DIFF`、语言特定检查、需求上下文和历史报告，然后调用 LLM。
+ - `CRRouter`：调度器。负责创建 10 个维度 Agent、控制并发、汇总 token、调用 Summary Agent。
+ - Summary Agent：不是独立类，而是 `BaseAgent` 加上 `SUMMARY_AGENT_PROMPT`，由 `CRRouter.generate_final_summary()` 调用。
+@@ -268,12 +271,23 @@ workspace/<task_id>/result/
+ 
+ ```text
+ <result_path>/
+-├── run.log        # 十个子 Agent + Summary 的完整输出，以及模型调用失败时的完整错误
+-├── cr_result.md   # 最终 Markdown 审查报告
+-├── result.json    # 平台消费的结构化结果
+-└── CR_REPORT.md   # 兼容旧路径的 Markdown 报告
++├── run.log            # 十个子 Agent + Summary 的完整输出，以及模型调用失败时的完整错误
++├── cr_result.md       # 最终 Markdown 审查报告
++├── result.json        # 平台消费的结构化结果
++├── review_stats.json  # 审查运行统计（可选，由 stats_enabled 控制）
++└── CR_REPORT.md       # 兼容旧路径的 Markdown 报告
+ ```
+ 
++`review_stats.json` 主要字段：
++
++| 字段 | 说明 |
++|---|---|
++| `diff` | 变更文件数、过滤前后 diff 字符数、增删行数 |
++| `agents` | 各维度 token 消耗、报告长度、成功/失败状态 |
++| `line_comment_validation` | 行评论校验通过、修正、拒绝计数 |
++| `phase_timings` | 子 Agent 阶段与 Summary 阶段耗时（秒） |
++| `tokens` | 本次审查总 token 与 cost |
++
+ `result.json` 的关键字段：
+ 
+ - `llm_result`：最终 Markdown 报告内容。
+@@ -282,6 +296,7 @@ workspace/<task_id>/result/
+ - `tokens_consume`：输入 token、输出 token 和 cost。
+ - `line_comments`：可回写 GitLab 的行级评论。
+ - `issues`：Summary Agent 按规则分级后的问题列表。
++- `stats_path`：审查统计 JSON 路径（成功且启用统计时）。
+ 
+ ## 推荐使用方式
+ 
+diff --git a/RUN.sh b/RUN.sh
+index 288f288..d4dd5d8 100755
+--- a/RUN.sh
++++ b/RUN.sh
+@@ -97,6 +97,9 @@ fi
+ echo "📄 Context JSON: $CONTEXT_JSON_PATH"
+ echo "🌐 LLM Model: $LLM_MODEL"
+ echo "📖 Requirements: $REQUIREMENTS_PATH"
++if [ -n "$PROJECT_LANGUAGE" ]; then
++    echo "🈯 Project Language: $PROJECT_LANGUAGE"
++fi
+ 
+ # 检查 context.json 是否存在
+ if [ ! -f "$CONTEXT_JSON_PATH" ]; then
+@@ -168,12 +171,17 @@ else
+ fi
+ 
+ # 检查 cr_result.md 是否生成（Python 直接写入 OUTPUT_DIR，无需依赖根目录的 CR_REPORT.md）
++STATS_FILE="${OUTPUT_DIR}/review_stats.json"
++
+ if [ -f "$OUTPUT_FILE" ]; then
+     echo ""
+     echo "✅ CR-Agent 运行完成"
+     echo ""
+     echo "========================================"
+     echo "✨ 审查完成！结果已保存到: $OUTPUT_FILE"
++    if [ -f "$STATS_FILE" ]; then
++        echo "📊 运行统计: $STATS_FILE"
++    fi
+     echo "========================================"
+ else
+     echo ""
+diff --git a/agent/main.py b/agent/main.py
+index 736b8d9..1d7fd45 100644
+--- a/agent/main.py
++++ b/agent/main.py
+@@ -8,7 +8,19 @@ try:
+ except ImportError:
+     yaml = None
+ from .router import CRRouter
+-from .utils import parse_diff_file_paths, setup_log_redirection, validate_line_comment_by_file, filter_code_diff, generate_line_number_feedback, correct_line_number_with_feedback, annotate_diff_with_line_numbers, parse_summary_llm_output
++from .stats import ReviewStatsCollector
++from .utils import (
++    parse_diff_file_paths,
++    setup_log_redirection,
++    validate_line_comment_by_file,
++    filter_code_diff,
++    generate_line_number_feedback,
++    correct_line_number_with_feedback,
++    annotate_diff_with_line_numbers,
++    parse_summary_llm_output,
++    count_diff_line_changes,
++    get_file_line_count,
++)
+ 
+ def _get_int(config: dict, key: str, default: int) -> int:
+     value = config.get(key, default)
+@@ -48,6 +60,9 @@ async def main():
+ 
+     config = toml.load(config_path)
+     context_cfg = config.get("context", {})
++    project_cfg = config.get("project", {})
++    project_language = project_cfg.get("language", "python")
++    stats_enabled = project_cfg.get("stats_enabled", True)
+     json_path = context_cfg.get("json_path", "context.json")
+     
+     # Handle relative path for json_path
+@@ -114,11 +129,14 @@ async def main():
+             with open(requirements_doc_path, "r", encoding="utf-8") as f:
+                 requirements_content = f.read()
+     
++    stats = ReviewStatsCollector(task_id=task_id, mr_iid=str(mr_iid), head_sha=head_sha)
++
+     # 过滤 diff，只保留代码文件的修改
+     original_diff_length = len(diff_content)
+     diff_content = filter_code_diff(diff_content)
+     filtered_diff_length = len(diff_content)
+-    
++    line_change_stats = count_diff_line_changes(diff_content)
++
+     if original_diff_length != filtered_diff_length:
+         print(f"🔍 已过滤 diff：原始长度 {original_diff_length} 字符 -> 代码文件长度 {filtered_diff_length} 字符")
+     
+@@ -141,8 +159,17 @@ async def main():
+     print("===== END CODE DIFF IN PROMPT =====\n")
+ 
+     file_paths = parse_diff_file_paths(diff_content)
+-    
++    stats.record_diff_stats(
++        file_count=len(file_paths),
++        original_diff_chars=original_diff_length,
++        filtered_diff_chars=filtered_diff_length,
++        added_lines=line_change_stats.get("added_lines", 0),
++        removed_lines=line_change_stats.get("removed_lines", 0),
++        code_files=file_paths,
++    )
++
+     print(f"📋 Task ID: {task_id}")
++    print(f"🈯 项目语言配置: {project_language}")
+     print(f"📦 Project ID: {project_id}")
+     print(f"🔀 MR IID: {mr_iid}")
+     print(f"🌿 Source Branch: {source_branch} -> Target Branch: {target_branch}")
+@@ -323,7 +350,15 @@ async def main():
+                             print(f"⚠️ Git checkout 失败: {e}")
+                 
+                 print(f"🔍 正在验证 {len(comments)} 个行评论...")
++                validation_total = len(comments)
++                validation_valid = validation_corrected = validation_rejected = validation_needs_review = 0
++                seen_paths: set[str] = set()
+                 for comment in comments:
++                    comment_path = comment.get("new_path") if isinstance(comment, dict) else None
++                    if comment_path and comment_path not in seen_paths:
++                        seen_paths.add(comment_path)
++                        line_count, readable = get_file_line_count(project_root, comment_path)
++                        stats.record_file_metric(comment_path, line_count, readable)
+                     if not isinstance(comment, dict):
+                         continue
+                     
+@@ -336,7 +371,15 @@ async def main():
+                     )
+                     
+                     comment_status = validated.get("validation_status", "valid")
+-                    
++                    if comment_status == "valid":
++                        validation_valid += 1
++                    elif comment_status == "corrected":
++                        validation_corrected += 1
++                    elif comment_status == "needs_review":
++                        validation_needs_review += 1
++                    elif comment_status == "invalid":
++                        validation_rejected += 1
++
+                     # 如果验证失败，尝试使用 feedback 机制自动修正
+                     if comment_status in ["invalid", "needs_review"]:
+                         from .utils import generate_line_number_feedback, correct_line_number_with_feedback
+@@ -384,6 +427,13 @@ async def main():
+                     validated_comments.append(clean_comment)
+                 
+                 line_comments_data["comments"] = validated_comments
++                stats.record_validation_stats(
++                    total=validation_total,
++                    valid=validation_valid,
++                    corrected=validation_corrected,
++                    rejected=validation_rejected,
++                    needs_review=validation_needs_review,
++                )
+                 print(f"✅ 已验证 {len(validated_comments)} 个行评论")
+         
+         # 恢复原来的 commit（如果之前切换过）- 移到 if 块外，确保总是执行
+@@ -411,6 +461,14 @@ async def main():
+         # 输出结果到文件
+         with open(os.path.join(result_path, "cr_result.md"), "w", encoding="utf-8") as f:
+             f.write(md_output)
++
++        if stats_enabled and isinstance(result, dict):
++            stats.record_agent_stats(result.get("report_usages", {}), result.get("reports", {}))
++            for phase, elapsed in (result.get("phase_timings") or {}).items():
++                stats.mark_phase(phase, elapsed)
++            stats_path = os.path.join(result_path, "review_stats.json")
++            stats.write_json(stats_path, result.get("usage", {}))
++            print(f"📊 审查统计已写入: {stats_path}")
+             
+     except Exception as e:
+         status = "failure"
+@@ -441,8 +499,12 @@ async def main():
+         "llm_result": summary_content,  # 使用解析后的 Markdown 内容，而不是原始 JSON 字符串
+         "status": status,
+         "log_path": log_path,
+-        "tokens_consume": tokens_consume
++        "tokens_consume": tokens_consume,
+     }
++    if stats_enabled and status == "success":
++        stats_file = os.path.join(result_path, "review_stats.json")
++        if os.path.exists(stats_file):
++            result_json["stats_path"] = stats_file
+     if status == "failure" and summary_usage.get("summary_parsed") is False:
+         result_json["error"] = (
+             "summary_parse_failed: Summary Agent 输出在 3 次请求后仍无法被规范化解析"
+diff --git a/agent/router.py b/agent/router.py
+index fb80716..95425c4 100644
+--- a/agent/router.py
++++ b/agent/router.py
+@@ -1,4 +1,5 @@
+ import asyncio
++import time
+ from typing import Dict, Any
+ from .agents import GenericDimensionAgent, BaseAgent
+ from .prompts import *
+@@ -92,11 +93,13 @@ class CRRouter:
+         prev_reports = previous_review.get("reports", {})
+ 
+         print(f"🚀 Starting 10-dimension analysis for MR: {mr_message[:50]}...")
++        phase_timings: Dict[str, float] = {}
+         context_info = (
+             f"MR TITLE & DESCRIPTION:\n{mr_message}\n\n"
+             f"PRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
+         )
+ 
++        agent_phase_start = time.monotonic()
+         tasks = []
+         for dim in SUB_AGENT_DIMS_ORDER:
+             tasks.append(
+@@ -140,6 +143,8 @@ class CRRouter:
+             total_usage["total_tokens"] += usage.get("total_tokens", 0)
+             total_usage["cost"] += usage.get("cost", 0.0)
+ 
++        phase_timings["sub_agents_seconds"] = round(time.monotonic() - agent_phase_start, 3)
++
+         for dim, content in report_map.items():
+             usage = report_usages.get(dim, {})
+             print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
+@@ -148,6 +153,7 @@ class CRRouter:
+             print(f"{'='*50}\n")
+ 
+         print("📝 All expert reports complete. Aggregating...")
++        summary_phase_start = time.monotonic()
+         final_summary, summary_usage = await self.generate_final_summary(
+             report_map,
+             previous_review.get("summary", ""),
+@@ -163,6 +169,7 @@ class CRRouter:
+         total_usage["completion_tokens"] += summary_usage.get("completion_tokens", 0)
+         total_usage["total_tokens"] += summary_usage.get("total_tokens", 0)
+         total_usage["cost"] += summary_usage.get("cost", 0.0)
++        phase_timings["summary_seconds"] = round(time.monotonic() - summary_phase_start, 3)
+ 
+         return {
+             "reports": report_map,
+@@ -170,6 +177,7 @@ class CRRouter:
+             "summary": final_summary,
+             "summary_usage": summary_usage,
+             "usage": total_usage,
++            "phase_timings": phase_timings,
+         }
+ 
+     async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "", previous_review: Dict[str, Any] = None) -> tuple[str, dict]:
+diff --git a/agent/utils.py b/agent/utils.py
+index 931f7a7..11682c0 100644
+--- a/agent/utils.py
++++ b/agent/utils.py
+@@ -97,6 +97,12 @@ def is_code_file(file_path: str) -> bool:
+     # 检查是否为 Makefile（无扩展名但需要 review）
+     if filename in ('Makefile', 'makefile', 'GNUmakefile'):
+         return True
++
++    # 部署与环境配置文件纳入审查范围
++    if filename in ('.env', '.env.local', '.env.production', '.env.development'):
++        return True
++    if ext in ('.pem', '.key', '.crt', '.p12'):
++        return True
+     
+     # 提取扩展名
+     _, ext = os.path.splitext(filename)
+@@ -362,6 +368,40 @@ def annotate_diff_with_line_numbers(diff_content: str, project_root: str) -> str
+     return '\n'.join(annotated_lines)
+ 
+ 
++def count_diff_line_changes(diff_content: str) -> Dict[str, int]:
++    """统计 diff 中新增/删除行数（不含文件头）。"""
++    added = removed = 0
++    for line in (diff_content or "").split("\n"):
++        if line.startswith("+") and not line.startswith("+++"):
++            added += 1
++        elif line.startswith("-") and not line.startswith("---"):
++            removed += 1
++    return {"added_lines": added, "removed_lines": removed}
++
++
++def resolve_project_file(project_root: str, relative_path: str) -> str:
++    """将 diff/评论中的相对路径解析为磁盘绝对路径。"""
++    if not relative_path:
++        return ""
++    if os.path.isabs(relative_path):
++        return relative_path
++    if project_root:
++        return os.path.join(project_root, relative_path)
++    return relative_path
++
++
++def get_file_line_count(project_root: str, relative_path: str) -> Tuple[int, bool]:
++    """读取文件行数，供统计模块使用。"""
++    full_path = resolve_project_file(project_root, relative_path)
++    if not full_path or not os.path.exists(full_path):
++        return 0, False
++    try:
++        with open(full_path, "r", encoding="utf-8") as f:
++            return len(f.readlines()), True
++    except Exception:
++        return 0, False
++
++
+ def parse_diff_file_paths(diff_content: str) -> List[str]:
+     """
+     Parses git diff content to extract changed file paths.
+diff --git a/docs/context_schema.md b/docs/context_schema.md
+index 5e0cd7f..f4fb9eb 100644
+--- a/docs/context_schema.md
++++ b/docs/context_schema.md
+@@ -20,6 +20,11 @@
+ | `project_root` | string | ✅ | 项目代码根目录：在 Docker 容器内部，通过 git clone 下载的全量代码存放路径 |
+ | `diff_file_path` | string | ✅ | Diff 文件路径：在 Docker 容器内部，将 diff_content 写入后的文件绝对路径，方便脚本读取 |
+ | `requirements_Doc` | string | ❌ | 需求文档路径：产品需求文档的路径，AI 将据此判断代码实现是否符合业务需求 |
++| `previous_report` | string/object | ❌ | 历史审查结果：文件路径、JSON 字符串或 Markdown 摘要，用于增量复查 |
++
++## 输出统计（review_stats.json）
++
++审查成功且 `config.toml` 中 `[project].stats_enabled = true`（默认开启）时，结果目录会额外生成 `review_stats.json`，包含 diff 规模、各维度 Agent token 用量、行评论校验计数与阶段耗时。`result.json` 的 `stats_path` 字段指向该文件。
+ 
+ ## 示例
+ 

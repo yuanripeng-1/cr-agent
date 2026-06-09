@@ -16,6 +16,7 @@ cr-agent/
 │   ├── router.py        # CRRouter：创建 10 个维度 Agent，并发调度和聚合
 │   ├── agents.py        # BaseAgent、GenericDimensionAgent
 │   ├── prompts.py       # 加载 prompt/*.md 和 prompt/rules/*.md，注入通用约束
+│   ├── stats.py         # 审查运行统计收集与 JSON 导出
 │   └── utils.py         # diff 过滤、行号标注、Summary 解析、行评论校验等工具
 ├── prompt/
 │   ├── business.md
@@ -81,6 +82,7 @@ result_path = "."
 
 [project]
 language = "python"
+stats_enabled = true
 guidelines_path = ""
 requirements_path = ""
 
@@ -131,6 +133,7 @@ api_key = "sk-xxx"
 11. 写出结果文件：
     - `<result_path>/cr_result.md`：人读 Markdown 报告。
     - `<result_path>/result.json`：平台消费的结构化结果，包含 `llm_result`、`status`、`log_path`、`tokens_consume`、`line_comments`、`issues`。
+    - `<result_path>/review_stats.json`：审查运行统计（diff 规模、各维度 token、行评论校验结果、阶段耗时）。
     - `<result_path>/CR_REPORT.md`：兼容旧路径的 Markdown 输出。
 
 ## 评审维度
@@ -175,7 +178,7 @@ Summary 分级阈值大致如下：
 
 核心类：
 
-- `BaseAgent`：封装 LiteLLM 异步调用、动态/固定超时、重试、错误分类、token 和 cost 统计。
+- `BaseAgent`：封装 LiteLLM 异步调用、动态/固定超时（未配置 `timeout_seconds` 时按 prompt 长度计算）、重试、错误分类、token 和 cost 统计。
 - `GenericDimensionAgent`：十个子 Agent 均使用此类，统一拼装 `CODE DIFF`、语言特定检查、需求上下文和历史报告，然后调用 LLM。
 - `CRRouter`：调度器。负责创建 10 个维度 Agent、控制并发、汇总 token、调用 Summary Agent。
 - Summary Agent：不是独立类，而是 `BaseAgent` 加上 `SUMMARY_AGENT_PROMPT`，由 `CRRouter.generate_final_summary()` 调用。
@@ -268,11 +271,22 @@ workspace/<task_id>/result/
 
 ```text
 <result_path>/
-├── run.log        # 十个子 Agent + Summary 的完整输出，以及模型调用失败时的完整错误
-├── cr_result.md   # 最终 Markdown 审查报告
-├── result.json    # 平台消费的结构化结果
-└── CR_REPORT.md   # 兼容旧路径的 Markdown 报告
+├── run.log            # 十个子 Agent + Summary 的完整输出，以及模型调用失败时的完整错误
+├── cr_result.md       # 最终 Markdown 审查报告
+├── result.json        # 平台消费的结构化结果
+├── review_stats.json  # 审查运行统计（可选，由 stats_enabled 控制）
+└── CR_REPORT.md       # 兼容旧路径的 Markdown 报告
 ```
+
+`review_stats.json` 主要字段：
+
+| 字段 | 说明 |
+|---|---|
+| `diff` | 变更文件数、过滤前后 diff 字符数、增删行数 |
+| `agents` | 各维度 token 消耗、报告长度、成功/失败状态 |
+| `line_comment_validation` | 行评论校验通过、修正、拒绝计数 |
+| `phase_timings` | 子 Agent 阶段与 Summary 阶段耗时（秒） |
+| `tokens` | 本次审查总 token 与 cost |
 
 `result.json` 的关键字段：
 
@@ -282,6 +296,7 @@ workspace/<task_id>/result/
 - `tokens_consume`：输入 token、输出 token 和 cost。
 - `line_comments`：可回写 GitLab 的行级评论。
 - `issues`：Summary Agent 按规则分级后的问题列表。
+- `stats_path`：审查统计 JSON 路径（成功且启用统计时）。
 
 ## 推荐使用方式
 

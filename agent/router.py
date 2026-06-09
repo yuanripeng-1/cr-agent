@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Dict, Any
 from .agents import GenericDimensionAgent, BaseAgent
 from .prompts import *
@@ -92,11 +93,13 @@ class CRRouter:
         prev_reports = previous_review.get("reports", {})
 
         print(f"🚀 Starting 10-dimension analysis for MR: {mr_message[:50]}...")
+        phase_timings: Dict[str, float] = {}
         context_info = (
             f"MR TITLE & DESCRIPTION:\n{mr_message}\n\n"
             f"PRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
         )
 
+        agent_phase_start = time.monotonic()
         tasks = []
         for dim in SUB_AGENT_DIMS_ORDER:
             tasks.append(
@@ -140,6 +143,8 @@ class CRRouter:
             total_usage["total_tokens"] += usage.get("total_tokens", 0)
             total_usage["cost"] += usage.get("cost", 0.0)
 
+        phase_timings["sub_agents_seconds"] = round(time.monotonic() - agent_phase_start, 3)
+
         for dim, content in report_map.items():
             usage = report_usages.get(dim, {})
             print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
@@ -148,6 +153,7 @@ class CRRouter:
             print(f"{'='*50}\n")
 
         print("📝 All expert reports complete. Aggregating...")
+        summary_phase_start = time.monotonic()
         final_summary, summary_usage = await self.generate_final_summary(
             report_map,
             previous_review.get("summary", ""),
@@ -163,6 +169,7 @@ class CRRouter:
         total_usage["completion_tokens"] += summary_usage.get("completion_tokens", 0)
         total_usage["total_tokens"] += summary_usage.get("total_tokens", 0)
         total_usage["cost"] += summary_usage.get("cost", 0.0)
+        phase_timings["summary_seconds"] = round(time.monotonic() - summary_phase_start, 3)
 
         return {
             "reports": report_map,
@@ -170,6 +177,7 @@ class CRRouter:
             "summary": final_summary,
             "summary_usage": summary_usage,
             "usage": total_usage,
+            "phase_timings": phase_timings,
         }
 
     async def generate_final_summary(self, report_map: Dict[str, str], previous_summary: str = "", mr_message: str = "", requirements_content: str = "", code_diff: str = "", previous_review: Dict[str, Any] = None) -> tuple[str, dict]:
