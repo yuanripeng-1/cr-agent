@@ -1,0 +1,13 @@
+[agents.main]
+skills = ["collect_context", "dimension_review", "summarize_report", "validate_json"]
+tools = []
+
+[agents.context]
+tools = ["*"]
+
+[agents.dimension]
+tools = ["*"]
+
+[agents.summary]
+tools = []
+

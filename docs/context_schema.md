@@ -20,6 +20,8 @@
 | `project_root` | string | ✅ | 项目代码根目录：在 Docker 容器内部，通过 git clone 下载的全量代码存放路径 |
 | `diff_file_path` | string | ✅ | Diff 文件路径：在 Docker 容器内部，将 diff_content 写入后的文件绝对路径，方便脚本读取 |
 | `requirements_Doc` | string | ❌ | 需求文档路径：产品需求文档的路径，AI 将据此判断代码实现是否符合业务需求 |
+| `commit_messages` | array[string] | ✅ | 本次审查范围内的 commit message 列表，作为上下文信息输入给 agent |
+| `platform` | string | ❌ | 运行平台标识，可选值 `gitlab`/`infcode`，用于工具集与维度策略切换 |
 
 ## 示例
 
@@ -38,7 +40,12 @@
     "diff_content": "--- a/internal/auth.go\n+++ b/internal/auth.go\n@@ -10,5 +10,7 @@\n func Login(username, password string) (string, error) {\n     if username == \"\" || password == \"\" {\n         return \"\", errors.New(\"invalid credentials\")\n     }\n+    \n+    // JWT validation\n+    token := generateJWT(username)\n+    return token, nil\n }",
     "project_root": "/workspace/project_code",
     "diff_file_path": "/workspace/changes.diff",
-    "requirements_Doc": "/workspace/requirements_path"
+    "requirements_Doc": "/workspace/requirements_path",
+    "commit_messages": [
+      "feat: 增加登录JWT签发",
+      "fix: 修复空指针异常"
+    ],
+    "platform": "gitlab"
 }
 ```
 

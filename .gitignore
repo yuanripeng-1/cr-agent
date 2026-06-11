@@ -1,77 +1,26 @@
-# Python 缓存文件
+# Python cache / build artifacts
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 
-# 配置文件
-*.toml
-
-# 结果目录
-results/
-cr-result/
-# 虚拟环境
+# Environments
 venv/
 env/
 .venv/
 
-# IDE 配置
+# IDE / OS
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# 系统文件
 .DS_Store
 Thumbs.db
 
-project/
-
-# 运行时的 project_code 目录（如 180-6f4e47f0/project_code）
-*/project_code
-
+# Logs / archives
+*.log
 *.zip
 
-*.log
+# Large runtime workspace code copies
+*/project_code/
 
-cr_result/
-RUN.sh
-180-6f4e47f0/context.json
-agent/main.py
-agent/prompts.py
-agent/router.py
-agent/run.py
-agent/utils.py
-docs/superpowers/specs/2026-04-24-cr-agent-scoring-redesign.md
-prompt/business.md
-prompt/code-reviewer.md
-prompt/code-simplifier.md
-prompt/comment-analyzer.md
-prompt/consistency.md
-prompt/dependency.md
-prompt/documentation.md
-prompt/error_handling.md
-prompt/maintainability.md
-prompt/performance.md
-prompt/pr-test-analyzer.md
-prompt/readability.md
-prompt/security.md
-prompt/silent-failure-hunter.md
-prompt/summary.md
-prompt/testing.md
-prompt/type-design-analyzer.md
-prompt/rules/businessRule.md
-prompt/rules/consistencyRule.md
-prompt/rules/dependencyRule.md
-prompt/rules/documentationRule.md
-prompt/rules/errorHandlingRule.md
-prompt/rules/maintainabilityRule.md
-prompt/rules/performanceRule.md
-prompt/rules/readabilityRule.md
-prompt/rules/securityRule.md
-prompt/rules/summaryRule.md
-prompt/rules/testingRule.md
-workspace/110-0a558f38/changes.diff
-workspace/110-0a558f38/context.json
-workspace/259-2c7ecfe3/changes.diff
-workspace/259-2c7ecfe3/context.json

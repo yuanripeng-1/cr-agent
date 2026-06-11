@@ -1,0 +1,618 @@
+diff --git a/gui/src/components/mainInput/TipTapEditor/TipTapEditor.css b/gui/src/components/mainInput/TipTapEditor/TipTapEditor.css
+@@ -116,7 +116,7 @@
+ 
+ .ProseMirror p,
+ .ProseMirror li {
+-  line-height: 1.65;
++  line-height: 1.54;
+ }
+ 
+ .tiptap img.ProseMirror-selectednode {
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/extensions/CodeBlock/CodeBlockPreview.tsx b/gui/src/components/mainInput/TipTapEditor/extensions/CodeBlock/CodeBlockPreview.tsx
+@@ -1,12 +1,13 @@
+ import { NodeViewProps } from "@tiptap/react";
+ import { ContextItemWithId } from "core";
+ import { ctxItemToRifWithContents } from "core/commands/util";
+-import { useContext, useState, useCallback } from "react";
++import { useContext, useState } from "react";
+ import { IdeMessengerContext } from "../../../../../context/IdeMessenger";
+-import FileIcon from "../../../../FileIcon";
+ import { NodeViewWrapper } from "../../components/NodeViewWrapper";
+ import { ContextTagCapsule } from "../../components/ContextTagCapsule";
+ import { useHasTextBefore } from "../../hooks/useHasTextBefore";
++import { useNodeViewEditorContext, useCapsuleAreaClick } from "../../hooks/useNodeViewEditorContext";
++import { renderContextTagIcon } from "../../utils/renderContextTagIcon";
+ 
+ /**
+  * Component for displaying a code block in the TipTap editor
+@@ -26,15 +27,11 @@ export const CodeBlockPreview = ({
+   // 使用 hook 检测前面是否有文字内容
+   const { ref: wrapperRef, hasTextBefore } = useHasTextBefore(editor);
+ 
+-  // 判断是否可编辑
+-  const isEditable = editor?.isEditable ?? false;
++  // 使用共享的编辑器上下文 hook
++  const { showCloseButton } = useNodeViewEditorContext(editor);
+ 
+-  // 判断是否是主输入框
+-  const isMainInput =
+-    editor?.view?.dom?.getAttribute?.("data-testid") === "editor-input-main";
+-
+-  // 只有主输入框且可编辑时才显示关闭按钮
+-  const showCloseButton = isMainInput && isEditable;
++  // 使用共享的光标定位 hook
++  const handleCapsuleAreaClick = useCapsuleAreaClick(editor, getPos);
+ 
+   const handleTitleClick = (e: React.MouseEvent) => {
+     e.stopPropagation();
+@@ -51,7 +48,6 @@ export const CodeBlockPreview = ({
+         rif.range.end.line,
+       );
+     } else if (item.id.providerTitle === "local-docs" && item.uri?.value) {
+-      // 文档类型：使用 uri.value 作为文件路径
+       ideMessenger.post("showFile", {
+         filepath: item.uri.value,
+       });
+@@ -68,43 +64,21 @@ export const CodeBlockPreview = ({
+     deleteNode();
+   };
+ 
+-  // 点击 capsule 非交互区域时，定位光标
+-  const handleCapsuleAreaClick = useCallback((e: React.MouseEvent) => {
+-    if (!editor || !getPos) return;
+-
+-    const target = e.target as Element;
+-    const capsule = target.closest('.code-block-capsule');
+-
+-    if (capsule) {
+-      const rect = capsule.getBoundingClientRect();
+-      const clickX = e.clientX;
+-      const capsuleMidX = rect.left + rect.width / 2;
+-
+-      const pos = getPos();
+-      if (clickX < capsuleMidX) {
+-        editor.commands.setTextSelection(pos);
+-      } else {
+-        editor.commands.setTextSelection(pos + 1);
+-      }
+-    } else {
+-      const pos = getPos();
+-      editor.commands.setTextSelection(pos + 1);
+-    }
+-    editor.commands.focus();
+-    e.stopPropagation();
+-  }, [editor, getPos]);
+-
+   // Extract line numbers from item description if available
+   const lineInfo = item.description?.match(/lines (\d+)-(\d+)/i);
+   const lineNumbers = lineInfo ? `L${lineInfo[1]}-${lineInfo[2]}` : "";
+ 
+-  // 渲染图标 - 使用 FileIcon 根据文件名动态选择
+-  const icon = (
+-    <FileIcon height="10px" width="10px" filename={item.name} />
+-  );
++  // 渲染图标
++  const icon = renderContextTagIcon({
++    itemType: item.id.providerTitle,
++  });
+ 
+   return (
+-    <NodeViewWrapper as="span" ref={wrapperRef} onCapsuleAreaClick={handleCapsuleAreaClick}>
++    <NodeViewWrapper
++      as="span"
++      ref={wrapperRef}
++      onCapsuleAreaClick={handleCapsuleAreaClick}
++    >
+       <ContextTagCapsule
+         icon={icon}
+         label={item.name}
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/extensions/FolderBlock/FolderBlockPreview.tsx b/gui/src/components/mainInput/TipTapEditor/extensions/FolderBlock/FolderBlockPreview.tsx
+@@ -1,9 +1,10 @@
+ import { NodeViewProps } from "@tiptap/react";
+-import { useContext, useState, useCallback } from "react";
++import { useContext, useState } from "react";
+ import { IdeMessengerContext } from "../../../../../context/IdeMessenger";
+ import { NodeViewWrapper } from "../../components/NodeViewWrapper";
+ import { ContextTagCapsule } from "../../components/ContextTagCapsule";
+ import { useHasTextBefore } from "../../hooks/useHasTextBefore";
++import { useNodeViewEditorContext, useCapsuleAreaClick } from "../../hooks/useNodeViewEditorContext";
+ import { renderContextTagIcon } from "../../utils/renderContextTagIcon";
+ 
+ /**
+@@ -25,19 +26,14 @@ export const FolderBlockPreview = ({
+   // 使用 hook 检测前面是否有文字内容
+   const { ref: wrapperRef, hasTextBefore } = useHasTextBefore(editor);
+ 
+-  // 判断是否可编辑
+-  const isEditable = editor?.isEditable ?? false;
++  // 使用共享的编辑器上下文 hook
++  const { showCloseButton } = useNodeViewEditorContext(editor);
+ 
+-  // 判断是否是主输入框
+-  const isMainInput =
+-    editor?.view?.dom?.getAttribute?.("data-testid") === "editor-input-main";
+-
+-  // 只有主输入框且可编辑时才显示关闭按钮
+-  const showCloseButton = isMainInput && isEditable;
++  // 使用共享的光标定位 hook
++  const handleCapsuleAreaClick = useCapsuleAreaClick(editor, getPos);
+ 
+   const handleTitleClick = (e: React.MouseEvent) => {
+     e.stopPropagation();
+-    // 点击后在 IDE 资源管理器中定位到文件夹
+     ideMessenger.post("expandFolder", {
+       folderPath: folderPath,
+     });
+@@ -48,39 +44,17 @@ export const FolderBlockPreview = ({
+     deleteNode();
+   };
+ 
+-  // 点击 capsule 非交互区域时，定位光标
+-  const handleCapsuleAreaClick = useCallback((e: React.MouseEvent) => {
+-    if (!editor || !getPos) return;
+-
+-    const target = e.target as Element;
+-    const capsule = target.closest('.code-block-capsule');
+-
+-    if (capsule) {
+-      const rect = capsule.getBoundingClientRect();
+-      const clickX = e.clientX;
+-      const capsuleMidX = rect.left + rect.width / 2;
+-
+-      const pos = getPos();
+-      if (clickX < capsuleMidX) {
+-        editor.commands.setTextSelection(pos);
+-      } else {
+-        editor.commands.setTextSelection(pos + 1);
+-      }
+-    } else {
+-      const pos = getPos();
+-      editor.commands.setTextSelection(pos + 1);
+-    }
+-    editor.commands.focus();
+-    e.stopPropagation();
+-  }, [editor, getPos]);
+-
+   // 渲染图标
+   const icon = renderContextTagIcon({
+     itemType: "folder",
+   });
+ 
+   return (
+-    <NodeViewWrapper as="span" ref={wrapperRef} onCapsuleAreaClick={handleCapsuleAreaClick}>
++    <NodeViewWrapper
++      as="span"
++      ref={wrapperRef}
++      onCapsuleAreaClick={handleCapsuleAreaClick}
++    >
+       <ContextTagCapsule
+         icon={icon}
+         label={folderName}
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/extensions/Mention.ts b/gui/src/components/mainInput/TipTapEditor/extensions/Mention.ts
+@@ -261,8 +261,6 @@ export const Mention = Node.create<MentionOptions>({
+ 
+           // 异步处理粘贴内容
+           (async () => {
+-            const { state, dispatch } = view;
+-
+             // 解析文本，查找所有 @xxx 模式
+             const mentionPattern = /@([^\s@]+)/g;
+             let match;
+@@ -338,17 +336,18 @@ export const Mention = Node.create<MentionOptions>({
+               }
+             }
+ 
+-            // 插入内容
++            // 插入内容 - 在 dispatch 前重新获取最新的 state，避免使用过时的 state
+             if (nodes.length > 0) {
+-              const tr = state.tr.replaceSelectionWith(
+-                state.schema.node('paragraph', null, nodes.map((n) => {
++              const currentState = view.state;  // 使用最新的 state
++              const tr = currentState.tr.replaceSelectionWith(
++                currentState.schema.node('paragraph', null, nodes.map((n) => {
+                   if (n.type === 'text') {
+-                    return state.schema.text(n.text);
++                    return currentState.schema.text(n.text);
+                   }
+-                  return state.schema.nodes[this.name].create(n.attrs);
++                  return currentState.schema.nodes[this.name].create(n.attrs);
+                 }).filter(Boolean))
+               );
+-              dispatch(tr);
++              view.dispatch(tr);  // 使用 view.dispatch 而非捕获的 dispatch
+             }
+           })();
+ 
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/extensions/MentionNodeView.tsx b/gui/src/components/mainInput/TipTapEditor/extensions/MentionNodeView.tsx
+@@ -1,9 +1,10 @@
+ import { NodeViewProps } from "@tiptap/react";
+-import { useContext, useState, useCallback } from "react";
++import { useContext, useState } from "react";
+ import { IdeMessengerContext } from "../../../../context/IdeMessenger";
+ import { NodeViewWrapper } from "../components/NodeViewWrapper";
+ import { ContextTagCapsule } from "../components/ContextTagCapsule";
+ import { useHasTextBefore } from "../hooks/useHasTextBefore";
++import { useNodeViewEditorContext, useCapsuleAreaClick } from "../hooks/useNodeViewEditorContext";
+ import { renderContextTagIcon } from "../utils/renderContextTagIcon";
+ 
+ /**
+@@ -18,6 +19,12 @@ export function MentionNodeView(props: NodeViewProps) {
+   // 使用 hook 检测前面是否有文字内容
+   const { ref: wrapperRef, hasTextBefore } = useHasTextBefore(editor);
+ 
++  // 使用共享的编辑器上下文 hook
++  const { showCloseButton } = useNodeViewEditorContext(editor);
++
++  // 使用共享的光标定位 hook
++  const handleCapsuleAreaClick = useCapsuleAreaClick(editor, getPos);
++
+   // 解析显示标签
+   const inlineLabel = node.attrs.renderInlineAs;
+   const resolvedLabel =
+@@ -26,16 +33,6 @@ export function MentionNodeView(props: NodeViewProps) {
+       : (node.attrs.label ?? node.attrs.id ?? "");
+   const label = resolvedLabel.toString();
+ 
+-  // 判断是否可编辑
+-  const isEditable = editor?.isEditable ?? false;
+-
+-  // 判断是否是主输入框（通过 data-testid 属性）
+-  const isMainInput =
+-    editor?.view?.dom?.getAttribute?.("data-testid") === "editor-input-main";
+-
+-  // 只有主输入框且可编辑时才显示关闭按钮
+-  const showCloseButton = isMainInput && isEditable;
+-
+   // 获取节点属性
+   const itemType = node.attrs.itemType;
+   const id = node.attrs.id;
+@@ -94,35 +91,6 @@ export function MentionNodeView(props: NodeViewProps) {
+     deleteNode();
+   };
+ 
+-  // 点击 capsule 非交互区域时，定位光标
+-  const handleCapsuleAreaClick = useCallback((e: React.MouseEvent) => {
+-    if (!editor || !getPos) return;
+-
+-    // 获取点击位置相对于 capsule 的水平坐标
+-    const target = e.target as Element;
+-    const capsule = target.closest('.code-block-capsule');
+-
+-    if (capsule) {
+-      const rect = capsule.getBoundingClientRect();
+-      const clickX = e.clientX;
+-      const capsuleMidX = rect.left + rect.width / 2;
+-
+-      const pos = getPos();
+-      if (clickX < capsuleMidX) {
+-        editor.commands.setTextSelection(pos);
+-      } else {
+-        editor.commands.setTextSelection(pos + 1);
+-      }
+-    } else {
+-      // 点击在 margin 区域（不属于 capsule）
+-      // 直接定位到节点后
+-      const pos = getPos();
+-      editor.commands.setTextSelection(pos + 1);
+-    }
+-    editor.commands.focus();
+-    e.stopPropagation();
+-  }, [editor, getPos]);
+-
+   // 渲染图标
+   const icon = renderContextTagIcon({
+     itemType,
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/hooks/useNodeViewEditorContext.ts b/gui/src/components/mainInput/TipTapEditor/hooks/useNodeViewEditorContext.ts
+new file mode
+@@ -0,0 +1,49 @@
++import { Editor } from "@tiptap/react";
++import { useCallback } from "react";
++
++/**
++ * 提取 NodeView 共享的编辑器上下文信息
++ * 用于判断是否显示关闭按钮等 UI 行为
++ */
++export function useNodeViewEditorContext(editor: Editor | null) {
++  const isEditable = editor?.isEditable ?? false;
++  const isMainInput =
++    editor?.view?.dom?.getAttribute?.("data-testid") === "editor-input-main";
++
++  return {
++    isEditable,
++    isMainInput,
++    showCloseButton: isMainInput && isEditable,
++  };
++}
++
++/**
++ * 点击 tag 非交互区域时定位光标
++ * 根据点击位置决定光标放在节点前还是节点后
++ */
++export function useCapsuleAreaClick(
++  editor: Editor | null,
++  getPos: (() => number) | undefined
++) {
++  return useCallback(
++    (e: React.MouseEvent) => {
++      if (!editor || !getPos) return;
++
++      const target = e.target as Element;
++      const capsule = target.closest(".code-block-capsule");
++
++      const pos = getPos();
++      if (capsule) {
++        const rect = capsule.getBoundingClientRect();
++        const clickX = e.clientX;
++        const capsuleMidX = rect.left + rect.width / 2;
++        editor.commands.setTextSelection(clickX < capsuleMidX ? pos : pos + 1);
++      } else {
++        editor.commands.setTextSelection(pos + 1);
++      }
++      editor.commands.focus();
++      e.stopPropagation();
++    },
++    [editor, getPos]
++  );
++}
+\ No newline at end of file
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/icons/index.tsx b/gui/src/components/mainInput/TipTapEditor/icons/index.tsx
+@@ -57,8 +57,6 @@ export function FolderIcon({ className }: IconProps) {
+ export function DocsIcon({ className }: IconProps) {
+   return (
+     <svg
+-      width="10"
+-      height="10"
+       viewBox="0 0 10 10"
+       fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+@@ -115,8 +113,6 @@ export function KnowledgeIcon({ className }: IconProps) {
+ export function RulesIcon({ className }: IconProps) {
+   return (
+     <svg
+-      width="10"
+-      height="10"
+       viewBox="0 0 10 10"
+       fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+@@ -138,8 +134,6 @@ export function RulesIcon({ className }: IconProps) {
+ export function SkillsIcon({ className }: IconProps) {
+   return (
+     <svg
+-      width="10"
+-      height="10"
+       viewBox="0 0 10 10"
+       fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+@@ -154,12 +148,10 @@ export function SkillsIcon({ className }: IconProps) {
+   );
+ }
+ 
+-// Git Diff 图标（分支切换图标）
++// Git Diff 图标（分支切换图标，viewBox 1:1）
+ export function GitDiffIcon({ className }: IconProps) {
+   return (
+     <svg
+-      width="10"
+-      height="10"
+       viewBox="0 0 10 10"
+       fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+@@ -187,19 +179,24 @@ export function GitDiffIcon({ className }: IconProps) {
+   );
+ }
+ 
+-// 终端图标
++// 终端图标（viewBox 1:1）
+ export function TerminalIcon({ className }: IconProps) {
+   return (
+     <svg
+-      width="10"
+-      height="10"
+-      viewBox="0 0 5 4"
++      viewBox="0 0 10 10"
+       fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+       className={className}
+     >
++      <rect
++        width="9"
++        height="9"
++        rx="1.8"
++        transform="matrix(1 0 0 -1 0.5 9.5)"
++        stroke="currentColor"
++      />
+       <path
+-        d="M0.410156 0.410522L1.91535 1.91572L0.410156 3.42092M2.91882 3.42092H4.42402"
++        d="M2.99219 3.5L4.49739 5.0052L2.99219 6.5104M5.50085 6.5104H7.00605"
+         stroke="currentColor"
+         strokeWidth="0.821017"
+         strokeLinecap="round"
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/utils/editorConfig.ts b/gui/src/components/mainInput/TipTapEditor/utils/editorConfig.ts
+@@ -71,8 +71,6 @@ function createParseMentionText(
+   getSubmenuContextItemsRef: React.MutableRefObject<
+     (providerTitle: string | undefined, query: string) => any[]
+   >,
+-  isInAgentMode: boolean,
+-  sessionId: string,
+ ) {
+   return async (mentionText: string): Promise<ParsedMention | null> => {
+     try {
+@@ -164,15 +162,6 @@ export function createEditorConfig(options: {
+   const isInEdit = useAppSelector((store) => store.session.isInEdit);
+   const isInEditRef = useUpdatingRef(isInEdit);
+ 
+-  // 获取 isInAgentMode 和 sessionId
+-  const isInAgentMode = useAppSelector((store) => {
+-    const activeSessionId = store.multiSession.activeSessionId;
+-    if (!activeSessionId) return false;
+-    const activeSession = store.multiSession.sessions[activeSessionId];
+-    return activeSession?.mode === "agent";
+-  });
+-  const sessionId = useAppSelector((store) => store.session.id) || "";
+-
+   const inSubmenuRef = useRef<string | undefined>(undefined);
+   const inDropdownRef = useRef(false);
+   const defaultModelRef = useUpdatingRef(defaultModel);
+@@ -400,8 +389,6 @@ export function createEditorConfig(options: {
+         parseMentionText: createParseMentionText(
+           ideMessenger,
+           getSubmenuContextItemsRef,
+-          isInAgentMode,
+-          sessionId,
+         ),
+       }),
+       // SlashCommand.configure({
+
+diff --git a/gui/src/components/mainInput/TipTapEditor/utils/renderContextTagIcon.tsx b/gui/src/components/mainInput/TipTapEditor/utils/renderContextTagIcon.tsx
+@@ -48,55 +48,54 @@ export function renderContextTagIcon({
+     const NamedIcon = icon in NAMED_ICONS ? NAMED_ICONS[icon] : undefined;
+     return (
+       <SafeImg
+-        className="h-2.5 w-2.5 flex-shrink-0"
++        className="h-2.5 flex-shrink-0"
+         src={icon}
+         height={iconSizePx}
+-        width={iconSizePx}
+         fallback={
+           NamedIcon ? (
+-            <NamedIcon className="h-2.5 w-2.5 flex-shrink-0" />
++            <NamedIcon className="h-2.5 flex-shrink-0" />
+           ) : null
+         }
+       />
+     );
+   }
+ 
+-  // 文件类型
++  // 文件类型（viewBox 9:10，只设置高度让宽度自动计算）
+   if (itemType === "file") {
+-    return <FileIcon className="h-2.5 w-2.5 flex-shrink-0" />;
++    return <FileIcon className="h-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 文件夹类型
++  // 文件夹类型（viewBox 10:9，只设置高度让宽度自动计算）
+   if (itemType === "folder") {
+-    return <FolderIcon className="h-2.5 w-2.5 flex-shrink-0" />;
++    return <FolderIcon className="h-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 文档类型
++  // 文档类型（viewBox 1:1）
+   if (itemType === "local-docs") {
+     return <DocsIcon className="h-2.5 w-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 知识库类型
++  // 知识库类型（viewBox 10:9，只设置高度让宽度自动计算）
+   if (itemType === "knowledge") {
+-    return <KnowledgeIcon className="h-2.5 w-2.5 flex-shrink-0" />;
++    return <KnowledgeIcon className="h-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 规则类型
++  // 规则类型（viewBox 1:1）
+   if (itemType === "rules") {
+     return <RulesIcon className="h-2.5 w-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 技能类型
++  // 技能类型（viewBox 1:1）
+   if (itemType === "skills") {
+     return <SkillsIcon className="h-2.5 w-2.5 flex-shrink-0" />;
+   }
+ 
+-  // Git Diff 类型
++  // Git Diff 类型（viewBox 1:1）
+   if (itemType === "gitdiff") {
+     return <GitDiffIcon className="h-2.5 w-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 终端类型
++  // 终端类型（viewBox 1:1，固定 10x10）
+   if (itemType === "terminal") {
+     return <TerminalIcon className="h-2.5 w-2.5 flex-shrink-0" />;
+   }
+@@ -107,9 +106,9 @@ export function renderContextTagIcon({
+     return <SkillCreatorIcon className="h-2.5 w-2.5 flex-shrink-0" />;
+   }
+ 
+-  // 代码类型
++  // 代码类型（viewBox 9:10，只设置高度让宽度自动计算）
+   if (itemType === "code") {
+-    return <FileIcon className="h-2.5 w-2.5 flex-shrink-0" />;
++    return <FileIcon className="h-2.5 flex-shrink-0" />;
+   }
+ 
+   // 尝试从 NAMED_ICONS 中查找
+@@ -118,10 +117,10 @@ export function renderContextTagIcon({
+     iconKey && iconKey in NAMED_ICONS ? NAMED_ICONS[iconKey] : undefined;
+ 
+   if (NamedIcon) {
+-    return <NamedIcon className="h-2.5 w-2.5 flex-shrink-0" />;
++    return <NamedIcon className="h-2.5 flex-shrink-0" />;
+   }
+ 
+   // 默认图标
+   const FallbackIcon = getFallbackIcon(itemType);
+-  return <FallbackIcon className="h-2.5 w-2.5 flex-shrink-0" />;
++  return <FallbackIcon className="h-2.5 flex-shrink-0" />;
+ }
+\ No newline at end of file
+
+diff --git a/gui/src/components/mainInput/icons.ts b/gui/src/components/mainInput/icons.ts
+@@ -4,12 +4,9 @@ import {
+   BugAntIcon,
+   CircleStackIcon,
+   CodeBracketIcon,
+-  CommandLineIcon,
+   CpuChipIcon,
+-  DocumentIcon,
+   DocumentTextIcon,
+   ExclamationTriangleIcon,
+-  FolderIcon,
+   FolderOpenIcon,
+   GlobeAltIcon,
+   MagnifyingGlassIcon,
+@@ -28,14 +25,19 @@ import { DiscordIcon } from "../svg/DiscordIcon";
+ import { GithubIcon } from "../svg/GithubIcon";
+ import { GitlabIcon } from "../svg/GitlabIcon";
+ import { GoogleIcon } from "../svg/GoogleIcon";
+-import DocsIcon from "./icons/DocsIcon";
+-import GitDiffIcon from "./icons/GitDiffIcon";
+-import RulesIcon from "./icons/RulesIcon";
++import {
++  FileIcon,
++  FolderIcon,
++  GitDiffIcon,
++  DocsIcon,
++  RulesIcon,
++  TerminalIcon,
++} from "./TipTapEditor/icons";
+ 
+ export const NAMED_ICONS: { [key: string]: any } = {
+-  file: DocumentIcon,
++  file: FileIcon,
+   code: CodeBracketIcon,
+-  terminal: CommandLineIcon,
++  terminal: TerminalIcon,
+   diff: GitDiffIcon,
+   search: MagnifyingGlassIcon,
+   url: GlobeAltIcon,
+@@ -57,7 +59,7 @@ export const NAMED_ICONS: { [key: string]: any } = {
+   "repo-map": FolderIcon,
+   "/clear": TrashIcon,
+   "/share": ArrowUpOnSquareIcon,
+-  "/cmd": CommandLineIcon,
++  "/cmd": TerminalIcon,
+   issue: GithubIcon,
+   discord: DiscordIcon,
+   google: GoogleIcon,
+

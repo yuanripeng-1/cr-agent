@@ -1,0 +1,18 @@
+[context]
+json_path = "./workspace/764-ef5c5c99/context.json"
+result_path = "./workspace/cr_result/764-ef5c5c99"
+
+[project]
+language = "TypeScript"
+status = "update"
+guidelines_path = "./workspace/guidelines_docs/TypeScript.md"
+requirements_path = ""
+
+[llm]
+model = "anthropic/claude-sonnet-4-5"
+api_key = ""
+api_base = ""
+
+# 可选值: gitlab / infcode
+platform = "gitlab"
+

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SummaryReport",
+  "type": "object",
+  "description": "M0 placeholder schema; will be expanded at M6.",
+  "properties": {
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status"
+  ]
+}
+
