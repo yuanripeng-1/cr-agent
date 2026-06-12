@@ -1,0 +1,22 @@
+{
+  "task_id": "本次 code review 任务 ID,用于日志、输出目录和后端追踪。",
+  "project_id": "GitLab 项目 ID,用于后端定位仓库和回写评论。",
+  "mr_iid": "GitLab MR IID,用于后端定位本次合并请求。",
+  "title": "MR 标题或本次提交主题,用于理解开发者意图。",
+  "description": "MR 描述或开发者补充说明,用于业务语义理解。",
+  "base_sha": "目标分支基准 SHA,用于 diff 范围和行号校验。",
+  "head_sha": "源分支最新 SHA,用于评论回写和行号定位。",
+  "start_sha": "MR 起始基准 SHA,通常与 base_sha 一致。",
+  "source_branch": "源分支名称。",
+  "target_branch": "目标分支名称。",
+  "diff_content": "本次 code review 的 Git diff 文本,是审查的核心输入。",
+  "diff_file_path": "diff 文件路径,供工具或脚本直接读取。",
+  "project_root": "待审查项目目录,供工具读取完整代码上下文。",
+  "previous_report": "上一轮审查报告,用于增量审查或避免重复建议。",
+  "requirements_Doc": "历史后端字段名,表示需求文档路径。",
+  "requirements_doc": "requirements_Doc 的 snake_case 兼容字段。",
+  "platform": "上下文携带的平台标识。真正控制工具集的平台仍以 --platform 或 agent_config.toml 为准。",
+  "commit_messages": [
+    "本次审查范围内的 commit message,用于理解开发者对变更的总结。兼容历史调用,该字段允许缺失或为空。"
+  ]
+}

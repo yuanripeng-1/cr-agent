@@ -22,5 +22,5 @@ Thumbs.db
 *.zip
 
 # Large runtime workspace code copies
-*/project_code/
+workspaces/
 

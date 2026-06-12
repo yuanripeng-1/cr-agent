@@ -1,25 +1,35 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import cast
 
-import toml
-
+from cr_agent.core.agent_config import (
+    VALID_PLATFORMS,
+    AgentConfig,
+    Platform,
+    load_agent_config,
+)
 from cr_agent.core.review_input import ReviewInput, load_review_input
-
-
-VALID_PLATFORMS = {"gitlab", "infcode"}
 
 
 @dataclass(frozen=True)
 class RuntimeContext:
+    # 当前运行使用的 agent 配置文件路径。
     config_path: Path
+    # 解析并校验后的 agent 配置对象。
+    config: AgentConfig
+    # 当前运行使用的 context.json 路径。
     context_path: Path
+    # 当前任务的工作区目录。
     workspace_dir: Path
+    # 当前任务的审查结果输出目录。
     result_dir: Path
-    platform: str
+    # 本次运行最终确定的平台类型。
+    platform: Platform
+    # 解析并校验后的 code review 输入对象。
     review_input: ReviewInput
 
 
@@ -50,7 +60,7 @@ def _record_bootstrap_issue(
         pass
 
 
-def _require_platform(value: str | None, source: str) -> str | None:
+def _require_platform(value: str | None, source: str) -> Platform | None:
     if value is None or value == "":
         return None
     normalized = value.strip().lower()
@@ -59,7 +69,7 @@ def _require_platform(value: str | None, source: str) -> str | None:
             f"Invalid platform from {source}: {value}. "
             f"Expected one of {sorted(VALID_PLATFORMS)}."
         )
-    return normalized
+    return cast(Platform, normalized)
 
 
 def _resolve_path(base_dir: Path, raw_path: str) -> Path:
@@ -82,18 +92,15 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    config_data: dict[str, Any] = toml.load(config_path)
-    context_cfg = config_data.get("context", {})
-    if "json_path" not in context_cfg:
-        raise ValueError("Missing [context].json_path in config.toml")
+    config_data = load_agent_config(config_path)
 
     config_dir = config_path.parent
-    context_path = _resolve_path(config_dir, context_cfg["json_path"])
+    context_path = _resolve_path(config_dir, config_data.context.json_path)
     if not context_path.exists():
         raise FileNotFoundError(f"context.json not found: {context_path}")
 
     context_data = load_review_input(context_path)
-    raw_result_path = context_cfg.get("result_path", "")
+    raw_result_path = config_data.context.result_path
     if raw_result_path:
         result_dir = _resolve_path(config_dir, raw_result_path)
     else:
@@ -102,10 +109,7 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
 
     try:
         override_platform = _require_platform(platform_override, "--platform")
-        config_platform_raw = config_data.get("platform")
-        if not config_platform_raw:
-            config_platform_raw = config_data.get("llm", {}).get("platform")
-        config_platform = _require_platform(config_platform_raw, "config.toml platform")
+        config_platform = config_data.configured_platform()
         final_platform = override_platform or config_platform
     except ValueError as exc:
         _record_bootstrap_issue(
@@ -133,16 +137,15 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
     workspace_dir = context_path.parent
 
     # 保留只读追踪环境变量，避免引入启动判定分支。
-    import os
     os.environ["CR_AGENT_CONFIG"] = str(config_path)
     os.environ["CR_AGENT_CONTEXT"] = str(context_path)
 
     return RuntimeContext(
         config_path=config_path,
+        config=config_data,
         context_path=context_path,
         workspace_dir=workspace_dir,
         result_dir=result_dir,
         platform=final_platform,
         review_input=context_data,
     )
-
