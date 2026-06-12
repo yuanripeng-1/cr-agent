@@ -1,0 +1,19 @@
+{
+  "context": {
+    "json_path": "context.json 路径,用于读取后端传入的审查上下文。",
+    "result_path": "结果输出目录,用于写入 result.json、cr_result.md 和 run.log。"
+  },
+  "project": {
+    "language": "待审查项目主要语言,用于选择规范文档或后续审查策略。",
+    "status": "项目状态,例如 update,用于后续产品侧区分审查场景。",
+    "guidelines_path": "团队代码规范文档路径。",
+    "requirements_path": "需求文档路径,可作为业务审查上下文。"
+  },
+  "llm": {
+    "model": "本次 review 使用的模型标识。",
+    "api_key": "模型代理鉴权信息。",
+    "api_base": "Anthropic 兼容代理地址。",
+    "platform": "兼容历史配置的平台字段。推荐后续迁移到根级 platform。"
+  },
+  "platform": "推荐的平台配置位置,用于选择工具集和审查维度。命令行 --platform 优先级更高。"
+}
