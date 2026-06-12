@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from cr_agent.core.agent_config import Platform
 
@@ -20,6 +20,19 @@ class ReviewInput(BaseModel):
     # 保留后端传来的未知字段,避免 GitLab/infcode 后续增加元信息时,
     # agent 层模型必须立刻跟着改。
     model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_requirement_aliases(cls, raw_value: Any) -> Any:
+        if not isinstance(raw_value, dict):
+            return raw_value
+
+        payload = dict(raw_value)
+        if "requirements_Doc" in payload and "requirements_doc" in payload:
+            # requirements_Doc 是历史后端字段,优先级更高。删除 snake_case 副本,
+            # 避免 extra="allow" 把它保存为额外字段并在 model_dump() 时覆盖正式字段。
+            payload.pop("requirements_doc")
+        return payload
 
     # code review 的核心输入。缺少这些字段时,agent 无法识别任务、
     # 理解开发意图、定位代码仓库或审查 diff。
@@ -59,14 +72,6 @@ class ReviewInput(BaseModel):
         # 兼容旧调用方把单条 commit message 作为字符串传入的情况。
         # 统一成 list 后,后续流水线就不需要再分支判断。
         return _normalize_commit_messages(raw_value)
-
-    @field_validator("commit_messages")
-    @classmethod
-    def commit_messages_must_not_be_empty(cls, value: list[str]) -> list[str]:
-        if not value:
-            raise ValueError("commit_messages must contain at least one message")
-        return value
-
 
 def _normalize_commit_messages(raw_value: Any) -> list[str]:
     if raw_value is None:

@@ -6,7 +6,12 @@ from pathlib import Path
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.agent_config import VALID_PLATFORMS
-from cr_agent.core.review_output import ReviewResult, write_review_result
+from cr_agent.core.review_output import (
+    LineComments,
+    ReviewResult,
+    TokenUsage,
+    write_review_result,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -50,8 +55,8 @@ def main() -> int:
             "当前处于 M0 脚手架阶段，已完成启动链路、平台识别和外部契约校验。\n"
         ),
         log_path=str(log_path),
-        tokens_consume={"input_tokens": 0, "output_tokens": 0, "cost": 0.0},
-        line_comments={"comments": []},
+        tokens_consume=TokenUsage(input_tokens=0, output_tokens=0, cost=0.0),
+        line_comments=LineComments(comments=[]),
         issues=[],
     )
     write_review_result(result_json, result_payload)

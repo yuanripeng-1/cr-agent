@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from cr_agent.core.agent_config import load_agent_config
 from cr_agent.core.review_input import load_review_input
 from cr_agent.core.review_output import load_review_result
+
+
+T = TypeVar("T")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -14,6 +18,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--context", required=True, help="Path to context.json")
     parser.add_argument("--result", required=True, help="Path to result.json")
     return parser
+
+
+def _load_contract(label: str, path: Path, loader: Callable[[Path], T]) -> T:
+    try:
+        return loader(path)
+    except Exception as exc:
+        raise ValueError(f"{label} contract failed: {path}\n{exc}") from exc
 
 
 def main() -> int:
@@ -25,9 +36,13 @@ def main() -> int:
 
     # schemas/ 目录用于保存“原格式字段说明”契约样例;运行时强校验由
     # core/ 下的 Pydantic 模型完成,避免文档样例和机器 schema 混在一起。
-    agent_config = load_agent_config(config_path)
-    review_input = load_review_input(context_path)
-    review_result = load_review_result(result_path)
+    try:
+        agent_config = _load_contract("agent_config", config_path, load_agent_config)
+        review_input = _load_contract("context", context_path, load_review_input)
+        review_result = _load_contract("result", result_path, load_review_result)
+    except ValueError as exc:
+        print(f"[contracts] failed: {exc}")
+        return 1
 
     print("[contracts] agent_config ok")
     print(f"[contracts] context ok task_id={review_input.task_id}")

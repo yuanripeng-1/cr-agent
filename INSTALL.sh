@@ -55,7 +55,9 @@ conda run -n "$ENV_NAME" pip install -r "$REQ_FILE"
 if command -v npm >/dev/null 2>&1; then
   echo "检测到 npm，安装 claude-code-router 到当前目录..."
   mkdir -p "$SCRIPT_DIR/bin"
-  npm install --prefix "$SCRIPT_DIR/bin" @musistudio/claude-code-router >/dev/null 2>&1 || true
+  if ! npm install --prefix "$SCRIPT_DIR/bin" @musistudio/claude-code-router; then
+    echo "警告: claude-code-router 安装失败，请检查 npm 网络或包名。后续如需代理能力请手动安装。"
+  fi
 fi
 
 echo "安装完成。"

@@ -17,6 +17,6 @@
   "requirements_doc": "requirements_Doc 的 snake_case 兼容字段。",
   "platform": "上下文携带的平台标识。真正控制工具集的平台仍以 --platform 或 agent_config.toml 为准。",
   "commit_messages": [
-    "本次审查范围内的 commit message,用于理解开发者对变更的总结。"
+    "本次审查范围内的 commit message,用于理解开发者对变更的总结。兼容历史调用,该字段允许缺失或为空。"
   ]
 }

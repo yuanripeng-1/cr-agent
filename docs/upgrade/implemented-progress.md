@@ -86,7 +86,7 @@ bash RUN.sh --config workspace/<task>/agent_config.toml [--platform gitlab|infco
 | `title` | string | MR 标题或 commit 总结标题 |
 | `diff_content` | string | Git diff 文本 |
 | `project_root` | string | 待审查项目目录 |
-| `commit_messages` | array[string] | 本次审查范围内的 commit message 列表,至少 1 条 |
+| `commit_messages` | array[string] | 本次审查范围内的 commit message 列表;兼容历史调用,允许缺失或为空 |
 
 #### 2.2 兼容可选字段
 
