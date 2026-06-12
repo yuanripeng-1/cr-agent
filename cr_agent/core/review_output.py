@@ -23,8 +23,11 @@ class TokenUsage(BaseModel):
     # 同时固定后端当前已经消费的三个基础字段。
     model_config = ConfigDict(extra="allow")
 
+    # 模型请求消耗的输入 token 数。
     input_tokens: int = Field(default=0, ge=0)
+    # 模型响应消耗的输出 token 数。
     output_tokens: int = Field(default=0, ge=0)
+    # 本次审查估算或回传的模型调用成本。
     cost: float = Field(default=0.0, ge=0)
 
 
@@ -33,9 +36,13 @@ class LineComment(BaseModel):
     # 变更文件的指定行范围上。
     model_config = ConfigDict(extra="allow")
 
+    # 被评论的新文件路径,对应 GitLab diff position 的 new_path。
     new_path: str = Field(min_length=1)
+    # 行级评论正文,用于回写到代码托管平台。
     body: str = Field(min_length=1)
+    # 评论覆盖范围的起始行号。
     start_line: int = Field(ge=1)
+    # 评论覆盖范围的结束行号。
     end_line: int = Field(ge=1)
 
     @field_validator("end_line")
@@ -48,6 +55,7 @@ class LineComment(BaseModel):
 class LineComments(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    # 本次审查生成的行级评论列表。
     comments: list[LineComment] = Field(default_factory=list)
 
 
@@ -56,8 +64,11 @@ class IssueLocation(BaseModel):
     # 不一定会被后端转换成 GitLab 行级评论。
     model_config = ConfigDict(extra="allow")
 
+    # 问题所在文件路径。
     path: str = Field(min_length=1)
+    # 问题所在范围的起始行号。
     start_line: int = Field(ge=1)
+    # 问题所在范围的结束行号。
     end_line: int = Field(ge=1)
 
     @field_validator("end_line")
@@ -69,9 +80,13 @@ class IssueLocation(BaseModel):
 class IssueSummary(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    # 问题严重级别,用于报告排序和风险呈现。
     severity: Severity
+    # 问题标题,用于摘要列表展示。
     title: str = Field(min_length=1)
+    # 同类问题出现次数。
     count: int = Field(ge=1)
+    # 同类问题关联的代码位置列表。
     locations: list[IssueLocation] = Field(default_factory=list)
 
 
@@ -89,11 +104,17 @@ class ReviewResult(BaseModel):
 
     # llm_result 是展示给用户的 Markdown 报告;line_comments/issues 是
     # 下游系统用于回写评论和展示摘要的结构化视图。
+    # 展示给用户的 Markdown 审查报告。
     llm_result: str = Field(min_length=1)
+    # 本次审查运行状态,用于后端判断结果是否可消费。
     status: RunStatus
+    # run.log 的路径,用于排查审查过程问题。
     log_path: str = ""
+    # 本次审查的 token 和成本消耗信息。
     tokens_consume: TokenUsage = Field(default_factory=TokenUsage)
+    # 可回写到代码托管平台的行级评论集合。
     line_comments: LineComments = Field(default_factory=LineComments)
+    # 报告摘要中的结构化问题列表。
     issues: list[IssueSummary] = Field(default_factory=list)
 
 

@@ -17,12 +17,19 @@ from cr_agent.core.review_input import ReviewInput, load_review_input
 
 @dataclass(frozen=True)
 class RuntimeContext:
+    # 当前运行使用的 agent 配置文件路径。
     config_path: Path
+    # 解析并校验后的 agent 配置对象。
     config: AgentConfig
+    # 当前运行使用的 context.json 路径。
     context_path: Path
+    # 当前任务的工作区目录。
     workspace_dir: Path
+    # 当前任务的审查结果输出目录。
     result_dir: Path
+    # 本次运行最终确定的平台类型。
     platform: Platform
+    # 解析并校验后的 code review 输入对象。
     review_input: ReviewInput
 
 
