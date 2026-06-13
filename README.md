@@ -197,3 +197,38 @@ workspace/cr_result/15-3de6a54a/run.log
 
 说明:当前输出仍是 placeholder review,用于验证流程和产物写盘;真实 SDK Runtime、
 真实 `collect_context`、真实 `dimension_review`、真实 `summarize_report` 尚未接入。
+
+### 4. PR2 LiteLLM 真实模型冒烟(手动)
+
+`main.py`(上面第 3 节)仍走占位流程、不发起模型调用。要验证经
+LiteLLM Anthropic-compatible Gateway 的**一次真实模型调用**,使用独立入口
+`cr_agent.smoke`(内部复用 `run_review`,只发起一次 `query_main`,skills 仍为占位)。
+
+前置:
+
+1. 已安装 `claude` CLI(见 `INSTALL.sh`)。
+2. 有一个运行中的 LiteLLM Anthropic-compatible Gateway。
+3. 目标 `workspace/<task>/agent_config.toml` 的 `[llm]` 已填:
+
+```toml
+[llm]
+model    = "<gateway 可路由的模型名>"
+api_key  = "<gateway 鉴权 key>"   # 注入为 ANTHROPIC_API_KEY
+api_base = "<gateway 地址>"        # 注入为 ANTHROPIC_BASE_URL
+```
+
+运行:
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+.venv/bin/python -m cr_agent.smoke --config <abs path to agent_config.toml> --platform gitlab
+```
+
+观察:
+
+- 终端打印一次调用的 `status` 与四项 usage(input/output/cache_creation/cache_read);
+- `result.json` / `cr_result.md` / `run.log` 生成;**失败时同样有产物**,且 token 为真实累计值(不写假 0);
+- `run.log` 中只见 `api_key_configured=true`,**无明文 key**(统一脱敏 Filter 兜底)。
+
+不依赖 `config/router.config.json`,CCR 不进主架构;未配置 `[llm]` 或网关不可达时,
+冒烟会以失败状态结束并写出失败产物。

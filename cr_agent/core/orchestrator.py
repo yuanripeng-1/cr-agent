@@ -15,7 +15,7 @@ from cr_agent.core.review_output import (
 )
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage, ValidationResult
-from cr_agent.core.usage import accumulate_usage
+from cr_agent.core.usage import accumulate_usage, extract_usage
 from cr_agent.skills.registry import SkillRegistry, build_default_skill_registry
 
 
@@ -37,13 +37,24 @@ async def run_review(
     append_run_log(runtime_context.result_dir, "review started")
     try:
         if agent_runtime is not None:
-            main_result = await agent_runtime.query_main(
-                "Plan and run the code review using the available skills."
-            )
-            state.tokens_consume = accumulate_usage(
-                state.tokens_consume,
-                getattr(main_result, "usage", TokenUsage()),
-            )
+            try:
+                main_result = await agent_runtime.query_main(
+                    "Plan and run the code review using the available skills."
+                )
+                state.tokens_consume = accumulate_usage(
+                    state.tokens_consume,
+                    getattr(main_result, "usage", TokenUsage()),
+                )
+            except Exception as exc:
+                # 模型计费后才报错时,异常可能带回已消费 usage;累计后再抛,
+                # 保证失败产物写真实已累计 token,不写假 0。
+                partial = getattr(exc, "usage", None)
+                if partial is not None:
+                    state.tokens_consume = accumulate_usage(
+                        state.tokens_consume,
+                        extract_usage({"usage": partial}),
+                    )
+                raise
 
         collected_context = await registry.collect_context(runtime_context)
         dimension_scores = await registry.dimension_review(collected_context)

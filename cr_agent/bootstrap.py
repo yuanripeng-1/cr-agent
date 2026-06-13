@@ -13,7 +13,11 @@ from cr_agent.core.agent_config import (
     load_agent_config,
 )
 from cr_agent.core.review_input import ReviewInput, load_review_input
+from cr_agent.core.sdk_runtime import build_sdk_env
 from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
+from cr_agent.utils.logging import get_logger
+
+_logger = get_logger("cr_agent.bootstrap")
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,16 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
     # 平台确定后选定工具 provider 并加载 allowlist;provider 选择与 allowlist
     # 结果在 facade 内部记日志(TOOL_PROVIDER_SELECTED / TOOL_ALLOWLIST_LOADED)。
     tool_facade = build_tool_facade_for_platform(final_platform)
+
+    # 早期把 LiteLLM 网关 env 写入进程环境,供 SDK/claude CLI 启动时读取。
+    # 空值不注入;日志只记布尔,api_key 永不出现明文(并经脱敏 Filter 兜底)。
+    sdk_env = build_sdk_env(config_data.llm)
+    os.environ.update(sdk_env)
+    _logger.info(
+        "MODEL_GATEWAY_CONFIGURED base_url_set=%s api_key_configured=%s",
+        "ANTHROPIC_BASE_URL" in sdk_env,
+        "ANTHROPIC_API_KEY" in sdk_env,
+    )
 
     # 保留只读追踪环境变量，避免引入启动判定分支。
     os.environ["CR_AGENT_CONFIG"] = str(config_path)
