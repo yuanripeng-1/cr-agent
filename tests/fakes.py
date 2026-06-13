@@ -3,23 +3,56 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from cr_agent.core.types import QueryResult, TokenUsage, ValidationResult
+from cr_agent.core.main_agent import MainAgentResult
+from cr_agent.core.types import TokenUsage, ValidationResult
 from cr_agent.skills.registry import SkillRegistry
+from cr_agent.tools.provider import ToolSpec
 
 
 @dataclass
-class FakeAgentRuntime:
-    results: list[QueryResult] = field(default_factory=list)
-    calls: list[str] = field(default_factory=list)
-    error: Exception | None = None
+class ScriptedMainAgentRuntime:
+    """
+    脚本化的主 agent runtime(测试用),不接真实 SDK / CLI。
 
-    async def query_main(self, prompt: str, **kwargs: Any) -> QueryResult:
-        self.calls.append(prompt)
-        if self.error is not None:
-            raise self.error
-        if self.results:
-            return self.results.pop(0)
-        return QueryResult(text="fake main completed", usage=TokenUsage())
+    模拟主 agent 的决策:依次调用 collect_context、dimension_review,然后循环调用
+    summarize_report,直到 validate 通过或 can_use_tool 拒绝(Python max_retries 兜底)。
+    驱动的是 orchestrator 真实构建的 ToolSpec.handler,故 session 状态与生产一致。
+    """
+
+    usage: TokenUsage = field(default_factory=TokenUsage)
+    summarize_tool_calls: int = 0
+    denied: bool = False
+
+    async def run_review_loop(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        skill_tools: list[ToolSpec],
+        can_use_tool: Any,
+    ) -> MainAgentResult:
+        tools = {spec.name: spec for spec in skill_tools}
+
+        await self._call(tools["collect_context"], can_use_tool)
+        await self._call(tools["dimension_review"], can_use_tool)
+
+        # 主 agent 重调决策:只要校验未过且未被兜底拒绝,就再调一次 summarize。
+        while True:
+            allow = await can_use_tool("summarize_report", {}, None)
+            if getattr(allow, "behavior", "allow") == "deny":
+                self.denied = True
+                break
+            result = await tools["summarize_report"].handler({})
+            self.summarize_tool_calls += 1
+            data = result.get("data") or {}
+            if data.get("valid"):
+                break
+
+        return MainAgentResult(text="scripted main done", usage=self.usage)
+
+    async def _call(self, tool: ToolSpec, can_use_tool: Any) -> None:
+        await can_use_tool(tool.name, {}, None)
+        await tool.handler({})
 
 
 class FakeSkillScenario:

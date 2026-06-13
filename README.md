@@ -195,14 +195,16 @@ workspace/cr_result/15-3de6a54a/cr_result.md
 workspace/cr_result/15-3de6a54a/run.log
 ```
 
-说明:当前输出仍是 placeholder review,用于验证流程和产物写盘;真实 SDK Runtime、
-真实 `collect_context`、真实 `dimension_review`、真实 `summarize_report` 尚未接入。
+说明:自 PR3 起,`main()` 是 **bootstrap-only 占位入口**:只做启动装配并写一份
+`status="bootstrap_ready"` 的 `result.json` / `cr_result.md` / `run.log`,**不跑 skill、不驱动主 agent、不需 claude CLI**。
+真实的 agentic 审查(主 agent 经 SDK 工具调用 skill)请用下面第 4 节的 `python -m cr_agent.smoke`。
 
-### 4. PR2 LiteLLM 真实模型冒烟(手动)
+### 4. LiteLLM agentic 冒烟(手动)
 
-`main.py`(上面第 3 节)仍走占位流程、不发起模型调用。要验证经
-LiteLLM Anthropic-compatible Gateway 的**一次真实模型调用**,使用独立入口
-`cr_agent.smoke`(内部复用 `run_review`,只发起一次 `query_main`,skills 仍为占位)。
+`main.py`(上面第 3 节)是 bootstrap-only 占位、不发起模型调用。要验证经
+LiteLLM Anthropic-compatible Gateway 的**主 agent agentic 流程**(主 agent 经 SDK 工具
+调用 collect_context / dimension_review / summarize_report,skills 仍为占位实现),使用独立入口
+`cr_agent.smoke`(内部复用 `run_review`,由 `SdkMainAgentRuntime` 驱动主 agent)。
 
 前置:
 

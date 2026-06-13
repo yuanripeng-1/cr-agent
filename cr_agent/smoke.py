@@ -45,8 +45,8 @@ from pathlib import Path
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.agent_config import VALID_PLATFORMS
+from cr_agent.core.main_agent import build_main_agent_runtime
 from cr_agent.core.orchestrator import run_review
-from cr_agent.core.sdk_runtime import build_runtime
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -69,7 +69,7 @@ def main() -> int:
         platform_override=args.platform,
     )
 
-    agent_runtime = build_runtime(runtime_context.config)
+    agent_runtime = build_main_agent_runtime(runtime_context.config)
     result = asyncio.run(run_review(runtime_context, agent_runtime=agent_runtime))
 
     usage = result.tokens_consume

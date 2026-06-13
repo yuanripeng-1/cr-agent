@@ -137,7 +137,7 @@ async def test_runtime_rejects_empty_text_from_real_client_path() -> None:
 # ----- orchestrator preserves accumulated token on failure (no fake 0) -----
 
 class _FailingRuntimeWithUsage:
-    async def query_main(self, prompt: str, **kwargs):
+    async def run_review_loop(self, **kwargs):
         error = RuntimeCallError("model errored after billing")
         error.usage = {  # type: ignore[attr-defined]
             "input_tokens": 9,
