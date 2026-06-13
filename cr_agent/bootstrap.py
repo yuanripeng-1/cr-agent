@@ -13,6 +13,7 @@ from cr_agent.core.agent_config import (
     load_agent_config,
 )
 from cr_agent.core.review_input import ReviewInput, load_review_input
+from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,8 @@ class RuntimeContext:
     platform: Platform
     # 解析并校验后的 code review 输入对象。
     review_input: ReviewInput
+    # 按平台选定 provider 并加载 allowlist 后的工具外观层。
+    tool_facade: ToolFacade
 
 
 def _record_bootstrap_issue(
@@ -136,6 +139,10 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
 
     workspace_dir = context_path.parent
 
+    # 平台确定后选定工具 provider 并加载 allowlist;provider 选择与 allowlist
+    # 结果在 facade 内部记日志(TOOL_PROVIDER_SELECTED / TOOL_ALLOWLIST_LOADED)。
+    tool_facade = build_tool_facade_for_platform(final_platform)
+
     # 保留只读追踪环境变量，避免引入启动判定分支。
     os.environ["CR_AGENT_CONFIG"] = str(config_path)
     os.environ["CR_AGENT_CONTEXT"] = str(context_path)
@@ -148,4 +155,5 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         result_dir=result_dir,
         platform=final_platform,
         review_input=context_data,
+        tool_facade=tool_facade,
     )
