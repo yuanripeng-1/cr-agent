@@ -234,3 +234,24 @@ cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
 
 不依赖 `config/router.config.json`,CCR 不进主架构;未配置 `[llm]` 或网关不可达时,
 冒烟会以失败状态结束并写出失败产物。
+
+### 5. cr-native 本地工具冒烟(手动)
+
+PR4 把 `read_file / read_file_range / glob_files / grep_text` 做实(限制在 `project_root` 下、
+路径规范化 + symlink 逃逸防护、超时/输出截断、结构化返回 `{ok,data,warnings,error}`;grep 走系统 rg,
+rg 缺失则降级不抛穿)。`cr_agent.tools_smoke` 把这些工具挂到真实主 agent 上端到端验收:
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+.venv/bin/python -m cr_agent.tools_smoke --config <abs path to agent_config.toml> --platform gitlab
+```
+
+前置同第 4 节(claude CLI + LiteLLM 网关 + 填好 `[llm]`),并确保 `context.json` 的
+`project_root` 指向真实仓库、系统已安装 `rg`。观察:
+
+- 终端打印暴露的工具名与四项 usage;
+- `run.log` 可见 agent 发起的 `TOOL_CALL_START/END`(`glob_files` / `read_file` / `grep_text`)与结构化结果;
+- 越权路径(`..` / 指向 `project_root` 外的 symlink)被工具拒绝;`run.log` 无 api_key 明文。
+
+> 自动化验收见 `tests/test_cr_native_tools.py`(正常/越权/截断/rg 缺失/超时降级)与
+> `tests/test_cr_native_agent_flow.py`(脚本化 agent 跑 glob→read→grep 最小流程),全程不联网。

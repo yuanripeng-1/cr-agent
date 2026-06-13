@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,12 @@ import pytest
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.main_agent import (
     MainAgentSession,
+    SdkMainAgentRuntime,
     build_skill_tools,
     make_backstop_can_use_tool,
 )
 from cr_agent.core.state import ReviewState
+from cr_agent.tools.provider import ToolSpec, ok_result
 from tests.fakes import FakeSkillScenario
 
 
@@ -72,3 +75,101 @@ async def test_main_agent_skill_call_emits_skill_start_log(
     messages = [r.getMessage() for r in caplog.records]
     assert any("SKILL_START skill=collect_context" in m for m in messages)
     assert session.collected_context is not None
+
+
+@pytest.mark.asyncio
+async def test_sdk_main_agent_uses_streaming_prompt_when_can_use_tool(monkeypatch) -> None:
+    captured = {}
+
+    async def fake_query(*, prompt, options):
+        captured["prompt"] = prompt
+        captured["options"] = options
+        yield SimpleNamespace(
+            result="done",
+            usage={
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "cache_creation_input_tokens": 3,
+                "cache_read_input_tokens": 4,
+            },
+        )
+
+    monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+
+    async def handler(args):
+        return ok_result({"seen": args})
+
+    async def can_use_tool(tool_name, tool_input, context):
+        from claude_agent_sdk import PermissionResultAllow
+
+        return PermissionResultAllow()
+
+    runtime = SdkMainAgentRuntime(model="test-model", env={"ANTHROPIC_BASE_URL": "http://gw"})
+    result = await runtime.run_review_loop(
+        system_prompt="system",
+        user_prompt="inspect repo",
+        skill_tools=[
+            ToolSpec(
+                "read_file",
+                "Read a file.",
+                {"type": "object", "properties": {}, "additionalProperties": False},
+                handler,
+            )
+        ],
+        can_use_tool=can_use_tool,
+        timeout_s=10,
+        max_turns=3,
+    )
+
+    assert result.text == "done"
+    assert result.usage.input_tokens == 1
+    prompt = captured["prompt"]
+    assert not isinstance(prompt, str)
+    messages = [message async for message in prompt]
+    assert messages == [
+        {
+            "type": "user",
+            "session_id": "",
+            "message": {"role": "user", "content": "inspect repo"},
+            "parent_tool_use_id": None,
+        }
+    ]
+    assert captured["options"].can_use_tool is can_use_tool
+    assert captured["options"].max_turns == 3
+
+
+@pytest.mark.asyncio
+async def test_sdk_main_agent_uses_string_prompt_without_can_use_tool(monkeypatch) -> None:
+    captured = {}
+
+    async def fake_query(*, prompt, options):
+        captured["prompt"] = prompt
+        captured["options"] = options
+        yield SimpleNamespace(result="done", usage={"input_tokens": 1, "output_tokens": 1})
+
+    monkeypatch.setattr("claude_agent_sdk.query", fake_query)
+
+    async def handler(args):
+        return ok_result({"seen": args})
+
+    runtime = SdkMainAgentRuntime(model="test-model")
+    result = await runtime.run_review_loop(
+        system_prompt="system",
+        user_prompt="inspect repo",
+        skill_tools=[
+            ToolSpec(
+                "read_file",
+                "Read a file.",
+                {"type": "object", "properties": {}, "additionalProperties": False},
+                handler,
+            )
+        ],
+        can_use_tool=None,
+        timeout_s=10,
+        max_turns=3,
+    )
+
+    assert result.text == "done"
+    assert captured["prompt"] == "inspect repo"
+    assert captured["options"].can_use_tool is None
+    assert captured["options"].max_turns == 3

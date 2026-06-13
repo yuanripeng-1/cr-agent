@@ -68,11 +68,15 @@ class ToolFacade:
         return resolved
 
 
-def select_tool_provider(platform: Platform) -> ToolProvider:
+def select_tool_provider(
+    platform: Platform,
+    *,
+    project_root: Path | None = None,
+) -> ToolProvider:
     if platform == "gitlab":
-        provider: ToolProvider = CrNativeToolProvider()
+        provider: ToolProvider = CrNativeToolProvider(project_root=project_root)
     elif platform == "infcode":
-        provider = InfcodeToolProvider()
+        provider = InfcodeToolProvider(project_root=project_root)
     else:
         raise ValueError(f"Unsupported platform for tool provider: {platform}")
     _logger.info("TOOL_PROVIDER_SELECTED platform=%s provider=%s", platform, provider.name())
@@ -88,6 +92,11 @@ def build_tool_facade(
 
 def build_tool_facade_for_platform(
     platform: Platform,
+    *,
+    project_root: Path | None = None,
     agent_tools_path: Path | None = None,
 ) -> ToolFacade:
-    return build_tool_facade(select_tool_provider(platform), agent_tools_path)
+    return build_tool_facade(
+        select_tool_provider(platform, project_root=project_root),
+        agent_tools_path,
+    )

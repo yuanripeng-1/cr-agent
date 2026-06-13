@@ -87,9 +87,10 @@ def test_explicit_unknown_tool_is_dropped() -> None:
 
 @pytest.mark.asyncio
 async def test_placeholder_handlers_return_not_implemented() -> None:
+    # crg_query 在 PR4 仍是未实现占位(read_file 等已做实)。
     for provider in (CrNativeToolProvider(), InfcodeToolProvider()):
-        spec = next(s for s in provider.list_tools() if s.name == "read_file")
-        result = await spec.handler({"path": "x"})
+        spec = next(s for s in provider.list_tools() if s.name == "crg_query")
+        result = await spec.handler({"query": "x"})
         assert result["ok"] is False
         assert provider.name() in result["error"]
         assert result["warnings"] == []

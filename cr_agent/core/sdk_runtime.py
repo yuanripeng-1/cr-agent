@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from typing import Any, Callable
 
 from cr_agent.core.errors import (
@@ -11,9 +12,31 @@ from cr_agent.core.errors import (
 )
 from cr_agent.core.types import QueryResult
 from cr_agent.core.usage import extract_usage
-from cr_agent.utils.logging import get_logger
+from cr_agent.utils.logging import get_logger, redact
 
 _logger = get_logger("cr_agent.core.sdk_runtime")
+
+
+class SdkStderrCapture:
+    """Collect a small redacted tail of Claude CLI stderr for diagnostics."""
+
+    def __init__(self, max_lines: int = 40) -> None:
+        self._lines: deque[str] = deque(maxlen=max_lines)
+
+    def __call__(self, line: str) -> None:
+        clean = redact(line.rstrip())
+        if clean:
+            self._lines.append(clean)
+            _logger.debug("CLAUDE_CLI_STDERR %s", clean)
+
+    def tail(self) -> str:
+        return "\n".join(self._lines)
+
+
+def append_stderr_diagnostic(message: str, stderr_tail: str) -> str:
+    if not stderr_tail:
+        return message
+    return f"{message}\nClaude CLI stderr tail:\n{stderr_tail}"
 
 
 def build_sdk_env(llm: Any) -> dict[str, str]:
@@ -70,7 +93,13 @@ class SdkQueryClient:
         from claude_agent_sdk import ClaudeAgentOptions
 
         # tools=[] 禁用内建工具:PR2 只做最小模型冒烟,不接任何真实工具。
-        return ClaudeAgentOptions(model=self.model, env=self.env, tools=[])
+        stderr_capture = SdkStderrCapture()
+        return ClaudeAgentOptions(
+            model=self.model,
+            env=self.env,
+            tools=[],
+            stderr=stderr_capture,
+        )
 
     async def query(
         self,
@@ -87,29 +116,45 @@ class SdkQueryClient:
         usage: dict[str, Any] | None = None
         is_error = False
         error_detail = ""
+        stderr_tail = ""
 
-        async for message in query_fn(prompt=prompt, options=options):
-            content = getattr(message, "content", None)
-            if content is not None:
-                for block in content:
-                    block_text = getattr(block, "text", None)
-                    if isinstance(block_text, str):
-                        texts.append(block_text)
-            # ResultMessage 携带最终文本与 usage。
-            if hasattr(message, "usage") and getattr(message, "usage") is not None:
-                usage = getattr(message, "usage")
-            if hasattr(message, "is_error"):
-                is_error = bool(getattr(message, "is_error"))
-                result_text = getattr(message, "result", None)
-                if isinstance(result_text, str):
-                    final_text = result_text
-                errors = getattr(message, "errors", None)
-                if errors:
-                    error_detail = "; ".join(str(e) for e in errors)
+        try:
+            async for message in query_fn(prompt=prompt, options=options):
+                content = getattr(message, "content", None)
+                if content is not None:
+                    for block in content:
+                        block_text = getattr(block, "text", None)
+                        if isinstance(block_text, str):
+                            texts.append(block_text)
+                # ResultMessage 携带最终文本与 usage。
+                if hasattr(message, "usage") and getattr(message, "usage") is not None:
+                    usage = getattr(message, "usage")
+                if hasattr(message, "is_error"):
+                    is_error = bool(getattr(message, "is_error"))
+                    result_text = getattr(message, "result", None)
+                    if isinstance(result_text, str):
+                        final_text = result_text
+                    errors = getattr(message, "errors", None)
+                    if errors:
+                        error_detail = "; ".join(str(e) for e in errors)
+        except Exception as exc:
+            stderr_callback = getattr(options, "stderr", None)
+            stderr_tail = stderr_callback.tail() if hasattr(stderr_callback, "tail") else ""
+            if stderr_tail:
+                raise RuntimeCallError(
+                    append_stderr_diagnostic(str(exc), stderr_tail)
+                ) from exc
+            raise
+
+        stderr_callback = getattr(options, "stderr", None)
+        stderr_tail = stderr_callback.tail() if hasattr(stderr_callback, "tail") else ""
 
         if is_error:
             error = RuntimeCallError(
-                f"Model reported error for agent={agent_name}: {error_detail or 'unknown'}"
+                append_stderr_diagnostic(
+                    f"Model reported error for agent={agent_name}: {error_detail or 'unknown'}",
+                    stderr_tail,
+                )
             )
             # 把已计费 usage 带回上游,避免失败时丢 token / 写假 0。
             error.usage = usage  # type: ignore[attr-defined]
@@ -269,4 +314,3 @@ def _classify_runtime_error(exc: Exception, agent_name: str) -> RuntimeCallError
             f"Runtime context limit for agent={agent_name}: {message}"
         )
     return RuntimeCallError(f"Runtime call failed for agent={agent_name}: {message}")
-

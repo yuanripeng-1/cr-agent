@@ -53,6 +53,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CR-Agent PR2 LiteLLM smoke")
     parser.add_argument("--config", required=True, help="Path to workspace agent_config.toml")
     parser.add_argument(
+        "--timeout-s",
+        type=float,
+        default=300,
+        help="Overall model call timeout in seconds. Default: 300",
+    )
+    parser.add_argument(
         "--platform",
         choices=sorted(VALID_PLATFORMS),
         default=None,
@@ -70,7 +76,13 @@ def main() -> int:
     )
 
     agent_runtime = build_main_agent_runtime(runtime_context.config)
-    result = asyncio.run(run_review(runtime_context, agent_runtime=agent_runtime))
+    result = asyncio.run(
+        run_review(
+            runtime_context,
+            agent_runtime=agent_runtime,
+            main_timeout_s=args.timeout_s,
+        )
+    )
 
     usage = result.tokens_consume
     print(

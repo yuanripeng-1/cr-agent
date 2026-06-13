@@ -30,6 +30,7 @@ class ScriptedMainAgentRuntime:
         user_prompt: str,
         skill_tools: list[ToolSpec],
         can_use_tool: Any,
+        **kwargs: Any,
     ) -> MainAgentResult:
         tools = {spec.name: spec for spec in skill_tools}
 
@@ -98,4 +99,3 @@ class FakeSkillScenario:
         if self.validate_calls <= self.validation_failures:
             return ValidationResult(valid=False, errors=["invalid fake report"])
         return ValidationResult(valid=True)
-

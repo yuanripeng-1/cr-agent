@@ -34,6 +34,7 @@ async def run_review(
     agent_runtime: MainAgentRuntime,
     skill_registry: SkillRegistry | None = None,
     max_retries: int = 2,
+    main_timeout_s: float = 300,
 ) -> ReviewResult:
     """
     主 agent 驱动的审查编排。
@@ -62,6 +63,7 @@ async def run_review(
                 user_prompt=_USER_PROMPT,
                 skill_tools=skill_tools,
                 can_use_tool=can_use_tool,
+                timeout_s=main_timeout_s,
             )
             state.tokens_consume = accumulate_usage(
                 state.tokens_consume,

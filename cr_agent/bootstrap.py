@@ -145,7 +145,11 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
 
     # 平台确定后选定工具 provider 并加载 allowlist;provider 选择与 allowlist
     # 结果在 facade 内部记日志(TOOL_PROVIDER_SELECTED / TOOL_ALLOWLIST_LOADED)。
-    tool_facade = build_tool_facade_for_platform(final_platform)
+    # project_root 注入给 cr-native 文件工具(限制读取范围)。
+    tool_facade = build_tool_facade_for_platform(
+        final_platform,
+        project_root=Path(context_data.project_root),
+    )
 
     # 早期把 LiteLLM 网关 env 写入进程环境,供 SDK/claude CLI 启动时读取。
     # 空值不注入;日志只记布尔,api_key 永不出现明文(并经脱敏 Filter 兜底)。

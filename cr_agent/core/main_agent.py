@@ -19,6 +19,8 @@ PR3 的 validate 仅做格式校验。将来(PR8)若要校验行号,只需给 va
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -115,6 +117,19 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
 CanUseTool = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
 
 
+async def _single_user_prompt(prompt: str) -> AsyncIterator[dict[str, Any]]:
+    """
+    Claude Agent SDK requires streaming-mode input when can_use_tool is set.
+    Wrap the one-shot prompt in the SDK's user-message stream shape.
+    """
+    yield {
+        "type": "user",
+        "session_id": "",
+        "message": {"role": "user", "content": prompt},
+        "parent_tool_use_id": None,
+    }
+
+
 def make_backstop_can_use_tool(session: MainAgentSession) -> CanUseTool:
     """
     Python 侧 max_retries 兜底:summarize 调用前检查 attempt,超过 max_retries+1 即 deny。
@@ -151,7 +166,9 @@ class MainAgentRuntime(Protocol):
         system_prompt: str,
         user_prompt: str,
         skill_tools: list[ToolSpec],
-        can_use_tool: CanUseTool,
+        can_use_tool: CanUseTool | None,
+        timeout_s: float = 300,
+        max_turns: int | None = None,
     ) -> MainAgentResult:
         ...
 
@@ -173,15 +190,20 @@ class SdkMainAgentRuntime:
         system_prompt: str,
         user_prompt: str,
         skill_tools: list[ToolSpec],
-        can_use_tool: CanUseTool,
+        can_use_tool: CanUseTool | None,
+        timeout_s: float = 300,
+        max_turns: int | None = None,
     ) -> MainAgentResult:
         from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server, query
 
+        from cr_agent.core.errors import RuntimeTimeoutError
+        from cr_agent.core.sdk_runtime import SdkStderrCapture, append_stderr_diagnostic
         from cr_agent.core.usage import extract_usage
         from cr_agent.tools.spec_sdk import to_sdk_tool
 
         server = create_sdk_mcp_server(name="skills", tools=[to_sdk_tool(t) for t in skill_tools])
         allowed = [f"mcp__skills__{t.name}" for t in skill_tools]
+        stderr_capture = SdkStderrCapture()
         options = ClaudeAgentOptions(
             model=self.model,
             env=self.env,
@@ -190,23 +212,35 @@ class SdkMainAgentRuntime:
             can_use_tool=can_use_tool,
             system_prompt=system_prompt,
             tools=[],
+            max_turns=max_turns,
+            stderr=stderr_capture,
         )
 
         texts: list[str] = []
         final_text: str | None = None
         usage: dict[str, Any] | None = None
-        async for message in query(prompt=user_prompt, options=options):
-            content = getattr(message, "content", None)
-            if content is not None:
-                for block in content:
-                    block_text = getattr(block, "text", None)
-                    if isinstance(block_text, str):
-                        texts.append(block_text)
-            if getattr(message, "usage", None) is not None:
-                usage = getattr(message, "usage")
-            result_text = getattr(message, "result", None)
-            if isinstance(result_text, str) and result_text:
-                final_text = result_text
+        prompt = _single_user_prompt(user_prompt) if can_use_tool is not None else user_prompt
+        try:
+            async with asyncio.timeout(timeout_s):
+                async for message in query(prompt=prompt, options=options):
+                    content = getattr(message, "content", None)
+                    if content is not None:
+                        for block in content:
+                            block_text = getattr(block, "text", None)
+                            if isinstance(block_text, str):
+                                texts.append(block_text)
+                    if getattr(message, "usage", None) is not None:
+                        usage = getattr(message, "usage")
+                    result_text = getattr(message, "result", None)
+                    if isinstance(result_text, str) and result_text:
+                        final_text = result_text
+        except TimeoutError as exc:
+            raise RuntimeTimeoutError(
+                append_stderr_diagnostic(
+                    f"Main agent runtime timed out after {timeout_s}s",
+                    stderr_capture.tail(),
+                )
+            ) from exc
 
         text = final_text if final_text else "".join(texts)
         return MainAgentResult(text=text, usage=extract_usage({"usage": usage}))
