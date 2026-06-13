@@ -183,3 +183,202 @@ python -m cr_agent.core.verify_contracts \
 不是本次任务运行时必须传入的配置文件。
 
 当前运行时仍然以 `workspace/<task>/agent_config.toml` 为准。
+
+## SDK Runtime + 主 Agent 编排测试骨架进展
+
+> 状态:已完成可复用 pytest 骨架与占位编排链路。
+> 范围:只保证 bootstrap → orchestrator → 4 个占位 skill → artifacts 的流程可跑通;
+> 不调用真实 LLM、不启动 LiteLLM、不调用真实 Claude Agent SDK、不调用真实工具。
+
+### 1. 本次新增/调整的生产代码
+
+#### 1.1 `cr_agent/main.py`
+
+- 原行为:bootstrap 后直接写 `bootstrap_ready` 占位结果。
+- 现行为:bootstrap 后调用 `core.orchestrator.run_review(runtime)`。
+- 目的:让 CLI 入口接入主编排层,产物写盘统一由 orchestrator/artifacts 负责。
+
+#### 1.2 `cr_agent/core/types.py`
+
+- 定义 runtime 与 orchestrator 共享的轻量类型:
+  - `TokenUsage`:任务级 token 汇总,包含 `input_tokens`、`output_tokens`、
+    `cache_creation_tokens`、`cache_read_tokens`。
+  - `QueryResult`:模型调用结果抽象,测试 fake runtime 与后续真实 runtime 共用。
+  - `ValidationResult`:validate skill 的统一返回结构。
+
+#### 1.3 `cr_agent/core/usage.py`
+
+- `accumulate_usage(total, call)`:累计任务级 token。
+- `extract_usage(raw_response)`:从 dict 或对象形式的 SDK 响应中容错提取 usage。
+- usage 缺失时返回 0,不阻断审查流程。
+
+#### 1.4 `cr_agent/core/errors.py`
+
+- 定义 runtime 标准错误:
+  - `RuntimeCallError`
+  - `RuntimeTimeoutError`
+  - `RuntimeTokenLimitError`
+  - `RuntimeContextLimitError`
+- 目的:后续 orchestrator 不直接依赖 Claude SDK/LiteLLM/模型厂商原始异常格式。
+
+#### 1.5 `cr_agent/core/sdk_runtime.py`
+
+- 新增 `ClaudeAgentRuntime` 最小适配器骨架。
+- 当前支持:
+  - `query_main()`
+  - `query_subagent()`
+- 当前测试通过 mock client 验证响应解析、空结果、超时、token/context limit 错误分类。
+- 真实 Claude Agent SDK / LiteLLM 调用尚未接入。
+
+#### 1.6 `cr_agent/core/state.py`
+
+- 新增 `ReviewState`,记录一次审查运行状态:
+  - `status`
+  - `attempt`
+  - `max_retries`
+  - `tokens_consume`
+  - `errors`
+  - `warnings`
+
+#### 1.7 `cr_agent/core/artifacts.py`
+
+- 统一封装产物写盘:
+  - `write_result_json()`
+  - `write_result_markdown()`
+  - `append_run_log()`
+- 目的:成功、失败、异常终态都通过同一处写 `result.json`、`cr_result.md`、`run.log`。
+
+#### 1.8 `cr_agent/core/orchestrator.py`
+
+- 新增主编排占位链路:
+  1. 可选调用 `agent_runtime.query_main()`。
+  2. 调用 `collect_context`。
+  3. 调用 `dimension_review`。
+  4. 调用 `summarize_report`。
+  5. 调用 `validate_json`。
+  6. validate 失败时按 `max_retries` 重试 summary。
+  7. 写最终 `result.json`、`cr_result.md`、`run.log`。
+- 支持依赖注入 `agent_runtime` 与 `skill_registry`,测试时可替换为 fake。
+
+#### 1.9 4 个 skill 占位实现
+
+- `skills/collect_context/skill.py`
+  - 新增 async `collect_context(runtime_context)`,返回基础任务上下文。
+- `skills/dimension_review/skill.py`
+  - 新增 async `dimension_review(collected_context)`,返回 placeholder 维度评分。
+- `skills/summarize/skill.py`
+  - 新增 async `summarize_report(...)`,返回 placeholder Markdown 报告。
+- `skills/validate_json/skill.py`
+  - 新增 async `validate_json(report)`,当前只校验 `llm_result` 非空。
+  - attempt 不在 validate 内维护,仍归 orchestrator。
+
+#### 1.10 `skills/registry.py`
+
+- 新增 `SkillRegistry`。
+- 新增 `build_default_skill_registry()`。
+- 新增 `registered_skill_names()`。
+- 目的:orchestrator 不直接散落 import 各 skill,测试可替换 fake registry。
+
+#### 1.11 `requirements.txt`
+
+- 新增测试依赖:
+  - `pytest`
+  - `pytest-asyncio`
+
+### 2. 本次新增测试骨架
+
+#### 2.1 测试辅助
+
+- `tests/conftest.py`
+  - 提供临时 per-task `agent_config.toml` 与 `context.json` fixture。
+  - 避免测试依赖真实 workspace 路径。
+- `tests/fakes.py`
+  - `FakeAgentRuntime`:模拟主 agent/runtime 调用。
+  - `FakeSkillScenario`:模拟 4 个 skill,支持控制 validate 失败次数。
+
+#### 2.2 测试文件职责
+
+- `tests/test_bootstrap_smoke.py`
+  - 验证 `bootstrap_runtime()` 能把 config/context 装配成 `RuntimeContext`。
+- `tests/test_orchestrator_smoke.py`
+  - 用 fake runtime + fake skills 跑通端到端占位编排。
+  - 覆盖成功态、validate 失败后重试、超过 `max_retries` 后终态产物。
+- `tests/test_runtime_contract.py`
+  - 用 `unittest.mock.AsyncMock` 模拟 SDK client。
+  - 覆盖正常返回、空模型结果、超时、token limit、context limit。
+- `tests/test_usage.py`
+  - 覆盖 usage 提取、缺失 usage 容错、任务级 token 累计。
+- `tests/test_artifacts.py`
+  - 覆盖 `result.json`、`cr_result.md`、`run.log` 写盘。
+- `tests/test_skill_registry.py`
+  - 覆盖默认 registry 暴露 4 个 skill,以及占位 skill 链路。
+- `tests/test_contracts.py`
+  - 已有外部契约测试,继续保留。
+
+### 3. 测试运行方式
+
+首次准备:
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+运行全部测试:
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+.venv/bin/python -m pytest -q
+```
+
+当前验证结果:
+
+```text
+22 passed
+```
+
+### 4. 本地任务目录 smoke
+
+当前 `workspace/15-3de6a54a/agent_config.toml` 使用容器路径:
+
+```toml
+json_path = "/workspace/15-3de6a54a/context.json"
+result_path = "/workspace/cr_result/15-3de6a54a"
+```
+
+本机测试时,对应路径是:
+
+```text
+/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/15-3de6a54a
+```
+
+建议复制临时配置后替换路径:
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+
+cp workspace/15-3de6a54a/agent_config.toml /private/tmp/cr-agent-15-agent_config.toml
+
+.venv/bin/python -c "from pathlib import Path; p=Path('/private/tmp/cr-agent-15-agent_config.toml'); s=p.read_text(); s=s.replace('/workspace/15-3de6a54a','/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/15-3de6a54a'); s=s.replace('/workspace/cr_result/15-3de6a54a','/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/cr_result/15-3de6a54a'); p.write_text(s)"
+
+.venv/bin/python -m cr_agent.main --config /private/tmp/cr-agent-15-agent_config.toml --platform gitlab
+```
+
+产物位置:
+
+```text
+workspace/cr_result/15-3de6a54a/result.json
+workspace/cr_result/15-3de6a54a/cr_result.md
+workspace/cr_result/15-3de6a54a/run.log
+```
+
+### 5. 当前仍未实现
+
+- 真实 Claude Agent SDK client 初始化。
+- LiteLLM Anthropic-compatible Gateway 的真实调用链路。
+- 主 agent 的真实 agentic skill 调用。
+- `collect_context` 的真实上下文扩展。
+- `dimension_review` 的维度配置读取、并发 subagent 审查。
+- `summarize_report` 的真实 summary subagent。
+- `validate_json` 的完整 schema 校验。

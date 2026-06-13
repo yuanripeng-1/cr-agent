@@ -34,7 +34,7 @@
 | 项 | 决策 |
 |---|---|
 | 编排框架 | Claude Agent SDK(Python),`ClaudeSDKClient` 作主 agent |
-| 多模型 | Anthropic 兼容代理层;默认 **claude-code-router**,LiteLLM proxy 备选 |
+| 多模型 | Anthropic 兼容代理层;**默认 LiteLLM proxy**(主架构唯一网关),claude-code-router(CCR)**不进主架构**,仅作个人研发调试工具 |
 | 编排风格 | 混合:主 agent(LLM)决策 + Skill 内部确定性 Python 编排 |
 | Skill 形态 | 文件夹 = `SKILL.md`(契约/触发说明) + `skill.py`(代码);经 `@tool`+`create_sdk_mcp_server` 以**进程内工具**暴露给主 agent |
 | 工具解耦 | **统一工具外观层**为唯一解耦接口;启动按平台整套切换;无外部 MCP 进程(in-process MCP 仅作 SDK 边缘适配,隐藏在外观层之下,见 §7.0) |
@@ -43,9 +43,9 @@
 | infcode 工具 | **外部**,由 infcode 宿主注入;`InfcodeToolProvider` 仅做委托适配 |
 | 维度配置 | `config/dimensions.toml`,`profile=platform` 决定维度列表 |
 | summary | subagent 评级+总结,**默认空 allowlist(不接工具)** |
-| validate | **纯确定性代码**(jsonschema),无 LLM、无工具 |
-| 重试 | 校验失败→主 agent 决定重新 summary(agentic);**最大次数由代码兜底**,超限强制终止 |
-| 启动与平台识别 | `RUN.sh --config <workspace/config.toml> --platform <gitlab\|infcode>`;识别优先级 `--platform` 参数 > `config.toml platform` 字段(见 §8.1) |
+| validate | **纯确定性代码**(jsonschema),无 LLM、无工具;**纯函数只返回 `{valid, errors}`,不持有 attempt** |
+| 重试 | 校验失败→主 agent 决定重新 summary(agentic);**attempt 计数与最大次数兜底归编排层(`core/orchestrator.py` + `core/state.py`)**,超限强制终止 |
+| 启动与平台识别 | `RUN.sh --config <workspace/<task>/agent_config.toml> --platform <gitlab\|infcode>`;`[llm]`/根级 `platform`/`[context]` 均来自该 per-task `agent_config.toml`(仓库 `config/config.toml` 仅模板);识别优先级 `--platform` 参数 > `agent_config.toml` 根级 `platform` 字段(见 §8.1) |
 | 旧代码 | `agent/` 全面废弃,目录结构重建;`prompt/` 维度 prompt 迁移复用 |
 
 ---
@@ -162,7 +162,8 @@
 - **skill.py**:启动 **summary subagent(无工具)**,输入 = 所有 `DimensionScore` + 上下文 + 上轮报告 + `prompt/summary.md` 评级规则;输出格式化报告(JSON+markdown)。失败可由主 agent 重调。
 
 ### 6.4 `validate_json`
-- **skill.py**:**纯代码**,`jsonschema.validate(report, summary_schema)`;返回 `{valid, errors}`。维护 `attempt` 计数,超 `max_retries` 时返回 `{valid:false, terminal:true}` 让主 agent 终止。
+- **skill.py**:**纯函数代码**,`jsonschema.validate(report, summary_schema)`;**只返回 `{valid, errors}`**。
+- **attempt 计数不在 validate_json 内**:重试次数与超限终止由**编排层**管理(`core/orchestrator.py` 的重试循环 + `core/state.py` 的 `attempt`/`max_retries`)。validate 失败时主 agent(agentic)决定是否重调 summary;`attempt` 超 `max_retries` 由编排层代码强制终止并写降级终态(status 仍 `success` + `warnings`,见 §4)。
 
 ---
 
@@ -229,8 +230,8 @@ def build_tool_facade(platform, agent_tool_config) -> ToolFacade: ...
 ## 8. 多模型代理层
 
 - 主/子 agent 经 `ANTHROPIC_BASE_URL` 指向本地代理;代理把 Anthropic `/v1/messages` 转发到目标厂商。
-- 默认 **claude-code-router**(`config/` 放路由配置);备选 **LiteLLM proxy**(`config/litellm.config.yaml`)。
-- `RUN.sh` 负责:读取 workspace `config.toml` 与可选 `--platform` → 启动 Python 入口。
+- **默认 LiteLLM proxy**(`config/litellm.config.yaml`),作为主架构唯一 Anthropic-compatible Gateway。**CCR 不进主架构**,仅作个人研发调试工具;`config/router.config.json` 当前仅占位、主流程不加载。
+- `RUN.sh` 负责:读取 **per-task `workspace/<task>/agent_config.toml`**(`--config` 指定,`[llm]`/根级 `platform`/`[context]` 均来自此文件,值由调用方按任务生成)与可选 `--platform` → 启动 Python 入口。
 - 角色分级配模型:编排类(主/各 subagent)配强模型,叶子可配低成本模型。
 
 ### 8.1 平台识别机制(启动时如何区分 infcode / gitlab)
@@ -238,11 +239,13 @@ def build_tool_facade(platform, agent_tool_config) -> ToolFacade: ...
 平台识别只允许两种来源,按以下优先级取第一个命中的值:
 
 1. **`RUN.sh --platform <gitlab|infcode>`**(命令行参数,最高优先级)。
-2. **workspace `config.toml` 根级 `platform` 字段**。
+2. **per-task `agent_config.toml` 根级 `platform` 字段**。
 3. 都没有 → **启动失败并报错**(不默认猜测,避免用错工具集/维度)。
 
+> 实现备注:当前 `bootstrap.py` 在上述两源之外,还回退读取 `[llm].platform`(向后兼容超集)。如需严格执行本节两源,后续可移除该回退;在此之前以本节优先级为准、`[llm].platform` 仅作最低优先级兜底。
+
 调用方各自要传的内容:
-- **gitlab**:沿用 `RUN.sh` 调用,可直接加 `--platform gitlab`,也可在 workspace `config.toml` 配 `platform = "gitlab"`。
+- **gitlab**:沿用 `RUN.sh` 调用,可直接加 `--platform gitlab`,也可在 per-task `agent_config.toml` 配 `platform = "gitlab"`。
 - **infcode**:本项目作为 infcode 的 skill 被拉起时,同样使用这两种之一传入 `platform`。
 
 `bootstrap.py` 解析出 `platform` 后,据此:① `build_tool_facade(platform)` 选工具 provider;② `dimensions.toml [profiles.<platform>]` 选维度。识别结果写入 `run.log` 首行便于排查。
@@ -255,18 +258,23 @@ def build_tool_facade(platform, agent_tool_config) -> ToolFacade: ...
 cr-agent/
   RUN.sh  INSTALL.sh  requirements.txt  .CR-Agent.md
   config/
-    config.toml                 # 运行配置(模型、语言、路径、并发、max_retries)
+    config.toml                 # 模板/示例(真实运行配置来自 per-task workspace/<task>/agent_config.toml)
     dimensions.toml             # 维度 profile(按 platform)
     agent_tools.toml            # 每个 agent 的工具 allowlist(§7.4)
-    router.config.json          # claude-code-router 路由(或 litellm.config.yaml)
+    litellm.config.yaml         # LiteLLM proxy 路由(主架构唯一网关)
+    router.config.json          # (废弃)CCR 路由,仅个人调试,主流程不加载
   cr_agent/
     main.py                     # Python 入口
     bootstrap.py                # 平台探测 · 建外观层 · 设 env · 装配主 agent
     core/
       review_input.py           # ReviewInput(context.json 封装)
-      orchestrator.py           # 主 agent prompt + 编排循环 + 重试兜底
-      sdk_runtime.py            # ClaudeSDKClient / query 封装
-      state.py                  # attempt 计数、运行态
+      orchestrator.py           # 装配 agentic 主 agent + 编排循环 + 重试兜底 + 汇总 usage
+      sdk_runtime.py            # ClaudeAgentRuntime(ClaudeSDKClient / query 封装)
+      state.py                  # attempt 计数、运行态(ReviewState)
+      types.py                  # TokenUsage(input/output/cache_creation/cache_read)、QueryResult
+      errors.py                 # RuntimeCallError / RuntimeTimeoutError
+      usage.py                  # accumulate_usage / extract_usage(含 cache 字段)
+      artifacts.py              # result.json / cr_result.md / run.log 写盘
     skills/
       registry.py               # 把 4 个 skill 注册成主 agent 工具
       collect_context/  SKILL.md  skill.py
@@ -298,9 +306,9 @@ cr-agent/
 
 ### M0 基建与脚手架
 - 建新目录结构;`requirements.txt` 加 `claude-agent-sdk`、`jsonschema`、`pydantic`(或 dataclass)。
-- `INSTALL.sh`:装 SDK 依赖、`claude` CLI/Node、代理(claude-code-router 或 litellm)。
-- `RUN.sh`:解析 `--config/--platform` → 读配置 → 起代理 → 设 env → `python -m cr_agent.main`。
-- `bootstrap.py`:**平台识别(§8.1 优先级:`--platform` > `config.toml platform`,缺失即报错)**、env 装配骨架。
+- `INSTALL.sh`:装 SDK 依赖、`claude` CLI/Node、**LiteLLM proxy**(CCR 不进主架构,仅个人调试可选装)。
+- `RUN.sh`:解析 `--config/--platform`(`--config` 指向 per-task `workspace/<task>/agent_config.toml`)→ 读配置 → 起 LiteLLM 代理 → 设 env → `python -m cr_agent.main`。
+- `bootstrap.py`:**平台识别(§8.1 优先级:`--platform` > `agent_config.toml` 根级 `platform`,缺失即报错)**、解析 `[llm]` 并装配 SDK env/options 骨架。
 - 验证:`./RUN.sh` 能起 Python 入口;两种识别来源各验证一次,且全缺失时明确报错。
 
 ### M1 工具外观层 + cr-native 工具集

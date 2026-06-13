@@ -100,5 +100,100 @@ cr-agent/
 
 `config/` 下文件是**项目模板/静态策略配置**（后续维度与工具授权会从这里读取），
 不是本次任务运行时必须传入的配置文件。
-
 当前运行时仍然以 `workspace/<task>/agent_config.toml` 为准。
+
+## 测试与本地 Smoke
+
+当前已建立 pytest 测试骨架,目标是先固定可长期复用的开发模式:
+
+```text
+定义接口 → 搭建测试骨架 → Smoke Test 通过 → 开发功能 → 补充测试数据 → 持续回归
+```
+
+测试约束:
+
+- 不访问真实外部服务。
+- 不调用真实 LLM。
+- 不启动 LiteLLM。
+- 不调用真实 Claude Agent SDK。
+- 不调用真实工具。
+- runtime、主 agent、skill 均通过 fake 或 `unittest.mock.AsyncMock` 模拟依赖。
+
+### 1. 首次准备环境
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+### 2. 运行全部测试
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+.venv/bin/python -m pytest -q
+```
+
+这条命令的含义:
+
+- `.venv/bin/python`:使用本项目虚拟环境里的 Python。
+- `-m pytest`:以 Python 模块方式运行 pytest。
+- `-q`:quiet 模式,只输出简洁测试结果。
+
+当前测试会自动发现并执行 `tests/test_*.py`,覆盖:
+
+- `test_bootstrap_smoke.py`:启动配置与 `context.json` 装配 smoke test。
+- `test_orchestrator_smoke.py`:fake runtime + fake skills 的端到端占位编排测试。
+- `test_runtime_contract.py`:mock Claude SDK client 的 runtime 契约测试。
+- `test_usage.py`:任务级 token usage 提取与累计测试。
+- `test_artifacts.py`:`result.json`、`cr_result.md`、`run.log` 写盘测试。
+- `test_skill_registry.py`:默认 skill registry 与 4 个占位 skill 链路测试。
+- `test_contracts.py`:已有外部契约测试。
+
+当前验证结果:
+
+```text
+22 passed
+```
+
+### 3. 运行当前占位审查流程
+
+当前真实审查能力还未接入,但 `main.py → bootstrap_runtime → run_review → skill registry → artifacts`
+这条占位链路已经可以跑通。
+
+如果直接在本机使用 `workspace/15-3de6a54a` 任务目录,需要注意原始
+`agent_config.toml` 使用的是容器路径:
+
+```toml
+json_path = "/workspace/15-3de6a54a/context.json"
+result_path = "/workspace/cr_result/15-3de6a54a"
+```
+
+本机对应路径是:
+
+```text
+/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/15-3de6a54a
+```
+
+建议复制一份临时配置,不要直接改任务目录原文件:
+
+```bash
+cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
+
+cp workspace/15-3de6a54a/agent_config.toml /private/tmp/cr-agent-15-agent_config.toml
+
+.venv/bin/python -c "from pathlib import Path; p=Path('/private/tmp/cr-agent-15-agent_config.toml'); s=p.read_text(); s=s.replace('/workspace/15-3de6a54a','/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/15-3de6a54a'); s=s.replace('/workspace/cr_result/15-3de6a54a','/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/cr_result/15-3de6a54a'); p.write_text(s)"
+
+.venv/bin/python -m cr_agent.main --config /private/tmp/cr-agent-15-agent_config.toml --platform gitlab
+```
+
+产物会写到:
+
+```text
+workspace/cr_result/15-3de6a54a/result.json
+workspace/cr_result/15-3de6a54a/cr_result.md
+workspace/cr_result/15-3de6a54a/run.log
+```
+
+说明:当前输出仍是 placeholder review,用于验证流程和产物写盘;真实 SDK Runtime、
+真实 `collect_context`、真实 `dimension_review`、真实 `summarize_report` 尚未接入。
