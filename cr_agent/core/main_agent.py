@@ -95,7 +95,16 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
 
     async def dimension_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("SKILL_START skill=dimension_review")
-        result = await session.registry.dimension_review(session.collected_context or {})
+        result = await session.registry.dimension_review(
+            session.runtime_context,
+            session.collected_context or {},
+        )
+        for item in result:
+            usage = item.get("usage")
+            if isinstance(usage, TokenUsage):
+                session.add_usage(usage)
+            elif isinstance(usage, dict):
+                session.add_usage(extract_usage({"usage": usage}))
         session.dimension_scores = result
         _logger.info("SKILL_END skill=dimension_review")
         return ok_result({"dimensions": len(result)})

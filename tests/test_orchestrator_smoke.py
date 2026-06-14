@@ -124,7 +124,7 @@ class _ValidSummaryScenario:
             validate_json=self.validate_json,
         )
 
-    async def dimension_review(self, collected_context: dict) -> list[dict]:
+    async def dimension_review(self, runtime_context, collected_context: dict) -> list[dict]:
         return [{"dimension": "fake", "score": 100, "findings": []}]
 
     async def summarize_report(self, runtime_context, collected_context, dimension_scores, validation_errors):

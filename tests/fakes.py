@@ -76,7 +76,11 @@ class FakeSkillScenario:
             "platform": runtime_context.platform,
         }
 
-    async def dimension_review(self, collected_context: dict[str, Any]) -> list[dict[str, Any]]:
+    async def dimension_review(
+        self,
+        runtime_context: Any,
+        collected_context: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         return [{"dimension": "fake", "score": 100, "findings": []}]
 
     async def summarize_report(

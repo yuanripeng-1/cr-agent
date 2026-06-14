@@ -24,6 +24,19 @@ class _ContextRuntime:
         )
 
 
+class _DimensionRuntime:
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+        assert agent_name == "dimension"
+        return QueryResult(
+            text='{"dimension":"business","score":90,"confidence":80,"findings":[]}'
+        )
+
+
+class _EmptyFacade:
+    def tools_for(self, agent_name: str):
+        return []
+
+
 def test_default_registry_exposes_expected_skill_names() -> None:
     assert registered_skill_names() == {
         "collect_context",
@@ -40,15 +53,17 @@ async def test_default_registry_placeholder_flow(agent_config_path) -> None:
         runtime_context,
         summary_runtime=_SummaryRuntime(),
         context_runtime=_ContextRuntime(),
+        dimension_runtime=_DimensionRuntime(),
+        tool_facade=_EmptyFacade(),
     )
     registry = build_default_skill_registry()
 
     context = await registry.collect_context(runtime_context)
-    scores = await registry.dimension_review(context)
+    scores = await registry.dimension_review(runtime_context, context)
     report = await registry.summarize_report(runtime_context, context, scores, None)
     validation = await registry.validate_json(report)
 
     assert context["task_id"] == "task-1"
-    assert scores[0]["dimension"] == "placeholder"
+    assert scores[0]["dimension"] == "business"
     assert report["llm_result"].startswith("# CR-Agent")
     assert validation.valid is True
