@@ -13,7 +13,7 @@ from cr_agent.core.agent_config import (
     load_agent_config,
 )
 from cr_agent.core.review_input import ReviewInput, load_review_input
-from cr_agent.core.sdk_runtime import build_sdk_env
+from cr_agent.core.sdk_runtime import build_runtime, build_sdk_env
 from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle, build_crg_lifecycle
 from cr_agent.tools.cr_native.external_tools import check_external_tool_availability
 from cr_agent.tools.cr_native.git_tools import GitSettings, resolve_git_token, short_token_hash
@@ -43,6 +43,8 @@ class RuntimeContext:
     tool_facade: ToolFacade
     # CRG 生命周期状态;默认 disabled,由 run_review 在主流程开始时启动后台任务。
     crg_lifecycle: CrgLifecycle
+    # 子 agent runtime;summary skill 通过它调用 summary subagent。
+    summary_runtime: object
 
 
 def _record_bootstrap_issue(
@@ -182,6 +184,7 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         git_settings=git_settings,
         crg_lifecycle=crg_lifecycle,
     )
+    summary_runtime = build_runtime(config_data)
 
     # 早期把 LiteLLM 网关 env 写入进程环境,供 SDK/claude CLI 启动时读取。
     # 空值不注入;日志只记布尔,api_key 永不出现明文(并经脱敏 Filter 兜底)。
@@ -207,4 +210,5 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         review_input=context_data,
         tool_facade=tool_facade,
         crg_lifecycle=crg_lifecycle,
+        summary_runtime=summary_runtime,
     )

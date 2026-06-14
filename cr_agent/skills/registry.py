@@ -14,7 +14,7 @@ from cr_agent.skills.validate_json.skill import validate_json
 CollectContextFn = Callable[[RuntimeContext], Awaitable[dict[str, Any]]]
 DimensionReviewFn = Callable[[dict[str, Any]], Awaitable[list[dict[str, Any]]]]
 SummarizeReportFn = Callable[
-    [dict[str, Any], list[dict[str, Any]], list[str] | None],
+    [RuntimeContext, dict[str, Any], list[dict[str, Any]], list[str] | None],
     Awaitable[dict[str, Any]],
 ]
 ValidateJsonFn = Callable[[dict[str, Any]], Awaitable[ValidationResult]]

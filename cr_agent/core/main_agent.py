@@ -92,6 +92,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
             session.last_validation.errors if session.last_validation is not None else None
         )
         report = await session.registry.summarize_report(
+            session.runtime_context,
             session.collected_context or {},
             session.dimension_scores or [],
             prior_errors,

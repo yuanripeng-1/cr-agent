@@ -81,6 +81,7 @@ class FakeSkillScenario:
 
     async def summarize_report(
         self,
+        runtime_context: Any,
         collected_context: dict[str, Any],
         dimension_scores: list[dict[str, Any]],
         validation_errors: list[str] | None = None,
