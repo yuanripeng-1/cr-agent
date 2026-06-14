@@ -1,9 +1,9 @@
 """
 gitlab 平台的 cr-native 工具 provider。
 
-已做实:文件工具(read_file / read_file_range / glob_files / grep_text)与最小只读
-git 工具(git_status / git_rev_parse)、受控 git 接口(git_fetch / git_checkout)。
-其余工具(ast_grep_search / semble_* / crg_*)仍返回未实现占位。
+已做实:文件工具(read_file / read_file_range / glob_files / grep_text)、最小只读
+git 工具(git_status / git_rev_parse)、受控 git 接口(git_fetch / git_checkout),以及
+外部工具 adapter 骨架(ast_grep_search / semble_search / crg_status / crg_query)。
 """
 
 from __future__ import annotations
@@ -17,6 +17,12 @@ from cr_agent.tools.cr_native.fs_tools import (
     make_grep_text,
     make_read_file,
     make_read_file_range,
+)
+from cr_agent.tools.cr_native.external_tools import (
+    make_ast_grep_search,
+    make_crg_query,
+    make_crg_status,
+    make_semble_search,
 )
 from cr_agent.tools.cr_native.git_tools import (
     GitSettings,
@@ -64,6 +70,14 @@ class CrNativeToolProvider:
             return make_git_fetch(root, git)
         if tool_name == "git_checkout":
             return make_git_checkout(root, git)
+        if tool_name == "ast_grep_search":
+            return make_ast_grep_search(root, limits)
+        if tool_name == "semble_search":
+            return make_semble_search(root, limits)
+        if tool_name == "crg_status":
+            return make_crg_status(root, limits)
+        if tool_name == "crg_query":
+            return make_crg_query(root, limits)
 
         async def placeholder(args: dict) -> ToolResult:
             return not_implemented_result(tool_name, PROVIDER_NAME)

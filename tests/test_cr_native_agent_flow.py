@@ -56,10 +56,13 @@ async def test_agent_minimal_flow_over_cr_native_tools(project: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unimplemented_tools_still_placeholder(project: Path) -> None:
+async def test_crg_query_degrades_when_external_tool_missing(project: Path, monkeypatch) -> None:
+    from cr_agent.tools.cr_native import external_tools
+
+    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: None)
     provider = CrNativeToolProvider(project_root=project)
     tools = {spec.name: spec for spec in provider.list_tools()}
-    # PR4 未做实的工具仍是占位降级,不影响已实现工具。
     res = await tools["crg_query"].handler({"query": "x"})
     assert res["ok"] is False
-    assert "not implemented" in res["error"]
+    assert "code-review-graph" in res["error"]
+    assert res["warnings"]

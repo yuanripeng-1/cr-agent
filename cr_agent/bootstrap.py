@@ -14,6 +14,7 @@ from cr_agent.core.agent_config import (
 )
 from cr_agent.core.review_input import ReviewInput, load_review_input
 from cr_agent.core.sdk_runtime import build_sdk_env
+from cr_agent.tools.cr_native.external_tools import check_external_tool_availability
 from cr_agent.tools.cr_native.git_tools import GitSettings, resolve_git_token, short_token_hash
 from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
 from cr_agent.utils.logging import get_logger
@@ -152,6 +153,7 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         timeout_s=config_data.git.timeout_s,
         allow_network=config_data.git.allow_network,
     )
+    check_external_tool_availability()
     _logger.info(
         "GIT_TOKEN_RESOLVED configured=%s source=%s hash=%s allow_network=%s",
         bool(git_token),
