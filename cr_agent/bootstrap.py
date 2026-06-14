@@ -45,6 +45,8 @@ class RuntimeContext:
     crg_lifecycle: CrgLifecycle
     # 子 agent runtime;summary skill 通过它调用 summary subagent。
     summary_runtime: object
+    # 子 agent runtime;collect_context skill 通过它调用 context subagent。
+    context_runtime: object
 
 
 def _record_bootstrap_issue(
@@ -185,6 +187,7 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         crg_lifecycle=crg_lifecycle,
     )
     summary_runtime = build_runtime(config_data)
+    context_runtime = build_runtime(config_data)
 
     # 早期把 LiteLLM 网关 env 写入进程环境,供 SDK/claude CLI 启动时读取。
     # 空值不注入;日志只记布尔,api_key 永不出现明文(并经脱敏 Filter 兜底)。
@@ -211,4 +214,5 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         tool_facade=tool_facade,
         crg_lifecycle=crg_lifecycle,
         summary_runtime=summary_runtime,
+        context_runtime=context_runtime,
     )

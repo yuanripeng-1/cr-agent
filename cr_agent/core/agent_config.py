@@ -60,7 +60,8 @@ class CrgConfig(BaseModel):
 
     enabled: bool = False
     base_dir: str = ".crg"
-    # target_root 必须是已处于 MR 目标分支代码的本地目录;PR7 不做 fetch/checkout。
+    # 兼容旧配置。code-review-graph 2.x 真实 CLI 基于 project_root --repo 构建,
+    # 不再读取 target_root。
     target_root: str = ""
     max_retry: int = 3
     retry_interval_s: float = 1.0

@@ -36,7 +36,7 @@ EXTERNAL_TOOLS: tuple[ExternalTool, ...] = (
     ExternalTool("rg", ("rg",), required=True),
     ExternalTool("ast-grep", ("ast-grep", "sg")),
     ExternalTool("semble", ("semble",)),
-    ExternalTool("code-review-graph", ("code-review-graph", "crg")),
+    ExternalTool("code-review-graph", ("code-review-graph",)),
 )
 
 
@@ -213,12 +213,12 @@ def make_crg_status(
             return guard
 
         async def work() -> ToolResult:
-            candidates = ("code-review-graph", "crg")
+            candidates = ("code-review-graph",)
             command = resolve_command(candidates)
             if command is None:
                 return _missing_result("crg_status", candidates)
             return await _run_external(
-                [command, "status"],
+                [command, "status", "--repo", str(project_root.resolve())],
                 cwd=project_root.resolve(),
                 timeout_s=limits.timeout_s,
                 max_bytes=limits.max_grep_bytes,
@@ -245,13 +245,13 @@ def make_crg_query(
             return guard
 
         async def work() -> ToolResult:
-            candidates = ("code-review-graph", "crg")
+            candidates = ("code-review-graph",)
             command = resolve_command(candidates)
             if command is None:
                 return _missing_result("crg_query", candidates)
 
             result = await _run_external(
-                [command, "query", query],
+                [command, "detect-changes", "--repo", str(project_root.resolve()), "--base", query],
                 cwd=project_root.resolve(),
                 timeout_s=limits.timeout_s,
                 max_bytes=limits.max_grep_bytes,

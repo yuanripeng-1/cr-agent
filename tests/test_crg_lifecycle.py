@@ -61,6 +61,7 @@ def _review_input(project_root: Path, *, target_branch: str = "release/x") -> Re
             "diff_content": "diff --git a/a.py b/a.py",
             "project_root": str(project_root),
             "project_id": 35,
+            "base_sha": "abc123",
             "source_branch": "feature/a",
             "target_branch": target_branch,
         }
@@ -85,8 +86,7 @@ def _lifecycle(roots, *, enabled: bool = True, target_branch: str = "release/x")
 
 
 def _patch_crg(monkeypatch, calls: list[tuple[str, ...]], proc_factory=None) -> None:
-    monkeypatch.setattr(crg_lifecycle, "resolve_command", lambda candidates: "crg")
-    monkeypatch.setattr(crg_lifecycle, "subprocess_run_cp_reflink", lambda src, dst: 1)
+    monkeypatch.setattr(crg_lifecycle, "resolve_command", lambda candidates: "code-review-graph")
 
     async def _fake_exec(*args, **kwargs):
         calls.append(tuple(args))
@@ -106,49 +106,44 @@ def test_crg_disabled_does_not_start(roots) -> None:
 
 
 @pytest.mark.asyncio
-async def test_crg_enabled_target_db_update_mr_graph(roots, monkeypatch) -> None:
+async def test_crg_enabled_existing_graph_updates_source_repo(roots, monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
     _patch_crg(monkeypatch, calls)
     life = _lifecycle(roots)
     assert life.paths is not None
-    life.paths.baseline_dir.mkdir(parents=True)
-    life.paths.target_db.write_text("target-db", encoding="utf-8")
 
     life.start_background()
     await life.task
 
     assert life.ready is True
-    assert life.paths.graph_db.read_text(encoding="utf-8") == "target-db"
-    assert calls == [("crg", "update", str(roots["project_root"]), "--db", str(life.paths.graph_db))]
-
-
-@pytest.mark.asyncio
-async def test_crg_enabled_main_db_two_phase_update(roots, monkeypatch) -> None:
-    calls: list[tuple[str, ...]] = []
-    _patch_crg(monkeypatch, calls)
-    life = _lifecycle(roots)
-    assert life.paths is not None
-    life.paths.baseline_dir.mkdir(parents=True)
-    (life.paths.baseline_dir / "main.db").write_text("main-db", encoding="utf-8")
-
-    life.start_background()
-    await life.task
-
-    assert life.ready is True
-    assert life.paths.target_db.read_text(encoding="utf-8") == "main-db"
     assert calls == [
-        ("crg", "update", str(roots["target_root"]), "--db", str(life.paths.target_db)),
-        ("crg", "update", str(roots["project_root"]), "--db", str(life.paths.graph_db)),
+        (
+            "code-review-graph",
+            "status",
+            "--repo",
+            str(roots["project_root"]),
+            "--data-dir",
+            str(life.paths.data_dir),
+        ),
+        (
+            "code-review-graph",
+            "update",
+            "--repo",
+            str(roots["project_root"]),
+            "--base",
+            "abc123",
+            "--data-dir",
+            str(life.paths.data_dir),
+        ),
     ]
 
 
 @pytest.mark.asyncio
-async def test_crg_enabled_cold_build_then_update(roots, monkeypatch) -> None:
+async def test_crg_enabled_cold_build(roots, monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
-
     def _proc_factory(*args):
-        if args[1] == "build":
-            life.paths.target_db.write_text("built-db", encoding="utf-8")
+        if args[1] == "status":
+            return _FakeProc(returncode=1, stderr=b"not initialized")
         return _FakeProc()
 
     _patch_crg(monkeypatch, calls, _proc_factory)
@@ -160,29 +155,39 @@ async def test_crg_enabled_cold_build_then_update(roots, monkeypatch) -> None:
 
     assert life.ready is True
     assert calls == [
-        ("crg", "build", str(roots["target_root"]), "--db", str(life.paths.target_db)),
-        ("crg", "update", str(roots["project_root"]), "--db", str(life.paths.graph_db)),
+        (
+            "code-review-graph",
+            "status",
+            "--repo",
+            str(roots["project_root"]),
+            "--data-dir",
+            str(life.paths.data_dir),
+        ),
+        (
+            "code-review-graph",
+            "build",
+            "--repo",
+            str(roots["project_root"]),
+            "--data-dir",
+            str(life.paths.data_dir),
+        ),
     ]
 
 
 @pytest.mark.asyncio
-async def test_crg_target_branch_main_uses_target_root_only(roots, monkeypatch) -> None:
+async def test_crg_uses_source_project_root_not_target_root(roots, monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
 
-    def _proc_factory(*args):
-        if args[1] == "build":
-            life.paths.target_db.write_text("main-db", encoding="utf-8")
-        return _FakeProc()
-
-    _patch_crg(monkeypatch, calls, _proc_factory)
+    _patch_crg(monkeypatch, calls)
     life = _lifecycle(roots, target_branch="main")
     assert life.paths is not None
 
     life.start_background()
     await life.task
 
-    assert life.paths.target_db.name == "main.db"
-    assert calls[0] == ("crg", "build", str(roots["target_root"]), "--db", str(life.paths.target_db))
+    flat = " ".join(" ".join(call) for call in calls)
+    assert str(roots["project_root"]) in flat
+    assert str(roots["target_root"]) not in flat
 
 
 @pytest.mark.asyncio
@@ -219,15 +224,21 @@ async def test_crg_query_retries_until_ready(roots, monkeypatch) -> None:
     life = _lifecycle(roots)
     assert life.paths is not None
     life.ready = True
-    life.paths.graph_db.parent.mkdir(parents=True, exist_ok=True)
-    life.paths.graph_db.write_text("graph", encoding="utf-8")
 
     result = await life.query("PaymentService.acquireLock")
 
     assert result["ok"] is True
     assert result["data"]["query"] == "PaymentService.acquireLock"
+    assert result["data"]["base"] == "abc123"
     assert calls == [
-        ("crg", "query", "PaymentService.acquireLock", "--db", str(life.paths.graph_db))
+        (
+            "code-review-graph",
+            "detect-changes",
+            "--repo",
+            str(roots["project_root"]),
+            "--base",
+            "abc123",
+        )
     ]
 
 
@@ -237,8 +248,6 @@ async def test_crg_never_calls_git_checkout(roots, monkeypatch) -> None:
     _patch_crg(monkeypatch, calls)
     life = _lifecycle(roots)
     assert life.paths is not None
-    life.paths.baseline_dir.mkdir(parents=True)
-    life.paths.target_db.write_text("target-db", encoding="utf-8")
 
     life.start_background()
     await life.task

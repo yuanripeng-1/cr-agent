@@ -16,6 +16,14 @@ class _SummaryRuntime:
         return QueryResult(text='{"llm_result": "# CR-Agent\\n\\nGenerated."}')
 
 
+class _ContextRuntime:
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+        assert agent_name == "context"
+        return QueryResult(
+            text='{"summary":"context collected","diff_summary":"diff ok","warnings":[]}'
+        )
+
+
 def test_default_registry_exposes_expected_skill_names() -> None:
     assert registered_skill_names() == {
         "collect_context",
@@ -28,7 +36,11 @@ def test_default_registry_exposes_expected_skill_names() -> None:
 @pytest.mark.asyncio
 async def test_default_registry_placeholder_flow(agent_config_path) -> None:
     runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
-    runtime_context = replace(runtime_context, summary_runtime=_SummaryRuntime())
+    runtime_context = replace(
+        runtime_context,
+        summary_runtime=_SummaryRuntime(),
+        context_runtime=_ContextRuntime(),
+    )
     registry = build_default_skill_registry()
 
     context = await registry.collect_context(runtime_context)

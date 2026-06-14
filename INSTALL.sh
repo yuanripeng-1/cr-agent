@@ -3,10 +3,11 @@
 set -euo pipefail
 
 ENV_NAME="cragent"
+CRG_ENV_NAME="crg"
 PYTHON_VERSION="3.11"
 
 usage() {
-  echo "用法: $0 [--env-name <name>] [--python-version <version>]"
+  echo "用法: $0 [--env-name <name>] [--crg-env-name <name>] [--python-version <version>]"
 }
 
 has_command_group() {
@@ -107,10 +108,31 @@ ensure_pip_tool() {
   check_command_group "$label" "$install_hint" "$@"
 }
 
+create_tool_wrapper() {
+  local wrapper_path="$1"
+  local target_bin="$2"
+
+  if [[ -z "$target_bin" || ! -x "$target_bin" ]]; then
+    echo "警告: 无法创建 wrapper，目标命令不可执行: $target_bin"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$wrapper_path")"
+  cat > "$wrapper_path" <<EOF
+#!/usr/bin/env bash
+exec "$target_bin" "\$@"
+EOF
+  chmod +x "$wrapper_path"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env-name)
       ENV_NAME="$2"
+      shift 2
+      ;;
+    --crg-env-name)
+      CRG_ENV_NAME="$2"
       shift 2
       ;;
     --python-version)
@@ -150,12 +172,29 @@ conda create -n "$ENV_NAME" python="$PYTHON_VERSION" -y
 conda run -n "$ENV_NAME" pip install --upgrade pip
 conda run -n "$ENV_NAME" pip install -r "$REQ_FILE"
 
+if conda env list | awk -v env="$CRG_ENV_NAME" '$1 == env {found=1} END {exit !found}'; then
+  conda env remove -n "$CRG_ENV_NAME" -y
+fi
+
+conda create -n "$CRG_ENV_NAME" python="$PYTHON_VERSION" -y
+conda run -n "$CRG_ENV_NAME" pip install --upgrade pip
+conda run -n "$CRG_ENV_NAME" pip install code-review-graph
+
 echo "检查外部工具..."
 ensure_system_tool "git" "请安装 git；缺失时 git 工具会降级。" git git git git
 ensure_system_tool "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep ripgrep ripgrep ripgrep rg
 ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep "" ast-grep ast-grep sg
 ensure_pip_tool "Semble" "请安装 semble；缺失时 semble_search 会降级。" semble semble
-ensure_pip_tool "code-review-graph" "请安装 code-review-graph；缺失时 crg_* 工具会降级。" code-review-graph code-review-graph crg
+
+TOOLS_BIN_DIR="$SCRIPT_DIR/.tools/bin"
+SEMBLE_BIN="$(conda run -n "$ENV_NAME" python -c 'import shutil; print(shutil.which("semble") or "")')"
+CRG_BIN="$(conda run -n "$CRG_ENV_NAME" python -c 'import shutil; print(shutil.which("code-review-graph") or "")')"
+create_tool_wrapper "$TOOLS_BIN_DIR/semble" "$SEMBLE_BIN"
+create_tool_wrapper "$TOOLS_BIN_DIR/code-review-graph" "$CRG_BIN"
+
+PATH="$TOOLS_BIN_DIR:$PATH"
+check_command_group "Semble wrapper" "请检查 $TOOLS_BIN_DIR/semble。" semble
+check_command_group "code-review-graph wrapper" "请检查 $TOOLS_BIN_DIR/code-review-graph。" code-review-graph
 
 echo "安装完成。"
 echo "运行方式:"

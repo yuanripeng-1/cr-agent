@@ -38,7 +38,7 @@ def test_check_external_tool_availability_reports_missing(monkeypatch) -> None:
     status = check_external_tool_availability()
     assert status["git"]["available"] is False
     assert status["git"]["required"] is True
-    assert status["code-review-graph"]["candidates"] == ["code-review-graph", "crg"]
+    assert status["code-review-graph"]["candidates"] == ["code-review-graph"]
 
 
 @pytest.mark.asyncio
@@ -110,3 +110,38 @@ async def test_ast_grep_search_uses_adapter_command(project: Path, monkeypatch) 
     assert result["ok"] is True
     assert result["data"]["matches"] == ["app.py:1:def handler"]
     assert calls[0][:4] == ("sg", "run", "--pattern", "def $F()")
+
+
+@pytest.mark.asyncio
+async def test_crg_status_uses_code_review_graph_cli(project: Path, monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: "code-review-graph")
+
+    async def _fake_exec(*args, **kwargs):
+        calls.append(tuple(args))
+        return _FakeProc()
+
+    monkeypatch.setattr(external_tools.asyncio, "create_subprocess_exec", _fake_exec)
+    result = await make_crg_status(project, ToolLimits())({})
+    assert result["ok"] is True
+    assert calls == [
+        ("code-review-graph", "status", "--repo", str(project.resolve()))
+    ]
+
+
+@pytest.mark.asyncio
+async def test_crg_query_uses_detect_changes_cli(project: Path, monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: "code-review-graph")
+
+    async def _fake_exec(*args, **kwargs):
+        calls.append(tuple(args))
+        return _FakeProc()
+
+    monkeypatch.setattr(external_tools.asyncio, "create_subprocess_exec", _fake_exec)
+    result = await make_crg_query(project, ToolLimits())({"query": "HEAD~1"})
+    assert result["ok"] is True
+    assert result["data"]["query"] == "HEAD~1"
+    assert calls == [
+        ("code-review-graph", "detect-changes", "--repo", str(project.resolve()), "--base", "HEAD~1")
+    ]

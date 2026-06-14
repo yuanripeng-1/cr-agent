@@ -3,6 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$SCRIPT_DIR/.tools/bin:$PATH"
 CONFIG_FILE=""
 PLATFORM_OVERRIDE=""
 ENV_NAME="cragent"
@@ -79,4 +80,3 @@ echo "🚀 启动 CR-Agent SDK pipeline..."
 
 cd "$SCRIPT_DIR"
 "${CMD[@]}"
-

@@ -8,6 +8,7 @@ __pycache__/
 venv/
 env/
 .venv/
+.tools/
 
 # IDE / OS
 .vscode/
@@ -24,4 +25,3 @@ Thumbs.db
 # Large runtime workspace code copies
 workspaces/
 workspace/
-

@@ -27,6 +27,7 @@ from typing import Any, Awaitable, Callable, Protocol
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage, ValidationResult
+from cr_agent.core.usage import accumulate_usage, extract_usage
 from cr_agent.skills.registry import SkillRegistry
 from cr_agent.tools.provider import ToolSpec, ok_result
 from cr_agent.utils.logging import get_logger
@@ -66,6 +67,9 @@ class MainAgentSession:
     last_report: dict[str, Any] | None = None
     last_validation: ValidationResult | None = None
 
+    def add_usage(self, usage: TokenUsage) -> None:
+        self.state.tokens_consume = accumulate_usage(self.state.tokens_consume, usage)
+
 
 def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
     """把 3 个占位 skill 包装成主 agent 可调用的 ToolSpec。"""
@@ -73,9 +77,21 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
     async def collect_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("SKILL_START skill=collect_context")
         result = await session.registry.collect_context(session.runtime_context)
+        usage = result.get("usage")
+        if isinstance(usage, TokenUsage):
+            session.add_usage(usage)
+        elif isinstance(usage, dict):
+            session.add_usage(extract_usage({"usage": usage}))
         session.collected_context = result
         _logger.info("SKILL_END skill=collect_context")
-        return ok_result({"task_id": result.get("task_id", "")})
+        return ok_result(
+            {
+                "task_id": result.get("task_id", ""),
+                "artifact_path": result.get("artifact_path", ""),
+                "summary": result.get("summary", ""),
+                "warnings": result.get("warnings", []),
+            }
+        )
 
     async def dimension_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("SKILL_START skill=dimension_review")

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import load_review_result
-from cr_agent.core.types import TokenUsage
+from cr_agent.core.types import QueryResult, TokenUsage, ValidationResult
+from cr_agent.skills.collect_context.skill import collect_context
+from cr_agent.skills.registry import SkillRegistry
+from cr_agent.tools.provider import ToolSpec
 from tests.fakes import FakeSkillScenario, ScriptedMainAgentRuntime
 
 
@@ -94,3 +98,57 @@ async def test_run_review_requires_agent_runtime(agent_config_path: Path) -> Non
     runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
     with pytest.raises(ValueError, match="main agent runtime"):
         await run_review(runtime_context, agent_runtime=None)
+
+
+class _EmptyFacade:
+    def tools_for(self, agent_name: str) -> list[ToolSpec]:
+        assert agent_name == "context"
+        return []
+
+
+class _UsageContextRuntime:
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+        assert agent_name == "context"
+        return QueryResult(
+            text='{"summary":"ctx","diff_summary":"diff","warnings":[]}',
+            usage=TokenUsage(input_tokens=3, output_tokens=4),
+        )
+
+
+class _ValidSummaryScenario:
+    def registry(self) -> SkillRegistry:
+        return SkillRegistry(
+            collect_context=collect_context,
+            dimension_review=self.dimension_review,
+            summarize_report=self.summarize_report,
+            validate_json=self.validate_json,
+        )
+
+    async def dimension_review(self, collected_context: dict) -> list[dict]:
+        return [{"dimension": "fake", "score": 100, "findings": []}]
+
+    async def summarize_report(self, runtime_context, collected_context, dimension_scores, validation_errors):
+        return {"llm_result": "# ok"}
+
+    async def validate_json(self, report: dict) -> ValidationResult:
+        return ValidationResult(valid=True)
+
+
+@pytest.mark.asyncio
+async def test_collect_context_usage_is_accumulated(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    runtime_context = replace(
+        runtime_context,
+        tool_facade=_EmptyFacade(),
+        context_runtime=_UsageContextRuntime(),
+    )
+    fake_runtime = ScriptedMainAgentRuntime(usage=TokenUsage(input_tokens=10, output_tokens=5))
+
+    result = await run_review(
+        runtime_context,
+        agent_runtime=fake_runtime,
+        skill_registry=_ValidSummaryScenario().registry(),
+    )
+
+    assert result.tokens_consume.input_tokens == 13
+    assert result.tokens_consume.output_tokens == 9
