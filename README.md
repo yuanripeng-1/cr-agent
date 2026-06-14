@@ -255,3 +255,32 @@ cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
 
 > 自动化验收见 `tests/test_cr_native_tools.py`(正常/越权/截断/rg 缺失/超时降级)与
 > `tests/test_cr_native_agent_flow.py`(脚本化 agent 跑 glob→read→grep 最小流程),全程不联网。
+
+### 6. git 工具与分支不变量
+
+PR5 实现最小**只读** git 工具,并把远程/切分支做成**受控接口**:
+
+| 工具 | 行为 |
+| --- | --- |
+| `git_status` | `git status --porcelain`,只读 |
+| `git_rev_parse` | `git rev-parse <ref|HEAD>`,只读 |
+| `git_fetch` | 受控:`allow_network=false`(默认)直接降级、不联网;开启后远程失败也降级 |
+| `git_checkout` | 受控:**默认拒绝**,落实“不隐式切分支”不变量 |
+
+**git token 解析**:优先级 `context.json.git_token > agent_config.toml [git].token > ""`。
+日志只记 `GIT_TOKEN_RESOLVED configured=true/false source=context|config|none hash=<短 hash>`,
+**绝不打印明文**(复用 PR1 脱敏 Filter)。可选配置:
+
+```toml
+[git]
+token = ""
+timeout_s = 30
+allow_network = false
+```
+
+**分支不变量(重要)**:CRG 后台构建启动前,工作区必须**已处于待审查分支(即 `source_branch`)**;
+分支切换只能由上游或显式 git 步骤完成,**不得隐式切分支**——否则后台构建期间工作区被切走会产生竞态(见 PR7)。
+因此 `git_checkout` 默认拒绝执行;`context.json.source_branch` 仅用于日志与校验,不触发自动 checkout。
+
+git/token/远程权限缺失时,所有 git 工具均返回结构化降级 `{ok:false,...}`,**不让任务失败**。
+自动化验收见 `tests/test_git_tools.py`(token 优先级、各类降级、日志无明文、真实只读 git)。

@@ -54,6 +54,10 @@ CANONICAL_TOOLS: dict[str, tuple[str, JsonSchema]] = {
         "Show working tree status (read-only).",
         _obj({}, []),
     ),
+    "git_rev_parse": (
+        "Resolve a ref to a commit SHA (read-only).",
+        _obj({"ref": _STR}, []),
+    ),
     "git_fetch": (
         "Fetch refs from a remote.",
         _obj({"remote": _STR, "ref": _STR}, []),

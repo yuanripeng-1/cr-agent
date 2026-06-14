@@ -69,6 +69,10 @@ class ReviewInput(BaseModel):
     # 上一次审查报告内容,用于增量审查时参考历史结论。
     previous_report: str = ""
 
+    # per-task git token,用于 git 远程操作鉴权。优先级高于 agent_config [git].token。
+    # 这是后端新增兼容字段;日志必须脱敏,只记 configured/短 hash。
+    git_token: str = ""
+
     # 历史后端字段名是 requirements_Doc。这里同时接受 requirements_doc,
     # 方便 Python 内部调用使用 snake_case,又不破坏外部 JSON 契约。
     # 外部需求文档内容或路径,用于把业务需求纳入审查上下文。

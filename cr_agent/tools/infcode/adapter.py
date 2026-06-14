@@ -26,7 +26,12 @@ def _placeholder(tool_name: str) -> ToolHandler:
 class InfcodeToolProvider:
     """infcode 平台 stub:工具名齐全,统一降级返回。"""
 
-    def __init__(self, project_root: Path | None = None, limits: Any | None = None) -> None:
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        limits: Any | None = None,
+        git_settings: Any | None = None,
+    ) -> None:
         # 签名与 CrNativeToolProvider 对齐;infcode stub 不使用这些参数。
         self._project_root = project_root
 

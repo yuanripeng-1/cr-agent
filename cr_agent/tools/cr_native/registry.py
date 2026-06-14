@@ -1,8 +1,9 @@
 """
 gitlab 平台的 cr-native 工具 provider。
 
-PR4:read_file / read_file_range / glob_files / grep_text 已做实(限制在 project_root 下、
-超时/截断/结构化返回);其余工具(ast_grep_search / git_* / semble_* / crg_*)仍返回未实现占位。
+已做实:文件工具(read_file / read_file_range / glob_files / grep_text)与最小只读
+git 工具(git_status / git_rev_parse)、受控 git 接口(git_fetch / git_checkout)。
+其余工具(ast_grep_search / semble_* / crg_*)仍返回未实现占位。
 """
 
 from __future__ import annotations
@@ -17,27 +18,36 @@ from cr_agent.tools.cr_native.fs_tools import (
     make_read_file,
     make_read_file_range,
 )
+from cr_agent.tools.cr_native.git_tools import (
+    GitSettings,
+    make_git_checkout,
+    make_git_fetch,
+    make_git_rev_parse,
+    make_git_status,
+)
 from cr_agent.tools.provider import ToolHandler, ToolResult, ToolSpec, not_implemented_result
 
 PROVIDER_NAME = "cr-native"
 
 
 class CrNativeToolProvider:
-    """gitlab 平台 provider:本地文件工具已实现,外部工具待补。"""
+    """gitlab 平台 provider:本地文件/只读 git 工具已实现,外部工具待补。"""
 
     def __init__(
         self,
         project_root: Path | None = None,
         limits: ToolLimits | None = None,
+        git_settings: GitSettings | None = None,
     ) -> None:
         self._project_root = project_root
         self._limits = limits or ToolLimits()
+        self._git = git_settings or GitSettings()
 
     def name(self) -> str:
         return PROVIDER_NAME
 
     def _handler_factory(self, tool_name: str) -> ToolHandler:
-        root, limits = self._project_root, self._limits
+        root, limits, git = self._project_root, self._limits, self._git
         if tool_name == "read_file":
             return make_read_file(root, limits)
         if tool_name == "read_file_range":
@@ -46,6 +56,14 @@ class CrNativeToolProvider:
             return make_glob_files(root, limits)
         if tool_name == "grep_text":
             return make_grep_text(root, limits)
+        if tool_name == "git_status":
+            return make_git_status(root, git)
+        if tool_name == "git_rev_parse":
+            return make_git_rev_parse(root, git)
+        if tool_name == "git_fetch":
+            return make_git_fetch(root, git)
+        if tool_name == "git_checkout":
+            return make_git_checkout(root, git)
 
         async def placeholder(args: dict) -> ToolResult:
             return not_implemented_result(tool_name, PROVIDER_NAME)

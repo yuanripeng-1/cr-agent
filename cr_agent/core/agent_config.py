@@ -42,6 +42,18 @@ class LlmConfig(BaseModel):
     platform: Platform | None = None
 
 
+class GitConfig(BaseModel):
+    # git 配置全部可选,缺省时只读本地 git 仍可用、远程默认关闭。
+    model_config = ConfigDict(extra="allow")
+
+    # 全局兜底 token;per-task context.git_token 优先级更高。日志必须脱敏。
+    token: str = ""
+    # git 命令超时(秒)。
+    timeout_s: float = 30.0
+    # 是否允许联网(git_fetch 等);默认关闭,避免引入不可控远程成本。
+    allow_network: bool = False
+
+
 class AgentConfig(BaseModel):
     """
     workspace/<task>/agent_config.toml 的外部运行配置契约。
@@ -54,6 +66,7 @@ class AgentConfig(BaseModel):
     context: ContextConfig
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     llm: LlmConfig
+    git: GitConfig = Field(default_factory=GitConfig)
     platform: Platform | None = None
 
     def configured_platform(self) -> Platform | None:

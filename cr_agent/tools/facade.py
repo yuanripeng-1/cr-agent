@@ -18,6 +18,7 @@ from cr_agent.core.agent_config import Platform
 from cr_agent.tools.allowlist import load_agent_tools
 from cr_agent.tools.catalog import CANONICAL_TOOL_NAMES
 from cr_agent.tools.cr_native.registry import CrNativeToolProvider
+from cr_agent.tools.cr_native.git_tools import GitSettings
 from cr_agent.tools.infcode.adapter import InfcodeToolProvider
 from cr_agent.tools.provider import ToolProvider, ToolSpec
 from cr_agent.utils.logging import get_logger
@@ -72,11 +73,14 @@ def select_tool_provider(
     platform: Platform,
     *,
     project_root: Path | None = None,
+    git_settings: GitSettings | None = None,
 ) -> ToolProvider:
     if platform == "gitlab":
-        provider: ToolProvider = CrNativeToolProvider(project_root=project_root)
+        provider: ToolProvider = CrNativeToolProvider(
+            project_root=project_root, git_settings=git_settings
+        )
     elif platform == "infcode":
-        provider = InfcodeToolProvider(project_root=project_root)
+        provider = InfcodeToolProvider(project_root=project_root, git_settings=git_settings)
     else:
         raise ValueError(f"Unsupported platform for tool provider: {platform}")
     _logger.info("TOOL_PROVIDER_SELECTED platform=%s provider=%s", platform, provider.name())
@@ -94,9 +98,12 @@ def build_tool_facade_for_platform(
     platform: Platform,
     *,
     project_root: Path | None = None,
+    git_settings: GitSettings | None = None,
     agent_tools_path: Path | None = None,
 ) -> ToolFacade:
     return build_tool_facade(
-        select_tool_provider(platform, project_root=project_root),
+        select_tool_provider(
+            platform, project_root=project_root, git_settings=git_settings
+        ),
         agent_tools_path,
     )

@@ -14,6 +14,7 @@ from cr_agent.core.agent_config import (
 )
 from cr_agent.core.review_input import ReviewInput, load_review_input
 from cr_agent.core.sdk_runtime import build_sdk_env
+from cr_agent.tools.cr_native.git_tools import GitSettings, resolve_git_token, short_token_hash
 from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
 from cr_agent.utils.logging import get_logger
 
@@ -143,12 +144,29 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
 
     workspace_dir = context_path.parent
 
+    # 解析 git token(context.git_token > config.git.token > "")并构造 GitSettings。
+    # 日志只记 configured/source/短 hash,绝不打印明文(并经脱敏 Filter 兜底)。
+    git_token, git_token_source = resolve_git_token(context_data, config_data.git)
+    git_settings = GitSettings(
+        token=git_token,
+        timeout_s=config_data.git.timeout_s,
+        allow_network=config_data.git.allow_network,
+    )
+    _logger.info(
+        "GIT_TOKEN_RESOLVED configured=%s source=%s hash=%s allow_network=%s",
+        bool(git_token),
+        git_token_source,
+        short_token_hash(git_token),
+        config_data.git.allow_network,
+    )
+
     # 平台确定后选定工具 provider 并加载 allowlist;provider 选择与 allowlist
     # 结果在 facade 内部记日志(TOOL_PROVIDER_SELECTED / TOOL_ALLOWLIST_LOADED)。
-    # project_root 注入给 cr-native 文件工具(限制读取范围)。
+    # project_root 注入给 cr-native 文件工具;git_settings 注入给 git 工具。
     tool_facade = build_tool_facade_for_platform(
         final_platform,
         project_root=Path(context_data.project_root),
+        git_settings=git_settings,
     )
 
     # 早期把 LiteLLM 网关 env 写入进程环境,供 SDK/claude CLI 启动时读取。
