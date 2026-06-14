@@ -54,6 +54,25 @@ class GitConfig(BaseModel):
     allow_network: bool = False
 
 
+class CrgConfig(BaseModel):
+    # CRG 默认关闭,避免首次接入时引入后台构建成本。
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = False
+    base_dir: str = ".crg"
+    # target_root 必须是已处于 MR 目标分支代码的本地目录;PR7 不做 fetch/checkout。
+    target_root: str = ""
+    max_retry: int = 3
+    retry_interval_s: float = 1.0
+    timeout_s: float = 60.0
+
+
+class ToolsConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    crg: CrgConfig = Field(default_factory=CrgConfig)
+
+
 class AgentConfig(BaseModel):
     """
     workspace/<task>/agent_config.toml 的外部运行配置契约。
@@ -67,6 +86,7 @@ class AgentConfig(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     llm: LlmConfig
     git: GitConfig = Field(default_factory=GitConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     platform: Platform | None = None
 
     def configured_platform(self) -> Platform | None:

@@ -14,6 +14,7 @@ from cr_agent.core.agent_config import (
 )
 from cr_agent.core.review_input import ReviewInput, load_review_input
 from cr_agent.core.sdk_runtime import build_sdk_env
+from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle, build_crg_lifecycle
 from cr_agent.tools.cr_native.external_tools import check_external_tool_availability
 from cr_agent.tools.cr_native.git_tools import GitSettings, resolve_git_token, short_token_hash
 from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
@@ -40,6 +41,8 @@ class RuntimeContext:
     review_input: ReviewInput
     # 按平台选定 provider 并加载 allowlist 后的工具外观层。
     tool_facade: ToolFacade
+    # CRG 生命周期状态;默认 disabled,由 run_review 在主流程开始时启动后台任务。
+    crg_lifecycle: CrgLifecycle
 
 
 def _record_bootstrap_issue(
@@ -162,6 +165,14 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         config_data.git.allow_network,
     )
 
+    crg_lifecycle = build_crg_lifecycle(
+        config=config_data.tools.crg,
+        review_input=context_data,
+        workspace_dir=workspace_dir,
+        result_dir=result_dir,
+        config_dir=config_dir,
+    )
+
     # 平台确定后选定工具 provider 并加载 allowlist;provider 选择与 allowlist
     # 结果在 facade 内部记日志(TOOL_PROVIDER_SELECTED / TOOL_ALLOWLIST_LOADED)。
     # project_root 注入给 cr-native 文件工具;git_settings 注入给 git 工具。
@@ -169,6 +180,7 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         final_platform,
         project_root=Path(context_data.project_root),
         git_settings=git_settings,
+        crg_lifecycle=crg_lifecycle,
     )
 
     # 早期把 LiteLLM 网关 env 写入进程环境,供 SDK/claude CLI 启动时读取。
@@ -194,4 +206,5 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         platform=final_platform,
         review_input=context_data,
         tool_facade=tool_facade,
+        crg_lifecycle=crg_lifecycle,
     )

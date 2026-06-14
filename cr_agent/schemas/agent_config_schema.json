@@ -16,4 +16,15 @@
     "platform": "兼容历史配置的平台字段。推荐后续迁移到根级 platform。"
   },
   "platform": "推荐的平台配置位置,用于选择工具集和审查维度。命令行 --platform 优先级更高。"
+  ,
+  "tools": {
+    "crg": {
+      "enabled": "是否启用 code-review-graph 生命周期管理。默认 false。",
+      "base_dir": "CRG 基线 DB 根目录。相对路径按 agent_config.toml 所在目录解析。",
+      "target_root": "MR 目标分支代码的本地目录。CRG 不负责 git pull/checkout。",
+      "max_retry": "crg_query 等待 graph.db ready 的最大重试次数。",
+      "retry_interval_s": "crg_query 每次 ready 检查之间的等待秒数。",
+      "timeout_s": "单条 CRG build/update/query 命令超时时间。"
+    }
+  }
 }

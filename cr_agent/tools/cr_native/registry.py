@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cr_agent.tools.catalog import build_specs
+from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle
 from cr_agent.tools.cr_native.fs_tools import (
     ToolLimits,
     make_glob_files,
@@ -44,16 +45,18 @@ class CrNativeToolProvider:
         project_root: Path | None = None,
         limits: ToolLimits | None = None,
         git_settings: GitSettings | None = None,
+        crg_lifecycle: CrgLifecycle | None = None,
     ) -> None:
         self._project_root = project_root
         self._limits = limits or ToolLimits()
         self._git = git_settings or GitSettings()
+        self._crg = crg_lifecycle
 
     def name(self) -> str:
         return PROVIDER_NAME
 
     def _handler_factory(self, tool_name: str) -> ToolHandler:
-        root, limits, git = self._project_root, self._limits, self._git
+        root, limits, git, crg = self._project_root, self._limits, self._git, self._crg
         if tool_name == "read_file":
             return make_read_file(root, limits)
         if tool_name == "read_file_range":
@@ -75,9 +78,9 @@ class CrNativeToolProvider:
         if tool_name == "semble_search":
             return make_semble_search(root, limits)
         if tool_name == "crg_status":
-            return make_crg_status(root, limits)
+            return make_crg_status(root, limits, crg)
         if tool_name == "crg_query":
-            return make_crg_query(root, limits)
+            return make_crg_query(root, limits, crg)
 
         async def placeholder(args: dict) -> ToolResult:
             return not_implemented_result(tool_name, PROVIDER_NAME)

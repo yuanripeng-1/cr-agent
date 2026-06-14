@@ -64,6 +64,8 @@ def test_agent_config_platform_fallback_and_context_strictness() -> None:
     )
 
     assert config.configured_platform() == "gitlab"
+    assert config.tools.crg.enabled is False
+    assert config.tools.crg.target_root == ""
 
     with pytest.raises(ValidationError):
         AgentConfig.model_validate(

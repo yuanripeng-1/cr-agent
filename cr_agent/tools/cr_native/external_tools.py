@@ -12,10 +12,14 @@ import asyncio
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from cr_agent.tools.cr_native.fs_tools import ToolLimits, _guard, _require_root, safe_resolve
 from cr_agent.tools.provider import ToolHandler, ToolResult, error_result, ok_result
 from cr_agent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle
 
 _logger = get_logger("cr_agent.tools.cr_native.external")
 
@@ -197,8 +201,13 @@ def make_semble_search(project_root: Path | None, limits: ToolLimits) -> ToolHan
     return handler
 
 
-def make_crg_status(project_root: Path | None, limits: ToolLimits) -> ToolHandler:
+def make_crg_status(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
     async def handler(args: dict) -> ToolResult:
+        if crg_lifecycle is not None:
+            return crg_lifecycle.status()
+
         guard = _require_root(project_root, "crg_status")
         if guard is not None:
             return guard
@@ -221,8 +230,16 @@ def make_crg_status(project_root: Path | None, limits: ToolLimits) -> ToolHandle
     return handler
 
 
-def make_crg_query(project_root: Path | None, limits: ToolLimits) -> ToolHandler:
+def make_crg_query(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
     async def handler(args: dict) -> ToolResult:
+        query = str(args.get("query") or "")
+        if not query:
+            return error_result("crg_query requires a query")
+        if crg_lifecycle is not None:
+            return await crg_lifecycle.query(query)
+
         guard = _require_root(project_root, "crg_query")
         if guard is not None:
             return guard
@@ -233,9 +250,6 @@ def make_crg_query(project_root: Path | None, limits: ToolLimits) -> ToolHandler
             if command is None:
                 return _missing_result("crg_query", candidates)
 
-            query = str(args.get("query") or "")
-            if not query:
-                return error_result("crg_query requires a query")
             result = await _run_external(
                 [command, "query", query],
                 cwd=project_root.resolve(),

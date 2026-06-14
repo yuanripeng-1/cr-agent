@@ -53,6 +53,7 @@ async def run_review(
         state=state,
     )
 
+    runtime_context.crg_lifecycle.start_background()
     append_run_log(runtime_context.result_dir, "review started")
     try:
         skill_tools = build_skill_tools(session)

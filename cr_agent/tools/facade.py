@@ -17,6 +17,7 @@ from pathlib import Path
 from cr_agent.core.agent_config import Platform
 from cr_agent.tools.allowlist import load_agent_tools
 from cr_agent.tools.catalog import CANONICAL_TOOL_NAMES
+from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle
 from cr_agent.tools.cr_native.registry import CrNativeToolProvider
 from cr_agent.tools.cr_native.git_tools import GitSettings
 from cr_agent.tools.infcode.adapter import InfcodeToolProvider
@@ -74,10 +75,11 @@ def select_tool_provider(
     *,
     project_root: Path | None = None,
     git_settings: GitSettings | None = None,
+    crg_lifecycle: CrgLifecycle | None = None,
 ) -> ToolProvider:
     if platform == "gitlab":
         provider: ToolProvider = CrNativeToolProvider(
-            project_root=project_root, git_settings=git_settings
+            project_root=project_root, git_settings=git_settings, crg_lifecycle=crg_lifecycle
         )
     elif platform == "infcode":
         provider = InfcodeToolProvider(project_root=project_root, git_settings=git_settings)
@@ -99,11 +101,15 @@ def build_tool_facade_for_platform(
     *,
     project_root: Path | None = None,
     git_settings: GitSettings | None = None,
+    crg_lifecycle: CrgLifecycle | None = None,
     agent_tools_path: Path | None = None,
 ) -> ToolFacade:
     return build_tool_facade(
         select_tool_provider(
-            platform, project_root=project_root, git_settings=git_settings
+            platform,
+            project_root=project_root,
+            git_settings=git_settings,
+            crg_lifecycle=crg_lifecycle,
         ),
         agent_tools_path,
     )
