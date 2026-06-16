@@ -10,14 +10,14 @@ from cr_agent.skills.registry import build_default_skill_registry, registered_sk
 
 
 class _SummaryRuntime:
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         assert agent_name == "summary"
         assert assembled_options is None
         return QueryResult(text='{"llm_result": "# CR-Agent\\n\\nGenerated."}')
 
 
 class _ContextRuntime:
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         assert agent_name == "context"
         return QueryResult(
             text='{"summary":"context collected","diff_summary":"diff ok","warnings":[]}'
@@ -25,10 +25,10 @@ class _ContextRuntime:
 
 
 class _DimensionRuntime:
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         assert agent_name == "dimension"
         return QueryResult(
-            text='{"dimension":"business","score":90,"confidence":80,"findings":[]}'
+            text="review:\n  dimension: business\n  score: 90\n  confidence: 80\n  findings: []\n"
         )
 
 
@@ -61,7 +61,7 @@ async def test_default_registry_placeholder_flow(agent_config_path) -> None:
     context = await registry.collect_context(runtime_context)
     scores = await registry.dimension_review(runtime_context, context)
     report = await registry.summarize_report(runtime_context, context, scores, None)
-    validation = await registry.validate_json(report)
+    validation = await registry.validate_json(runtime_context, report)
 
     assert context["task_id"] == "task-1"
     assert scores[0]["dimension"] == "business"

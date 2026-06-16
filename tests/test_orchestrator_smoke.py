@@ -107,7 +107,7 @@ class _EmptyFacade:
 
 
 class _UsageContextRuntime:
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         assert agent_name == "context"
         return QueryResult(
             text='{"summary":"ctx","diff_summary":"diff","warnings":[]}',
@@ -128,9 +128,13 @@ class _ValidSummaryScenario:
         return [{"dimension": "fake", "score": 100, "findings": []}]
 
     async def summarize_report(self, runtime_context, collected_context, dimension_scores, validation_errors):
-        return {"llm_result": "# ok"}
+        return {
+            "llm_result": "# ok",
+            "line_comments": {"comments": []},
+            "issues": [],
+        }
 
-    async def validate_json(self, report: dict) -> ValidationResult:
+    async def validate_json(self, runtime_context, report: dict) -> ValidationResult:
         return ValidationResult(valid=True)
 
 
@@ -152,3 +156,103 @@ async def test_collect_context_usage_is_accumulated(agent_config_path: Path) -> 
 
     assert result.tokens_consume.input_tokens == 13
     assert result.tokens_consume.output_tokens == 9
+
+
+class _ReportFieldsScenario(_ValidSummaryScenario):
+    def registry(self) -> SkillRegistry:
+        return SkillRegistry(
+            collect_context=self.collect_context,
+            dimension_review=self.dimension_review,
+            summarize_report=self.summarize_report,
+            validate_json=self.validate_json,
+        )
+
+    async def collect_context(self, runtime_context):
+        return {"task_id": runtime_context.review_input.task_id, "summary": "ctx"}
+
+    async def summarize_report(self, runtime_context, collected_context, dimension_scores, validation_errors):
+        return {
+            "llm_result": "# issue",
+            "line_comments": {
+                "comments": [
+                    {
+                        "new_path": "a.py",
+                        "body": "fix",
+                        "start_line": 1,
+                        "end_line": 1,
+                    }
+                ]
+            },
+            "issues": [
+                {
+                    "severity": "major",
+                    "title": "bug",
+                    "count": 1,
+                    "locations": [{"path": "a.py", "start_line": 1, "end_line": 1}],
+                }
+            ],
+        }
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_preserves_summary_line_comments_and_issues(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    fake_runtime = ScriptedMainAgentRuntime()
+
+    result = await run_review(
+        runtime_context,
+        agent_runtime=fake_runtime,
+        skill_registry=_ReportFieldsScenario().registry(),
+    )
+
+    assert len(result.line_comments.comments) == 1
+    assert result.issues[0].title == "bug"
+
+
+class _FailingMainRuntime:
+    async def run_review_loop(self, **kwargs):
+        raise RuntimeError("main did not call tools")
+
+
+class _CapturingMainRuntime(ScriptedMainAgentRuntime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.kwargs = {}
+
+    async def run_review_loop(self, **kwargs):
+        self.kwargs = kwargs
+        return await super().run_review_loop(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_run_review_recovers_with_sequential_skills_when_main_agent_fails(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    scenario = FakeSkillScenario()
+
+    result = await run_review(
+        runtime_context,
+        agent_runtime=_FailingMainRuntime(),
+        skill_registry=scenario.registry(),
+    )
+
+    assert result.status == "success"
+    assert scenario.summarize_calls == 1
+    assert result.warnings == ["main agent fallback: main did not call tools"]
+    log_text = (runtime_context.result_dir / "run.log").read_text(encoding="utf-8")
+    assert "FALLBACK_SKILL_FLOW_START reason=main_agent_failed" in log_text
+
+
+@pytest.mark.asyncio
+async def test_run_review_gives_main_agent_enough_turns_for_skill_sequence(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    runtime = _CapturingMainRuntime()
+
+    result = await run_review(
+        runtime_context,
+        agent_runtime=runtime,
+        skill_registry=FakeSkillScenario().registry(),
+    )
+
+    assert result.status == "success"
+    assert runtime.kwargs["max_turns"] >= 3
+    assert runtime.kwargs["max_turns"] != 1

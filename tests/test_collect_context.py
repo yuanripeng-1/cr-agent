@@ -28,7 +28,7 @@ class _ContextRuntime:
         self.call_crg = call_crg
         self.calls: list[dict[str, Any]] = []
 
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         self.calls.append(
             {"agent_name": agent_name, "prompt": prompt, "assembled_options": assembled_options}
         )
@@ -55,6 +55,11 @@ class _ContextRuntime:
             ),
             usage=TokenUsage(input_tokens=4, output_tokens=5),
         )
+
+
+class _FailingContextRuntime:
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
+        raise RuntimeError("context sdk failed")
 
 
 def _tool(name: str, result):
@@ -146,3 +151,21 @@ async def test_collect_context_returns_context_runtime_usage(agent_config_path: 
 
     assert result["usage"]["input_tokens"] == 4
     assert result["usage"]["output_tokens"] == 5
+
+
+@pytest.mark.asyncio
+async def test_collect_context_writes_local_fallback_when_subagent_fails(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    runtime_context = replace(
+        runtime_context,
+        tool_facade=_FakeFacade(_tools()),
+        context_runtime=_FailingContextRuntime(),
+    )
+
+    result = await collect_context(runtime_context)
+
+    assert result["usage"]["input_tokens"] == 0
+    assert "Context subagent failed" in result["summary"]
+    artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+    assert artifact["changed_files"]
+    assert "context subagent failed: context sdk failed" in artifact["warnings"]

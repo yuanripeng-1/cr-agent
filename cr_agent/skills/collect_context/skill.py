@@ -5,9 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from cr_agent.bootstrap import RuntimeContext
-from cr_agent.core.types import TokenUsage
+from cr_agent.core.types import QueryResult, TokenUsage
+from cr_agent.skills.docs import load_skill_doc
 from cr_agent.tools.provider import ToolResult, ToolSpec
 from cr_agent.tools.spec_sdk import to_sdk_tool
+from cr_agent.utils.diff import changed_file_payload
 from cr_agent.utils.logging import get_logger
 
 _logger = get_logger("cr_agent.skills.collect_context")
@@ -30,16 +32,38 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
     if runtime is None:
         raise RuntimeError("context runtime is not configured")
 
-    result = await runtime.query_subagent(
-        "context",
-        prompt,
-        assembled_options=options,
-    )
+    try:
+        result = await runtime.query_subagent(
+            "context",
+            prompt,
+            assembled_options=options,
+            timeout_s=runtime_context.config.timeouts.context_s,
+        )
+        degraded_warning = ""
+    except Exception as exc:
+        _logger.warning("DEGRADED reason=CONTEXT_SUBAGENT_FAILED error=%s", exc)
+        result = QueryResult(
+            text=json.dumps(
+                {
+                    "summary": "Context subagent failed; using local context fallback.",
+                    "diff_summary": _local_diff_summary(review_input.diff_content),
+                    "warnings": [f"context subagent failed: {exc}"],
+                },
+                ensure_ascii=False,
+            )
+        )
+        degraded_warning = f"context subagent failed: {exc}"
     report = _parse_context_text(result.text)
     warnings = _collect_warnings(evidence, report)
+    if degraded_warning and degraded_warning not in warnings:
+        warnings.append(degraded_warning)
     artifact = {
         "task_id": review_input.task_id,
         "title": review_input.title,
+        "description": review_input.description,
+        "commit_messages": review_input.commit_messages,
+        "requirements_doc": review_input.requirements_doc,
+        "previous_report": review_input.previous_report,
         "project_root": review_input.project_root,
         "platform": runtime_context.platform,
         "raw_diff": {
@@ -47,6 +71,7 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
             "content": review_input.diff_content,
             "diff_file_path": review_input.diff_file_path,
         },
+        "changed_files": changed_file_payload(review_input.diff_content),
         "diff_summary": report.get("diff_summary", ""),
         "summary": report.get("summary", ""),
         "tool_evidence": evidence,
@@ -72,7 +97,19 @@ def _trace_tools(tools: list[ToolSpec], evidence: list[dict[str, Any]]) -> list[
         original_handler = tool.handler
 
         async def traced_handler(args: dict[str, Any], *, _tool=tool, _handler=original_handler):
+            _logger.info(
+                "TOOL_CALL_START agent=context tool=%s args=%s",
+                _tool.name,
+                _summarize_args(args),
+            )
             result: ToolResult = await _handler(args)
+            _logger.info(
+                "TOOL_CALL_END agent=context tool=%s ok=%s warnings=%s error=%s",
+                _tool.name,
+                bool(result.get("ok")),
+                len(result.get("warnings") or []),
+                result.get("error"),
+            )
             evidence.append(_evidence_entry(_tool.name, args, result))
             return result
 
@@ -109,6 +146,7 @@ def _build_context_options(runtime_context: RuntimeContext, tools: list[ToolSpec
 
 def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str:
     review_input = runtime_context.review_input
+    skill_doc = load_skill_doc("collect_context")
     tool_descriptions = [
         {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
         for tool in tools
@@ -119,10 +157,16 @@ def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str
         "project_root": review_input.project_root,
         "source_branch": review_input.source_branch,
         "target_branch": review_input.target_branch,
+        "description": review_input.description,
+        "commit_messages": review_input.commit_messages,
+        "requirements_doc": review_input.requirements_doc,
+        "previous_report": review_input.previous_report,
+        "changed_files": changed_file_payload(review_input.diff_content),
         "diff_content": review_input.diff_content,
         "available_tools": tool_descriptions,
     }
     return (
+        f"{skill_doc}\n\n"
         "You are the context subagent for a code review.\n"
         "First understand the raw diff. Dynamically decide which tools to use.\n"
         "Use Semble for semantic context when useful. Use CRG only when you need a "
@@ -226,3 +270,23 @@ def _usage_dict(usage: TokenUsage) -> dict[str, int]:
         "cache_creation_tokens": usage.cache_creation_tokens,
         "cache_read_tokens": usage.cache_read_tokens,
     }
+
+
+def _local_diff_summary(diff_content: str) -> str:
+    changed = changed_file_payload(diff_content)
+    files = [str(item.get("path") or item.get("new_path") or item) for item in changed]
+    if not files:
+        return "No changed files parsed from diff."
+    preview = ", ".join(files[:20])
+    suffix = "" if len(files) <= 20 else f", ... ({len(files)} files total)"
+    return f"Changed files: {preview}{suffix}"
+
+
+def _summarize_args(args: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    for key, value in args.items():
+        if isinstance(value, str):
+            summary[key] = value if len(value) <= 160 else value[:160] + "...[truncated]"
+        else:
+            summary[key] = value
+    return summary

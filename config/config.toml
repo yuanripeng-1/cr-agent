@@ -28,5 +28,11 @@ max_retry = 3
 retry_interval_s = 1.0
 timeout_s = 60
 
+# 各子 agent 单次模型调用超时(秒)。summary 输入/输出最大,默认 300s。
+[timeouts]
+context_s = 300
+dimension_s = 300
+summary_s = 300
+
 # 可选值: gitlab / infcode
 platform = "gitlab"

@@ -45,12 +45,13 @@ class _DimensionRuntime:
         self.inflight = 0
         self.max_inflight = 0
 
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         dimension = _dimension_from_prompt(prompt)
         self.calls.append(
             {
                 "agent_name": agent_name,
                 "dimension": dimension,
+                "prompt": prompt,
                 "assembled_options": assembled_options,
             }
         )
@@ -63,15 +64,14 @@ class _DimensionRuntime:
             if dimension in self.fail:
                 raise RuntimeError(f"{dimension} exploded")
             if dimension in self.non_json:
-                return QueryResult(text="not json")
+                return QueryResult(text="- not an object")
             return QueryResult(
-                text=json.dumps(
-                    {
-                        "dimension": dimension,
-                        "score": 90,
-                        "confidence": 80,
-                        "findings": [],
-                    }
+                text=(
+                    "review:\n"
+                    f"  dimension: {dimension}\n"
+                    "  score: 90\n"
+                    "  confidence: 80\n"
+                    "  findings: []\n"
                 ),
                 usage=self.usage_by_dimension.get(
                     dimension,
@@ -161,6 +161,7 @@ async def test_dimension_review_gitlab_runs_all_dimensions_in_config_order(agent
         artifact = _load_json(artifact_dir / f"{dimension}.json")
         assert artifact["dimension"] == dimension
         assert artifact["status"] == "success"
+        assert "raw_yaml" in artifact
 
 
 @pytest.mark.asyncio
@@ -206,6 +207,7 @@ async def test_dimension_review_respects_configured_concurrency_limit(
         "DIMENSION_CONCURRENCY configured=2 effective=2 total=4" in message
         for message in messages
     )
+    assert "# dimension_review" in dimension_runtime.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -293,7 +295,9 @@ async def test_dimension_failure_degrades_without_failing_whole_task(
     assert manifest["succeeded"] == 8
     assert manifest["failed"] == 2
     assert _load_json(artifact_dir / "security.json")["status"] == "failed"
-    assert _load_json(artifact_dir / "performance.json")["status"] == "failed"
+    performance_artifact = _load_json(artifact_dir / "performance.json")
+    assert performance_artifact["status"] == "failed"
+    assert performance_artifact["raw_yaml"] == "- not an object"
 
 
 @pytest.mark.asyncio
@@ -368,7 +372,7 @@ async def test_dimension_manifest_status_failed_when_all_dimensions_fail(
 
 
 class _EmptyContextRuntime:
-    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None):
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         assert agent_name == "context"
         return QueryResult(text='{"summary":"ctx","diff_summary":"diff","warnings":[]}')
 
@@ -405,7 +409,7 @@ class _RetrySummaryScenario:
         self.summarize_calls += 1
         return {"llm_result": f"# report {self.summarize_calls}"}
 
-    async def validate_json(self, report: dict):
+    async def validate_json(self, runtime_context, report: dict):
         from cr_agent.core.types import ValidationResult
 
         self.validate_calls += 1

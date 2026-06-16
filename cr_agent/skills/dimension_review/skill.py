@@ -7,10 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import toml
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is absent.
+    yaml = None  # type: ignore[assignment]
 
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError
 from cr_agent.core.types import QueryResult, TokenUsage
+from cr_agent.skills.docs import load_skill_doc
 from cr_agent.tools.provider import ToolSpec
 from cr_agent.tools.spec_sdk import to_sdk_tool
 from cr_agent.utils.logging import get_logger
@@ -19,6 +24,7 @@ _logger = get_logger("cr_agent.skills.dimension_review")
 
 _DIMENSIONS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "dimensions.toml"
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompt"
+_RULES_DIR = _PROMPT_DIR / "rules"
 
 
 async def dimension_review(
@@ -82,7 +88,18 @@ async def dimension_review(
     _logger.info("ARTIFACT_WRITE path=%s", artifact_dir / "manifest.json")
 
     if not successful:
-        raise RuntimeCallError("all dimension reviews failed")
+        errors = sorted({str(entry.get("error") or "unknown") for entry in manifest_entries})
+        _logger.error(
+            "DIMENSION_ALL_FAILED total=%s manifest=%s errors=%s",
+            len(manifest_entries),
+            artifact_dir / "manifest.json",
+            errors,
+        )
+        raise RuntimeCallError(
+            "all dimension reviews failed; "
+            f"manifest={artifact_dir / 'manifest.json'}; "
+            f"errors={errors}"
+        )
     return successful
 
 
@@ -104,9 +121,19 @@ async def _run_single_dimension(
 ) -> dict[str, Any]:
     artifact_path = artifact_dir / f"{dimension}.json"
     prompt_path = _PROMPT_DIR / f"{dimension}.md"
+    rule_path = _RULES_DIR / f"{_rule_file_stem(dimension)}Rule.md"
+    raw_yaml = ""
     try:
         prompt_text = prompt_path.read_text(encoding="utf-8")
-        prompt = _build_prompt(runtime_context, collected_context, dimension, prompt_text, tools)
+        rule_text = rule_path.read_text(encoding="utf-8") if rule_path.exists() else ""
+        prompt = _build_prompt(
+            runtime_context,
+            collected_context,
+            dimension,
+            prompt_text,
+            rule_text,
+            tools,
+        )
         options = _build_dimension_options(runtime_context, tools)
         runtime = getattr(runtime_context, "dimension_runtime", None)
         if runtime is None:
@@ -115,25 +142,29 @@ async def _run_single_dimension(
             "dimension",
             prompt,
             assembled_options=options,
+            timeout_s=runtime_context.config.timeouts.dimension_s,
         )
-        parsed = _parse_dimension_text(response.text)
+        raw_yaml = response.text
+        parsed = _parse_dimension_yaml(raw_yaml)
         result = _success_artifact(
             dimension=dimension,
             parsed=parsed,
             usage=response.usage,
-            raw_text=response.text,
+            raw_yaml=response.text,
             artifact_path=artifact_path,
         )
     except Exception as exc:
         result = _failed_artifact(
             dimension=dimension,
             error=str(exc),
+            raw_yaml=raw_yaml,
             artifact_path=artifact_path,
         )
         _logger.warning(
-            "DEGRADED reason=DIMENSION_FAILED dimension=%s error=%s",
+            "DEGRADED reason=DIMENSION_FAILED dimension=%s error=%s raw_preview=%s",
             dimension,
             exc,
+            _truncate(raw_yaml, 1200),
         )
 
     _write_json(artifact_path, result)
@@ -214,9 +245,11 @@ def _build_prompt(
     collected_context: dict[str, Any],
     dimension: str,
     dimension_prompt: str,
+    dimension_rule: str,
     tools: list[ToolSpec],
 ) -> str:
     review_input = runtime_context.review_input
+    skill_doc = load_skill_doc("dimension_review")
     payload = {
         "dimension": dimension,
         "task_id": review_input.task_id,
@@ -230,30 +263,92 @@ def _build_prompt(
         ],
     }
     return (
+        f"{skill_doc}\n\n"
         "You are the dimension subagent for a code review.\n"
         f"Review dimension: {dimension}.\n"
         "Follow the dimension-specific rules below, use available tools when useful, "
-        "and return ONLY valid JSON matching this shape: "
-        '{"dimension": string, "score": 0-100, "confidence": 0-100, "findings": []}.\n'
-        "Dimension rules:\n"
+        "and return ONLY valid YAML. Do not include markdown fences.\n"
+        "Dimension prompt:\n"
         f"{dimension_prompt}\n\n"
+        "Dimension scoring rule:\n"
+        f"{dimension_rule}\n\n"
         "Input:\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 
 
-def _parse_dimension_text(text: str) -> dict[str, Any]:
+def _parse_dimension_yaml(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         raise RuntimeCallError("dimension subagent returned empty output")
-    json_text = _strip_code_fence(stripped)
-    try:
-        parsed = json.loads(json_text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeCallError("dimension subagent returned non-json output") from exc
+    yaml_text = _extract_yaml_text(stripped)
+    parsed = _safe_load_yaml(yaml_text)
     if not isinstance(parsed, dict):
-        raise RuntimeCallError("dimension subagent returned json that is not an object")
+        raise RuntimeCallError("dimension subagent returned yaml that is not an object")
     return parsed
+
+
+def _safe_load_yaml(text: str) -> Any:
+    if yaml is not None:
+        try:
+            return yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise RuntimeCallError("dimension subagent returned invalid yaml") from exc
+    return _minimal_yaml_load(text)
+
+
+def _minimal_yaml_load(text: str) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    stack: list[tuple[int, dict[str, Any]]] = [(-1, root)]
+    for raw_line in text.splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        line = raw_line.strip()
+        if line.startswith("- "):
+            raise RuntimeCallError("dimension subagent returned yaml that is not an object")
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip()
+        value = raw_value.strip()
+        while stack and indent <= stack[-1][0]:
+            stack.pop()
+        current = stack[-1][1]
+        if value == "":
+            child: dict[str, Any] = {}
+            current[key] = child
+            stack.append((indent, child))
+        else:
+            current[key] = _minimal_yaml_scalar(value)
+    return root
+
+
+def _minimal_yaml_scalar(value: str) -> Any:
+    if value in {"[]", "null", "None"}:
+        return [] if value == "[]" else None
+    if value in {"true", "True"}:
+        return True
+    if value in {"false", "False"}:
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        return value.strip("\"'")
+
+
+def _extract_yaml_text(text: str) -> str:
+    fenced = _strip_code_fence(text)
+    if fenced != text:
+        return fenced
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped in {"review:", "dimension:", "score:", "findings:", "vulnerabilities:", "issues:"}:
+            return "\n".join(lines[index:]).strip()
+        if stripped.startswith(("review:", "dimension:", "score:", "findings:", "vulnerabilities:", "issues:")):
+            return "\n".join(lines[index:]).strip()
+    return text
 
 
 def _strip_code_fence(text: str) -> str:
@@ -272,28 +367,30 @@ def _success_artifact(
     dimension: str,
     parsed: dict[str, Any],
     usage: TokenUsage,
-    raw_text: str,
+    raw_yaml: str,
     artifact_path: Path,
 ) -> dict[str, Any]:
-    score = _bounded_int(parsed.get("score"), default=0)
-    confidence = _bounded_int(parsed.get("confidence"), default=0)
-    findings = parsed.get("findings")
-    warnings = parsed.get("warnings")
+    review = parsed.get("review") if isinstance(parsed.get("review"), dict) else parsed
+    score = _bounded_int(review.get("score"), default=0)
+    confidence = _bounded_int(review.get("confidence"), default=0)
+    warnings = review.get("warnings")
+    normalized_findings = _normalize_findings(dimension, review)
     return {
-        "dimension": str(parsed.get("dimension") or dimension),
+        "dimension": str(review.get("dimension") or dimension),
         "status": "success",
         "score": score,
         "confidence": confidence,
-        "findings": findings if isinstance(findings, list) else [],
+        "findings": normalized_findings,
+        "normalized_findings": normalized_findings,
         "warnings": warnings if isinstance(warnings, list) else [],
         "error": None,
         "usage": _usage_dict(usage),
-        "raw_text": raw_text,
+        "raw_yaml": raw_yaml,
         "artifact_path": str(artifact_path),
     }
 
 
-def _failed_artifact(*, dimension: str, error: str, artifact_path: Path) -> dict[str, Any]:
+def _failed_artifact(*, dimension: str, error: str, raw_yaml: str, artifact_path: Path) -> dict[str, Any]:
     return {
         "dimension": dimension,
         "status": "failed",
@@ -303,7 +400,7 @@ def _failed_artifact(*, dimension: str, error: str, artifact_path: Path) -> dict
         "warnings": [error],
         "error": error,
         "usage": _usage_dict(TokenUsage()),
-        "raw_text": "",
+        "raw_yaml": _truncate(raw_yaml),
         "artifact_path": str(artifact_path),
     }
 
@@ -333,6 +430,8 @@ def _score_for_summary(result: dict[str, Any]) -> dict[str, Any]:
         "score": result["score"],
         "confidence": result["confidence"],
         "findings": result["findings"],
+        "normalized_findings": result.get("normalized_findings", result["findings"]),
+        "raw_yaml": result.get("raw_yaml", ""),
         "warnings": result["warnings"],
         "artifact_path": result["artifact_path"],
         "usage": result["usage"],
@@ -377,3 +476,72 @@ def _usage_dict(usage: TokenUsage) -> dict[str, int]:
         "cache_creation_tokens": usage.cache_creation_tokens,
         "cache_read_tokens": usage.cache_read_tokens,
     }
+
+
+def _normalize_findings(dimension: str, report: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[Any] = []
+    for key in ("findings", "vulnerabilities", "issues", "analysis", "suggestions", "bottlenecks", "violations"):
+        value = report.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+    normalized: list[dict[str, Any]] = []
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        title = (
+            item.get("title")
+            or item.get("requirement_name")
+            or item.get("category")
+            or item.get("type")
+            or item.get("issue")
+            or item.get("description")
+            or f"{dimension} finding"
+        )
+        normalized.append(
+            {
+                "dimension": dimension,
+                "title": _text(title),
+                "analysis": _text(
+                    item.get("analysis")
+                    or item.get("description")
+                    or item.get("risk")
+                    or item.get("issue")
+                    or ""
+                ),
+                "evidence": _text(item.get("evidence") or item.get("existing_code") or ""),
+                "severity_hint": _text(item.get("severity") or item.get("category") or ""),
+                "file_path": _text(item.get("file_path") or item.get("path") or ""),
+                "start_line": _bounded_int(item.get("start_line"), default=0),
+                "end_line": _bounded_int(item.get("end_line"), default=0),
+                "suggestion": _text(
+                    item.get("suggestion")
+                    or item.get("mitigation")
+                    or item.get("code_suggestion")
+                    or ""
+                ),
+                "score": _bounded_int(item.get("score"), default=_bounded_int(report.get("score"), default=0)),
+                "raw": item,
+            }
+        )
+    return normalized
+
+
+def _text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict) or isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    return "" if value is None else str(value)
+
+
+def _rule_file_stem(dimension: str) -> str:
+    mapping = {
+        "error_handling": "errorHandling",
+    }
+    return mapping.get(dimension, dimension)
+
+
+def _truncate(text: str, limit: int = 8000) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n...[truncated]"

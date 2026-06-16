@@ -7,9 +7,11 @@ export PATH="$SCRIPT_DIR/.tools/bin:$PATH"
 CONFIG_FILE=""
 PLATFORM_OVERRIDE=""
 ENV_NAME="cragent"
+BOOTSTRAP_ONLY=""
+TIMEOUT_S=""
 
 usage() {
-  echo "用法: $0 --config <workspace中的config.toml路径> [--platform <gitlab|infcode>] [--env-name <name>]"
+  echo "用法: $0 --config <workspace中的config.toml路径> [--platform <gitlab|infcode>] [--env-name <name>] [--bootstrap-only] [--timeout-s <seconds>]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -24,6 +26,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --env-name)
       ENV_NAME="$2"
+      shift 2
+      ;;
+    --bootstrap-only)
+      BOOTSTRAP_ONLY="1"
+      shift
+      ;;
+    --timeout-s)
+      TIMEOUT_S="$2"
       shift 2
       ;;
     -h|--help)
@@ -70,6 +80,12 @@ fi
 CMD=("$CONDA_ENV_DIR/bin/python" -m cr_agent.main --config "$ABS_CONFIG_FILE")
 if [[ -n "$PLATFORM_OVERRIDE" ]]; then
   CMD+=(--platform "$PLATFORM_OVERRIDE")
+fi
+if [[ -n "$BOOTSTRAP_ONLY" ]]; then
+  CMD+=(--bootstrap-only)
+fi
+if [[ -n "$TIMEOUT_S" ]]; then
+  CMD+=(--timeout-s "$TIMEOUT_S")
 fi
 
 echo "📋 Config: $ABS_CONFIG_FILE"

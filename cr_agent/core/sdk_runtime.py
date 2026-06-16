@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import uuid
 from collections import deque
 from typing import Any, Callable
 
@@ -15,6 +17,16 @@ from cr_agent.core.usage import extract_usage
 from cr_agent.utils.logging import get_logger, redact
 
 _logger = get_logger("cr_agent.core.sdk_runtime")
+_RESULT_MESSAGE_FIELDS = (
+    "subtype",
+    "is_error",
+    "api_error_status",
+    "errors",
+    "stop_reason",
+    "result",
+    "num_turns",
+    "session_id",
+)
 
 
 class SdkStderrCapture:
@@ -27,7 +39,9 @@ class SdkStderrCapture:
         clean = redact(line.rstrip())
         if clean:
             self._lines.append(clean)
-            _logger.debug("CLAUDE_CLI_STDERR %s", clean)
+            # INFO 级,使开启 --debug 后 CLI 真实报错(402/429/网络等)能落进 run.log,
+            # 不再被上层 timeout 掩盖。
+            _logger.info("CLAUDE_CLI_STDERR %s", clean)
 
     def tail(self) -> str:
         return "\n".join(self._lines)
@@ -59,6 +73,24 @@ def build_sdk_env(llm: Any) -> dict[str, str]:
     return env
 
 
+def log_gateway_target(agent_name: str, env: dict[str, str], model: str) -> None:
+    """
+    在真正发起模型调用前,记录本次实际使用的网关目标,便于确认到底用了哪个
+    base_url / key(只打印前 8 位前缀)。字段名刻意避开脱敏正则(用 key_head 而非
+    api_key=),保证前缀可见落盘。
+    """
+    base_url = env.get("ANTHROPIC_BASE_URL", "") or "<inherited>"
+    api_key = env.get("ANTHROPIC_API_KEY", "") or ""
+    key_head = api_key[:8] if api_key else "<none>"
+    _logger.info(
+        "MODEL_GATEWAY_TARGET agent=%s base_url=%s key_head=%s model=%s",
+        agent_name,
+        base_url,
+        key_head,
+        model,
+    )
+
+
 class SdkQueryClient:
     """
     真实 Claude Agent SDK client 适配器,统一走 LiteLLM Anthropic-compatible Gateway。
@@ -80,6 +112,8 @@ class SdkQueryClient:
         self.model = model
         self.env = env or {}
         self._query_fn = query_fn
+        # 最近一次调用的 stderr 捕获器,供上层在超时(协程被取消)后读取尾巴。
+        self._last_stderr: Any | None = None
 
     def _resolve_query_fn(self) -> Callable[..., Any]:
         if self._query_fn is not None:
@@ -99,6 +133,8 @@ class SdkQueryClient:
             env=self.env,
             tools=[],
             stderr=stderr_capture,
+            # --debug 让 CLI 把重试原因 / HTTP 状态写到 stderr,配合 INFO 级捕获落盘。
+            extra_args={"debug": None},
         )
 
     async def query(
@@ -110,6 +146,11 @@ class SdkQueryClient:
     ) -> dict[str, Any]:
         query_fn = self._resolve_query_fn()
         options = assembled_options if assembled_options is not None else self._build_options()
+
+        # 记录本次实际网关目标,并暴露 stderr 捕获器供超时分支读取。
+        env = getattr(options, "env", None) or self.env
+        log_gateway_target(agent_name, env, getattr(options, "model", self.model))
+        self._last_stderr = getattr(options, "stderr", None)
 
         texts: list[str] = []
         final_text: str | None = None
@@ -130,13 +171,21 @@ class SdkQueryClient:
                 if hasattr(message, "usage") and getattr(message, "usage") is not None:
                     usage = getattr(message, "usage")
                 if hasattr(message, "is_error"):
+                    diagnostics = sdk_message_diagnostics(message)
+                    _logger.info(
+                        "MODEL_RESULT_MESSAGE agent=%s detail=%s",
+                        agent_name,
+                        diagnostics,
+                    )
                     is_error = bool(getattr(message, "is_error"))
                     result_text = getattr(message, "result", None)
                     if isinstance(result_text, str):
                         final_text = result_text
                     errors = getattr(message, "errors", None)
                     if errors:
-                        error_detail = "; ".join(str(e) for e in errors)
+                        error_detail = _format_result_message_error(diagnostics)
+                    elif diagnostics:
+                        error_detail = _format_result_message_error(diagnostics)
         except Exception as exc:
             stderr_callback = getattr(options, "stderr", None)
             stderr_tail = stderr_callback.tail() if hasattr(stderr_callback, "tail") else ""
@@ -162,6 +211,47 @@ class SdkQueryClient:
 
         text = final_text if final_text else "".join(texts)
         return {"text": text, "usage": usage}
+
+
+def sdk_message_diagnostics(message: Any) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+    for field in _RESULT_MESSAGE_FIELDS:
+        if hasattr(message, field):
+            diagnostics[field] = _safe_log_value(getattr(message, field))
+    return diagnostics
+
+
+def _safe_log_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _truncate(redact(value), 800)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_safe_log_value(item) for item in value[:10]]
+    if isinstance(value, dict):
+        return {
+            str(key): _safe_log_value(item)
+            for key, item in list(value.items())[:20]
+        }
+    try:
+        return _truncate(redact(json.dumps(value, ensure_ascii=False, default=str)), 800)
+    except TypeError:
+        return _truncate(redact(str(value)), 800)
+
+
+def _format_result_message_error(diagnostics: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("api_error_status", "errors", "stop_reason", "result", "subtype"):
+        value = diagnostics.get(key)
+        if value not in (None, "", []):
+            parts.append(f"{key}={value}")
+    return "; ".join(parts)
+
+
+def _truncate(text: str, limit: int = 800) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "...[truncated]"
 
 
 def build_runtime(config: Any) -> "ClaudeAgentRuntime":
@@ -227,7 +317,8 @@ class ClaudeAgentRuntime:
             raise RuntimeCallError("Claude Agent SDK client is not configured")
 
         model = getattr(self._client, "model", "?")
-        _logger.info("MODEL_CALL_START agent=%s model=%s", agent_name, model)
+        request_id = uuid.uuid4().hex[:12]
+        _logger.info("MODEL_CALL_START request_id=%s agent=%s model=%s", request_id, agent_name, model)
         try:
             raw_response = await asyncio.wait_for(
                 self._invoke_client(
@@ -238,25 +329,31 @@ class ClaudeAgentRuntime:
                 timeout=timeout_s,
             )
         except asyncio.TimeoutError as exc:
-            _logger.error("MODEL_CALL_ERROR agent=%s reason=timeout", agent_name)
+            stderr_callback = getattr(self._client, "_last_stderr", None)
+            stderr_tail = stderr_callback.tail() if hasattr(stderr_callback, "tail") else ""
+            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=timeout", request_id, agent_name)
             raise RuntimeTimeoutError(
-                f"Runtime call timed out for agent={agent_name}"
+                append_stderr_diagnostic(
+                    f"Runtime call timed out for agent={agent_name}",
+                    stderr_tail,
+                )
             ) from exc
         except RuntimeCallError as exc:
-            _logger.error("MODEL_CALL_ERROR agent=%s reason=%s", agent_name, exc)
+            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=%s", request_id, agent_name, exc)
             raise
         except Exception as exc:
-            _logger.error("MODEL_CALL_ERROR agent=%s reason=%s", agent_name, exc)
+            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=%s", request_id, agent_name, exc)
             raise _classify_runtime_error(exc, agent_name) from exc
 
         text = _extract_text(raw_response)
         if not text.strip():
-            _logger.error("MODEL_CALL_ERROR agent=%s reason=empty_result", agent_name)
+            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=empty_result", request_id, agent_name)
             raise RuntimeCallError(f"Runtime returned empty result for agent={agent_name}")
 
         usage = extract_usage(raw_response)
         _logger.info(
-            "MODEL_CALL_END agent=%s input=%s output=%s cache_creation=%s cache_read=%s",
+            "MODEL_CALL_END request_id=%s agent=%s input=%s output=%s cache_creation=%s cache_read=%s",
+            request_id,
             agent_name,
             usage.input_tokens,
             usage.output_tokens,

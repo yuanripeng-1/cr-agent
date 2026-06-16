@@ -17,7 +17,7 @@ SummarizeReportFn = Callable[
     [RuntimeContext, dict[str, Any], list[dict[str, Any]], list[str] | None],
     Awaitable[dict[str, Any]],
 ]
-ValidateJsonFn = Callable[[dict[str, Any]], Awaitable[ValidationResult]]
+ValidateJsonFn = Callable[[RuntimeContext, dict[str, Any]], Awaitable[ValidationResult]]
 
 
 @dataclass(frozen=True)

@@ -74,6 +74,15 @@ class ToolsConfig(BaseModel):
     crg: CrgConfig = Field(default_factory=CrgConfig)
 
 
+class TimeoutsConfig(BaseModel):
+    # 各子 agent 的单次模型调用超时(秒)。summary 输入/输出最大,默认与其它一致 300s。
+    model_config = ConfigDict(extra="allow")
+
+    context_s: float = 300.0
+    dimension_s: float = 300.0
+    summary_s: float = 300.0
+
+
 class AgentConfig(BaseModel):
     """
     workspace/<task>/agent_config.toml 的外部运行配置契约。
@@ -88,6 +97,7 @@ class AgentConfig(BaseModel):
     llm: LlmConfig
     git: GitConfig = Field(default_factory=GitConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     platform: Platform | None = None
 
     def configured_platform(self) -> Platform | None:

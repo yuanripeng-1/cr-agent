@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,7 @@ from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle, build_crg_lifec
 from cr_agent.tools.cr_native.external_tools import check_external_tool_availability
 from cr_agent.tools.cr_native.git_tools import GitSettings, resolve_git_token, short_token_hash
 from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
-from cr_agent.utils.logging import get_logger
+from cr_agent.utils.logging import get_logger, install_run_log_handler
 
 _logger = get_logger("cr_agent.bootstrap")
 
@@ -49,6 +50,8 @@ class RuntimeContext:
     context_runtime: object
     # 子 agent runtime;dimension_review skill 通过它逐维调用 dimension subagent。
     dimension_runtime: object
+    # 贯穿本次审查运行的 trace id。
+    trace_id: str
 
 
 def _record_bootstrap_issue(
@@ -152,6 +155,17 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         )
         raise ValueError(message)
 
+    trace_id = uuid.uuid4().hex[:12]
+    install_run_log_handler(result_dir)
+    _logger.info(
+        "BOOTSTRAP_CONFIG_LOADED trace_id=%s config=%s context=%s result_dir=%s",
+        trace_id,
+        config_path,
+        context_path,
+        result_dir,
+    )
+    _logger.info("PLATFORM_SELECTED trace_id=%s platform=%s", trace_id, final_platform)
+
     workspace_dir = context_path.parent
 
     # 解析 git token(context.git_token > config.git.token > "")并构造 GitSettings。
@@ -219,4 +233,5 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         summary_runtime=summary_runtime,
         context_runtime=context_runtime,
         dimension_runtime=dimension_runtime,
+        trace_id=trace_id,
     )

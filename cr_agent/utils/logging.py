@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
 # 脱敏占位符。负向单测会断言日志里出现它而不是明文密钥。
 REDACTED = "***REDACTED***"
@@ -62,3 +63,35 @@ def install_redaction_filter(logger: logging.Logger) -> logging.Logger:
 def get_logger(name: str) -> logging.Logger:
     """返回已挂载脱敏过滤器的 logger。"""
     return install_redaction_filter(logging.getLogger(name))
+
+
+def install_run_log_handler(result_dir: Path) -> Path:
+    """
+    把 cr_agent logger 树接到当前任务 run.log。
+
+    append_run_log 仍用于少量关键时间线；本 handler 负责把已有 _logger
+    埋点完整落盘，便于生产排查。
+    """
+    result_dir.mkdir(parents=True, exist_ok=True)
+    log_path = result_dir / "run.log"
+    logger = logging.getLogger("cr_agent")
+    logger.setLevel(logging.INFO)
+    install_redaction_filter(logger)
+
+    resolved = str(log_path.resolve())
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler) and handler.baseFilename == resolved:
+            return log_path
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.addFilter(RedactionFilter())
+    file_handler.setFormatter(
+        logging.Formatter(
+            "[%(asctime)s] %(levelname)s %(name)s %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    )
+    logger.addHandler(file_handler)
+    logger.propagate = True
+    return log_path

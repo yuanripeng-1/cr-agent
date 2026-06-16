@@ -6,6 +6,7 @@ from cr_agent.utils.logging import (
     REDACTED,
     RedactionFilter,
     get_logger,
+    install_run_log_handler,
     redact,
 )
 
@@ -47,3 +48,15 @@ def test_get_logger_attaches_filter_idempotently() -> None:
     logger = get_logger("cr_agent.tests.idempotent")
     get_logger("cr_agent.tests.idempotent")
     assert sum(isinstance(f, RedactionFilter) for f in logger.filters) == 1
+
+
+def test_install_run_log_handler_writes_cr_agent_logs_with_redaction(tmp_path) -> None:
+    log_path = install_run_log_handler(tmp_path)
+    logger = get_logger("cr_agent.tests.run_log")
+
+    logger.info("MODEL_CALL_START request_id=req-1 api_key=%s", "sk-runlog-secret")
+
+    content = log_path.read_text(encoding="utf-8")
+    assert "MODEL_CALL_START request_id=req-1" in content
+    assert "sk-runlog-secret" not in content
+    assert REDACTED in content

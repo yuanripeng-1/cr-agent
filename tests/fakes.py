@@ -99,7 +99,7 @@ class FakeSkillScenario:
             )
         }
 
-    async def validate_json(self, report: dict[str, Any]) -> ValidationResult:
+    async def validate_json(self, runtime_context: Any, report: dict[str, Any]) -> ValidationResult:
         self.validate_calls += 1
         if self.validate_calls <= self.validation_failures:
             return ValidationResult(valid=False, errors=["invalid fake report"])

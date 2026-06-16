@@ -69,6 +69,7 @@ async def test_main_agent_skill_call_emits_skill_start_log(
     )
     tools = {spec.name: spec for spec in build_skill_tools(session)}
 
+    assert "# collect_context" in tools["collect_context"].description
     with caplog.at_level(logging.INFO, logger="cr_agent.core.main_agent"):
         await tools["collect_context"].handler({})
 

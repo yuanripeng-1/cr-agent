@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError
+from cr_agent.skills.docs import load_skill_doc
 from cr_agent.utils.logging import get_logger
 
 _logger = get_logger("cr_agent.skills.summarize")
+_PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompt"
 
 
 async def summarize_report(
@@ -28,32 +31,51 @@ async def summarize_report(
     if runtime is None:
         raise RuntimeCallError("summary runtime is not configured")
 
-    prompt = _build_summary_prompt(collected_context, dimension_scores, validation_errors or [])
+    prompt = _build_summary_prompt(runtime_context, collected_context, dimension_scores, validation_errors or [])
     result = await runtime.query_subagent(
         "summary",
         prompt,
         assembled_options=None,
+        timeout_s=runtime_context.config.timeouts.summary_s,
     )
     report = _parse_summary_text(result.text)
     report["validation_errors"] = validation_errors or []
+    artifact_path = runtime_context.result_dir / "summary_report.json"
+    _write_json(artifact_path, report)
+    _logger.info("ARTIFACT_WRITE path=%s", artifact_path)
     return report
 
 
 def _build_summary_prompt(
+    runtime_context: RuntimeContext,
     collected_context: dict[str, Any],
     dimension_scores: list[dict[str, Any]],
     validation_errors: list[str],
 ) -> str:
+    skill_doc = load_skill_doc("summarize")
+    summary_prompt = (_PROMPT_DIR / "summary.md").read_text(encoding="utf-8")
+    summary_rule = (_PROMPT_DIR / "rules" / "summaryRule.md").read_text(encoding="utf-8")
+    review_input = runtime_context.review_input
     payload = {
-        "collected_context": collected_context,
-        "dimension_scores": dimension_scores,
+        "collected_context": _compact_context(collected_context),
+        "dimension_scores": _compact_dimension_scores(dimension_scores),
+        "raw_diff": _limit_text(review_input.diff_content, 8000),
+        "title": review_input.title,
+        "description": review_input.description,
+        "commit_messages": review_input.commit_messages,
+        "previous_report": review_input.previous_report,
+        "requirements_doc": review_input.requirements_doc,
         "validation_errors": validation_errors,
     }
     return (
-        "Generate the final code review report as JSON.\n"
-        "Required field: llm_result (non-empty Markdown string).\n"
-        "Optional fields: line_comments {comments: []}, issues [].\n"
-        "If validation_errors is non-empty, fix those schema errors.\n"
+        f"{skill_doc}\n\n"
+        "Summary prompt:\n"
+        f"{summary_prompt}\n\n"
+        "Summary scoring rule:\n"
+        f"{summary_rule}\n\n"
+        "Generate the final code review content as JSON with keys: "
+        "llm_result, line_comments, issues. Runtime fields are added by Python.\n"
+        "If validation_errors is non-empty, fix those schema errors without expanding scope.\n"
         "Input:\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -83,3 +105,60 @@ def _strip_code_fence(text: str) -> str:
     if len(lines) >= 3 and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
     return text
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _compact_context(context: dict[str, Any]) -> dict[str, Any]:
+    keep = {
+        "task_id",
+        "artifact_path",
+        "summary",
+        "warnings",
+        "changed_files",
+        "diff_summary",
+        "semantic_context",
+        "call_graph_context",
+        "code_snippets",
+    }
+    return {key: value for key, value in context.items() if key in keep}
+
+
+def _compact_dimension_scores(scores: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for item in scores:
+        findings = item.get("normalized_findings") or item.get("findings") or []
+        compact.append(
+            {
+                "dimension": item.get("dimension"),
+                "score": item.get("score"),
+                "confidence": item.get("confidence"),
+                "warnings": item.get("warnings", []),
+                "artifact_path": item.get("artifact_path", ""),
+                "findings": [_compact_finding(finding) for finding in findings if isinstance(finding, dict)],
+            }
+        )
+    return compact
+
+
+def _compact_finding(finding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dimension": finding.get("dimension"),
+        "title": finding.get("title"),
+        "analysis": _limit_text(finding.get("analysis")),
+        "evidence": _limit_text(finding.get("evidence")),
+        "severity_hint": finding.get("severity_hint", ""),
+        "file_path": finding.get("file_path", ""),
+        "start_line": finding.get("start_line", 0),
+        "end_line": finding.get("end_line", 0),
+        "suggestion": _limit_text(finding.get("suggestion")),
+        "score": finding.get("score", 0),
+    }
+
+
+def _limit_text(value: Any, limit: int = 1200) -> str:
+    text = "" if value is None else str(value)
+    return text if len(text) <= limit else text[:limit] + "\n...[truncated]"

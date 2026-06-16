@@ -24,8 +24,12 @@ from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage
 from cr_agent.core.usage import accumulate_usage, extract_usage
 from cr_agent.skills.registry import SkillRegistry, build_default_skill_registry
+from cr_agent.utils.logging import get_logger
 
 _USER_PROMPT = "Plan and run the code review using the available skill tools."
+_MAIN_AGENT_PLANNING_TIMEOUT_S = 600
+_MAIN_AGENT_MAX_TURNS = 12
+_logger = get_logger("cr_agent.core.orchestrator")
 
 
 async def run_review(
@@ -59,12 +63,19 @@ async def run_review(
         skill_tools = build_skill_tools(session)
         can_use_tool = make_backstop_can_use_tool(session)
         try:
+            planning_timeout_s = min(main_timeout_s, _MAIN_AGENT_PLANNING_TIMEOUT_S)
+            _logger.info(
+                "MAIN_AGENT_PLANNING_START timeout_s=%s requested_timeout_s=%s",
+                planning_timeout_s,
+                main_timeout_s,
+            )
             main_result = await agent_runtime.run_review_loop(
                 system_prompt=MAIN_AGENT_SYSTEM_PROMPT,
                 user_prompt=_USER_PROMPT,
                 skill_tools=skill_tools,
                 can_use_tool=can_use_tool,
-                timeout_s=main_timeout_s,
+                timeout_s=planning_timeout_s,
+                max_turns=_MAIN_AGENT_MAX_TURNS,
             )
             state.tokens_consume = accumulate_usage(
                 state.tokens_consume,
@@ -79,7 +90,18 @@ async def run_review(
                     state.tokens_consume,
                     extract_usage({"usage": partial}),
                 )
-            raise
+            if session.last_report is None:
+                _logger.warning(
+                    "DEGRADED reason=MAIN_AGENT_FAILED_RECOVERING error=%s",
+                    exc,
+                )
+                state.warnings.append(f"main agent fallback: {exc}")
+                await _run_sequential_skill_fallback(
+                    session=session,
+                    max_retries=max_retries,
+                )
+            else:
+                raise
 
         validation = session.last_validation
         if session.last_report is not None and validation is not None and validation.valid:
@@ -112,6 +134,86 @@ async def run_review(
     return result
 
 
+async def _run_sequential_skill_fallback(
+    *,
+    session: MainAgentSession,
+    max_retries: int,
+) -> None:
+    """
+    主 agent/SDK 未能稳定触发工具时的恢复路径。
+
+    正常控制权仍归主 agent;这里仅在主 agent 抛错且还没有任何 summary 产物时,
+    按同一套 skill registry 顺序执行,保证真实审查流程能产出 result.json。
+    """
+    _logger.info("FALLBACK_SKILL_FLOW_START reason=main_agent_failed")
+    if session.collected_context is None:
+        _logger.info("MAIN_AGENT_SKILL_CALL skill=collect_context source=fallback")
+        _logger.info("SKILL_START skill=collect_context source=fallback")
+        collected = await session.registry.collect_context(session.runtime_context)
+        _accumulate_result_usage(session, collected)
+        session.collected_context = collected
+        _logger.info("SKILL_END skill=collect_context source=fallback")
+    else:
+        _logger.info("FALLBACK_SKIP_SKILL skill=collect_context reason=already_completed")
+
+    if session.dimension_scores is None:
+        _logger.info("MAIN_AGENT_SKILL_CALL skill=dimension_review source=fallback")
+        _logger.info("SKILL_START skill=dimension_review source=fallback")
+        scores = await session.registry.dimension_review(
+            session.runtime_context,
+            session.collected_context or {},
+        )
+        for item in scores:
+            _accumulate_result_usage(session, item)
+        session.dimension_scores = scores
+        _logger.info("SKILL_END skill=dimension_review source=fallback")
+    else:
+        _logger.info("FALLBACK_SKIP_SKILL skill=dimension_review reason=already_completed")
+
+    for _ in range(max_retries + 1):
+        _logger.info(
+            "MAIN_AGENT_SKILL_CALL skill=summarize_report source=fallback attempt_next=%s",
+            session.state.attempt + 1,
+        )
+        session.state.attempt += 1
+        prior_errors = (
+            session.last_validation.errors if session.last_validation is not None else None
+        )
+        _logger.info(
+            "SKILL_START skill=summarize_report source=fallback attempt=%s",
+            session.state.attempt,
+        )
+        report = await session.registry.summarize_report(
+            session.runtime_context,
+            session.collected_context or {},
+            session.dimension_scores or [],
+            prior_errors,
+        )
+        validation = await session.registry.validate_json(session.runtime_context, report)
+        session.last_report = report
+        session.last_validation = validation
+        _logger.info(
+            "SKILL_END skill=summarize_report source=fallback valid=%s errors=%s",
+            validation.valid,
+            len(validation.errors),
+        )
+        if validation.valid:
+            break
+    _logger.info(
+        "FALLBACK_SKILL_FLOW_END valid=%s attempts=%s",
+        session.last_validation.valid if session.last_validation is not None else None,
+        session.state.attempt,
+    )
+
+
+def _accumulate_result_usage(session: MainAgentSession, result: dict[str, Any]) -> None:
+    usage = result.get("usage")
+    if isinstance(usage, TokenUsage):
+        session.add_usage(usage)
+    elif isinstance(usage, dict):
+        session.add_usage(extract_usage({"usage": usage}))
+
+
 def _build_review_result(
     *,
     runtime_context: RuntimeContext,
@@ -131,8 +233,8 @@ def _build_review_result(
             cache_creation_tokens=state.tokens_consume.cache_creation_tokens,
             cache_read_tokens=state.tokens_consume.cache_read_tokens,
         ),
-        line_comments=LineComments(comments=[]),
-        issues=[],
+        line_comments=report.get("line_comments") or LineComments(comments=[]),
+        issues=report.get("issues") or [],
         task_id=runtime_context.review_input.task_id,
         platform=runtime_context.platform,
         errors=state.errors,

@@ -20,14 +20,17 @@ PR3 的 validate 仅做格式校验。将来(PR8)若要校验行号,只需给 va
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol
 
 from cr_agent.bootstrap import RuntimeContext
+from cr_agent.core.sdk_runtime import sdk_message_diagnostics
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage, ValidationResult
 from cr_agent.core.usage import accumulate_usage, extract_usage
+from cr_agent.skills.docs import load_skill_description
 from cr_agent.skills.registry import SkillRegistry
 from cr_agent.tools.provider import ToolSpec, ok_result
 from cr_agent.utils.logging import get_logger
@@ -75,6 +78,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
     """把 3 个占位 skill 包装成主 agent 可调用的 ToolSpec。"""
 
     async def collect_handler(args: dict[str, Any]) -> dict[str, Any]:
+        _logger.info("MAIN_AGENT_SKILL_CALL skill=collect_context")
         _logger.info("SKILL_START skill=collect_context")
         result = await session.registry.collect_context(session.runtime_context)
         usage = result.get("usage")
@@ -94,6 +98,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
         )
 
     async def dimension_handler(args: dict[str, Any]) -> dict[str, Any]:
+        _logger.info("MAIN_AGENT_SKILL_CALL skill=dimension_review")
         _logger.info("SKILL_START skill=dimension_review")
         result = await session.registry.dimension_review(
             session.runtime_context,
@@ -110,6 +115,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
         return ok_result({"dimensions": len(result)})
 
     async def summarize_handler(args: dict[str, Any]) -> dict[str, Any]:
+        _logger.info("MAIN_AGENT_SKILL_CALL skill=summarize_report attempt_next=%s", session.state.attempt + 1)
         # attempt 计数唯一落点:每次 summarize 工具被调用即 +1。
         session.state.attempt += 1
         _logger.info("SKILL_START skill=summarize_report attempt=%s", session.state.attempt)
@@ -123,7 +129,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
             prior_errors,
         )
         # validate_json 是纯代码校验,不持有 attempt;结果回给主 agent 决策重调。
-        validation = await session.registry.validate_json(report)
+        validation = await session.registry.validate_json(session.runtime_context, report)
         session.last_report = report
         session.last_validation = validation
         _logger.info(
@@ -134,9 +140,9 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
         return ok_result({"valid": validation.valid, "errors": validation.errors})
 
     return [
-        ToolSpec("collect_context", "Gather the code review context.", _EMPTY_SCHEMA, collect_handler),
-        ToolSpec("dimension_review", "Score the change across review dimensions.", _EMPTY_SCHEMA, dimension_handler),
-        ToolSpec("summarize_report", "Produce the final report; returns {valid, errors}.", _EMPTY_SCHEMA, summarize_handler),
+        ToolSpec("collect_context", load_skill_description("collect_context"), _EMPTY_SCHEMA, collect_handler),
+        ToolSpec("dimension_review", load_skill_description("dimension_review"), _EMPTY_SCHEMA, dimension_handler),
+        ToolSpec("summarize_report", load_skill_description("summarize"), _EMPTY_SCHEMA, summarize_handler),
     ]
 
 
@@ -223,7 +229,11 @@ class SdkMainAgentRuntime:
         from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server, query
 
         from cr_agent.core.errors import RuntimeTimeoutError
-        from cr_agent.core.sdk_runtime import SdkStderrCapture, append_stderr_diagnostic
+        from cr_agent.core.sdk_runtime import (
+            SdkStderrCapture,
+            append_stderr_diagnostic,
+            log_gateway_target,
+        )
         from cr_agent.core.usage import extract_usage
         from cr_agent.tools.spec_sdk import to_sdk_tool
 
@@ -240,15 +250,26 @@ class SdkMainAgentRuntime:
             tools=[],
             max_turns=max_turns,
             stderr=stderr_capture,
+            # --debug 让 CLI 把重试原因 / HTTP 状态写到 stderr,配合 INFO 级捕获落盘。
+            extra_args={"debug": None},
         )
 
         texts: list[str] = []
         final_text: str | None = None
         usage: dict[str, Any] | None = None
         prompt = _single_user_prompt(user_prompt) if can_use_tool is not None else user_prompt
+        request_id = uuid.uuid4().hex[:12]
+        log_gateway_target("main", self.env, self.model)
+        _logger.info("MODEL_CALL_START request_id=%s agent=main model=%s", request_id, self.model)
         try:
             async with asyncio.timeout(timeout_s):
+                # 真正启动 Claude Agent SDK 的入口
                 async for message in query(prompt=prompt, options=options):
+                    _logger.info(
+                        "MODEL_MESSAGE request_id=%s type=%s",
+                        request_id,
+                        type(message).__name__,
+                    )
                     content = getattr(message, "content", None)
                     if content is not None:
                         for block in content:
@@ -257,10 +278,17 @@ class SdkMainAgentRuntime:
                                 texts.append(block_text)
                     if getattr(message, "usage", None) is not None:
                         usage = getattr(message, "usage")
+                    if hasattr(message, "is_error"):
+                        _logger.info(
+                            "MODEL_RESULT_MESSAGE request_id=%s agent=main detail=%s",
+                            request_id,
+                            sdk_message_diagnostics(message),
+                        )
                     result_text = getattr(message, "result", None)
                     if isinstance(result_text, str) and result_text:
                         final_text = result_text
         except TimeoutError as exc:
+            _logger.error("MODEL_CALL_ERROR request_id=%s agent=main reason=timeout", request_id)
             raise RuntimeTimeoutError(
                 append_stderr_diagnostic(
                     f"Main agent runtime timed out after {timeout_s}s",
@@ -269,7 +297,16 @@ class SdkMainAgentRuntime:
             ) from exc
 
         text = final_text if final_text else "".join(texts)
-        return MainAgentResult(text=text, usage=extract_usage({"usage": usage}))
+        extracted = extract_usage({"usage": usage})
+        _logger.info(
+            "MODEL_CALL_END request_id=%s agent=main input=%s output=%s cache_creation=%s cache_read=%s",
+            request_id,
+            extracted.input_tokens,
+            extracted.output_tokens,
+            extracted.cache_creation_tokens,
+            extracted.cache_read_tokens,
+        )
+        return MainAgentResult(text=text, usage=extracted)
 
 
 def build_main_agent_runtime(config: Any) -> SdkMainAgentRuntime:

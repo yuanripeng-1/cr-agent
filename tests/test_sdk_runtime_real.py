@@ -13,6 +13,7 @@ from cr_agent.core.sdk_runtime import (
     SdkQueryClient,
     build_runtime,
     build_sdk_env,
+    sdk_message_diagnostics,
 )
 
 
@@ -28,6 +29,21 @@ def _result_message(*, result: str, usage: dict | None, is_error: bool = False) 
         usage=usage,
         errors=["boom"] if is_error else None,
     )
+
+
+def test_sdk_message_diagnostics_includes_result_message_fields() -> None:
+    message = _result_message(
+        result="Reached maximum number of turns (1)",
+        usage={"input_tokens": 1},
+        is_error=True,
+    )
+
+    diagnostics = sdk_message_diagnostics(message)
+
+    assert diagnostics["is_error"] is True
+    assert diagnostics["result"] == "Reached maximum number of turns (1)"
+    assert diagnostics["errors"] == ["boom"]
+    assert diagnostics["num_turns"] == 1
 
 
 def _fake_query(messages):
@@ -122,6 +138,7 @@ async def test_sdk_client_raises_with_usage_on_model_error() -> None:
         await client.query(agent_name="main", prompt="hi")
     # 计费 usage 带回上游,失败也不丢 token。
     assert excinfo.value.usage == {"input_tokens": 5, "output_tokens": 0}
+    assert "errors=['boom']" in str(excinfo.value)
 
 
 @pytest.mark.asyncio
@@ -134,7 +151,7 @@ async def test_runtime_rejects_empty_text_from_real_client_path() -> None:
         await runtime.query_main("hi")
 
 
-# ----- orchestrator preserves accumulated token on failure (no fake 0) -----
+# ----- orchestrator preserves accumulated token when recovering from main failure -----
 
 class _FailingRuntimeWithUsage:
     async def run_review_loop(self, **kwargs):
@@ -149,14 +166,19 @@ class _FailingRuntimeWithUsage:
 
 
 @pytest.mark.asyncio
-async def test_run_review_writes_real_accumulated_tokens_on_failure(agent_config_path) -> None:
+async def test_run_review_keeps_partial_main_usage_when_recovering(agent_config_path) -> None:
     from cr_agent.bootstrap import bootstrap_runtime
+    from tests.fakes import FakeSkillScenario
 
     runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
-    result = await run_review(runtime_context, agent_runtime=_FailingRuntimeWithUsage())
+    result = await run_review(
+        runtime_context,
+        agent_runtime=_FailingRuntimeWithUsage(),
+        skill_registry=FakeSkillScenario().registry(),
+    )
 
-    assert result.status == "error"
+    assert result.status == "success"
     written = load_review_result(runtime_context.result_dir / "result.json")
-    # 失败产物写真实已累计 token,而非假 0。
+    # 主 agent 报错后走恢复路径,已发生的模型计费仍然保留。
     assert written.tokens_consume.input_tokens == 9
     assert written.tokens_consume.output_tokens == 1
