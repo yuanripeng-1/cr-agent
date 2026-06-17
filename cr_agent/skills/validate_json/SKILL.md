@@ -1,23 +1,23 @@
 # validate_json
 
-## Purpose
-Validate that the final review result can be consumed by downstream systems.
+## 目的
+校验最终评审结果是否能被下游系统消费。
 
-## When To Use
-Call immediately after every `summarize_report` attempt.
+## 何时使用
+每次 `summarize_report` 尝试之后立即调用。
 
-## Agent Policy
-This skill is deterministic Python code. It must not call an agent and must not use tools.
+## Agent 策略
+此 skill 是确定性的 Python 代码。不得调用 agent，也不得使用工具。
 
-## Validation Scope
+## 校验范围
 - `ReviewResult` schema
 - `line_comments.comments` and `issues.locations` alignment
-- relative file paths
-- positive line ranges
-- diff added-line range when diff context is available
+- 相对文件路径
+- 正数行范围
+- diff 上下文可用时的新增行范围
 
-## Output
-Return `ValidationResult(valid, errors)`.
+## 输出
+返回 `ValidationResult(valid, errors)`。
 
-## Failure Policy
-Never mutate the report. Return validation errors for the main agent to decide whether to retry summary.
+## 失败策略
+绝不修改 report。返回 validation errors，由 main agent 决定是否重试 summary。

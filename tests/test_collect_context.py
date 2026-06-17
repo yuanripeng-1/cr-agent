@@ -165,7 +165,7 @@ async def test_collect_context_writes_local_fallback_when_subagent_fails(agent_c
     result = await collect_context(runtime_context)
 
     assert result["usage"]["input_tokens"] == 0
-    assert "Context subagent failed" in result["summary"]
+    assert "context subagent 失败" in result["summary"]
     artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
     assert artifact["changed_files"]
-    assert "context subagent failed: context sdk failed" in artifact["warnings"]
+    assert "context subagent 失败: context sdk failed" in artifact["warnings"]

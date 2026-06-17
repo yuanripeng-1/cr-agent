@@ -69,14 +69,14 @@ def _build_summary_prompt(
     }
     return (
         f"{skill_doc}\n\n"
-        "Summary prompt:\n"
+        "汇总提示词：\n"
         f"{summary_prompt}\n\n"
-        "Summary scoring rule:\n"
+        "汇总评级规则：\n"
         f"{summary_rule}\n\n"
-        "Generate the final code review content as JSON with keys: "
-        "llm_result, line_comments, issues. Runtime fields are added by Python.\n"
-        "If validation_errors is non-empty, fix those schema errors without expanding scope.\n"
-        "Input:\n"
+        "请生成最终代码评审内容，格式为 JSON，字段为："
+        "llm_result、line_comments、issues。运行时字段由 Python 补充。\n"
+        "如果 validation_errors 非空，只修复这些 schema 错误，不要扩大评审范围。\n"
+        "输入：\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 

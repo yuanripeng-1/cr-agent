@@ -264,15 +264,15 @@ def _build_prompt(
     }
     return (
         f"{skill_doc}\n\n"
-        "You are the dimension subagent for a code review.\n"
-        f"Review dimension: {dimension}.\n"
-        "Follow the dimension-specific rules below, use available tools when useful, "
-        "and return ONLY valid YAML. Do not include markdown fences.\n"
-        "Dimension prompt:\n"
+        "你是代码评审的 dimension subagent。\n"
+        f"评审维度：{dimension}。\n"
+        "请遵循下面的维度专属规则，在有帮助时使用可用工具，"
+        "并且只返回有效 YAML。不要包含 Markdown 代码围栏。\n"
+        "维度提示词：\n"
         f"{dimension_prompt}\n\n"
-        "Dimension scoring rule:\n"
+        "维度评分规则：\n"
         f"{dimension_rule}\n\n"
-        "Input:\n"
+        "输入：\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 
