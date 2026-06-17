@@ -49,8 +49,13 @@ async def run_review(
     if agent_runtime is None:
         raise ValueError("run_review requires a main agent runtime (agentic control flow)")
 
+    # 创建 注册表：SkillRegistry，注册了 4 个 skill 函数（collect_context、dimension_review、summarize_report、validate_json）
     registry = skill_registry or build_default_skill_registry()
+
+    # 创建 状态：ReviewState，本次审查运行的状态（记录成功/失败、重试次数、token 消耗）
     state = ReviewState(max_retries=max_retries)
+    
+    # 创建 会话：MainAgentSession，主 agent 运行期间共享的状态（收集的 context、维度评分、最终报告）
     session = MainAgentSession(
         runtime_context=runtime_context,
         registry=registry,
