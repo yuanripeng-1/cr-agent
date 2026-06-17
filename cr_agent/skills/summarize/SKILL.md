@@ -1,31 +1,31 @@
 # summarize_report
 
-## Purpose
-Aggregate collected context and dimension expert reports into the final code review content.
+## 目的
+将已收集的上下文和各维度专家报告聚合为最终代码评审内容。
 
-## When To Use
-Call this skill after `dimension_review`. If validation fails, call it again with validation errors.
+## 何时使用
+在 `dimension_review` 之后调用此 skill。如果校验失败，携带 validation errors 再次调用。
 
-## Inputs
-- collected context
-- dimension expert reports and normalized findings
-- validation errors from the previous attempt, if any
+## 输入
+- 已收集的上下文
+- 维度专家报告与规范化 findings
+- 如存在，上一轮尝试产生的 validation errors
 - `prompt/summary.md`
 - `prompt/rules/summaryRule.md`
 
-## Tools
-The summary subagent must not use tools.
+## 工具
+summary subagent 不得使用任何工具。
 
-## Output
-Return JSON content fields:
+## 输出
+返回包含以下字段的 JSON 内容：
 - `llm_result`
 - `line_comments`
 - `issues`
 
-Runtime fields such as `status`, `log_path`, and `tokens_consume` are added by the orchestrator.
+`status`、`log_path`、`tokens_consume` 等运行时字段由 orchestrator 补充。
 
-## Retry Contract
-When `validation_errors` is non-empty, fix the prior output shape and do not expand review scope.
+## 重试契约
+当 `validation_errors` 非空时，只修复上一轮输出结构问题，不扩大评审范围。
 
-## Failure Policy
-Empty or invalid output is handled by validation and main-agent retry.
+## 失败策略
+空输出或无效输出由 validation 和 main-agent retry 处理。

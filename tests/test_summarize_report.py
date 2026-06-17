@@ -42,7 +42,7 @@ async def test_summarize_report_calls_summary_subagent_without_tools(agent_confi
     assert runtime.calls[0]["agent_name"] == "summary"
     assert runtime.calls[0]["assembled_options"] is None
     assert "# summarize_report" in runtime.calls[0]["prompt"]
-    assert "Summary 评级规则" in runtime.calls[0]["prompt"]
+    assert "汇总评级规则" in runtime.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio

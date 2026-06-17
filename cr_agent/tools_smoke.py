@@ -33,13 +33,13 @@ _DEFAULT_TIMEOUT_S = 120.0
 _DEFAULT_MAX_TURNS = 6
 
 _USER_PROMPT = (
-    "Use the available tools exactly once each in this order: "
-    "1) call glob_files with pattern '**/*'; "
-    "2) call read_file on one returned file; "
-    "3) call grep_text with pattern 'TODO'. "
-    "Then summarize what you found in one sentence and stop."
+    "请严格按以下顺序各调用一次可用工具："
+    "1) 使用 pattern '**/*' 调用 glob_files；"
+    "2) 对一个返回文件调用 read_file；"
+    "3) 使用 pattern 'TODO' 调用 grep_text。"
+    "然后用一句话总结发现并停止。"
 )
-_SYSTEM_PROMPT = "You are a code exploration agent. Use only the provided tools."
+_SYSTEM_PROMPT = "你是代码探索 agent。只能使用提供的工具。"
 
 
 def _build_parser() -> argparse.ArgumentParser:

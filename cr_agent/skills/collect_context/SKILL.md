@@ -1,39 +1,39 @@
 # collect_context
 
-## Purpose
-Collect the minimum review context needed before dimension review.
+## 目的
+在进入多维度审查前，收集最小且足够的代码评审上下文。
 
-## When To Use
-Call this skill first in every code review run.
+## 何时使用
+每次代码评审运行时，第一个调用此 skill。
 
-## Inputs
-- `context.json` fields from `RuntimeContext.review_input`
-- raw diff content
-- project root
-- title and description
+## 输入
+- 来自 `RuntimeContext.review_input` 的 `context.json` 字段
+- 原始 diff 内容
+- 项目根目录
+- 标题与描述
 - commit messages
-- requirements document path/content reference when available
-- previous report when available
+- 可用时的需求文档路径或内容引用
+- 可用时的上一轮评审报告
 
-## Tools
-The context subagent may only use tools provided by `ToolFacade.tools_for("context")`.
+## 工具
+context subagent 只能使用 `ToolFacade.tools_for("context")` 提供的工具。
 
-## Execution Contract
-- Understand the diff first.
-- Extract changed files and added line ranges.
-- Use `read_file` and `read_file_range` for concrete evidence when needed.
-- Use `grep_text` for references when useful.
-- Use `semble_search` for semantic context when available.
-- Use `crg_query` only when call graph context is useful and available.
-- Tool failures must be reported as warnings and must not stop the review.
+## 执行契约
+- 先理解 diff。
+- 提取变更文件和新增行范围。
+- 需要具体证据时使用 `read_file` 和 `read_file_range`。
+- 有助于定位引用时使用 `grep_text`。
+- `semble_search` 可用且有助于语义上下文时再使用。
+- 只有在调用图上下文有价值且可用时，才使用 `crg_query`。
+- 工具失败必须记录为 warnings，不能中断评审。
 
-## Output
-Write `collected_context.json` and return a compact summary containing:
+## 输出
+写入 `collected_context.json`，并返回包含以下字段的紧凑摘要：
 - `task_id`
 - `artifact_path`
 - `summary`
 - `warnings`
 - `usage`
 
-## Failure Policy
-Runtime failure may fail the skill. Individual tool failures must degrade into warnings.
+## 失败策略
+运行时失败可以使 skill 失败；单个工具失败必须降级为 warnings。

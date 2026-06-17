@@ -39,15 +39,13 @@ _logger = get_logger("cr_agent.core.main_agent")
 
 # 主 agent 系统提示:只负责阶段规划与 validate 失败后的重调决策,不含工具实现细节。
 MAIN_AGENT_SYSTEM_PROMPT = (
-    "You are the orchestrating agent for a code review run. Plan and execute the "
-    "review by calling the provided skill tools in order:\n"
-    "1. collect_context — gather the review context.\n"
-    "2. dimension_review — score the change across dimensions.\n"
-    "3. summarize_report — produce the final report. Its result includes "
-    "{valid, errors}. If valid is false, decide whether to call summarize_report "
-    "again to fix the reported errors. If valid is true, you are done.\n"
-    "Do not fabricate results; rely only on the tools. Stop once the report is valid "
-    "or you are told a tool is no longer permitted."
+    "你是一次代码评审运行的编排 agent。请按顺序调用提供的 skill 工具来规划并执行评审：\n"
+    "1. collect_context — 收集评审上下文。\n"
+    "2. dimension_review — 按多个维度为变更评分。\n"
+    "3. summarize_report — 生成最终报告。它的结果包含 {valid, errors}。"
+    "如果 valid 为 false，请判断是否再次调用 summarize_report 来修复已报告的错误。"
+    "如果 valid 为 true，则任务完成。\n"
+    "不要编造结果；只依赖工具输出。当报告有效，或工具被告知不再允许使用时停止。"
 )
 
 # 空入参 schema:占位 skill 不需要主 agent 传参,handler 从 session 取状态。

@@ -45,14 +45,14 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         result = QueryResult(
             text=json.dumps(
                 {
-                    "summary": "Context subagent failed; using local context fallback.",
+                    "summary": "context subagent 失败；使用本地上下文降级结果。",
                     "diff_summary": _local_diff_summary(review_input.diff_content),
-                    "warnings": [f"context subagent failed: {exc}"],
+                    "warnings": [f"context subagent 失败: {exc}"],
                 },
                 ensure_ascii=False,
             )
         )
-        degraded_warning = f"context subagent failed: {exc}"
+        degraded_warning = f"context subagent 失败: {exc}"
     report = _parse_context_text(result.text)
     warnings = _collect_warnings(evidence, report)
     if degraded_warning and degraded_warning not in warnings:
@@ -167,15 +167,15 @@ def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str
     }
     return (
         f"{skill_doc}\n\n"
-        "You are the context subagent for a code review.\n"
-        "First understand the raw diff. Dynamically decide which tools to use.\n"
-        "Use Semble for semantic context when useful. Use CRG only when you need a "
-        "symbol/function call graph; CRG is best tried late because the graph may still build.\n"
-        "Use read_file/read_file_range to collect concrete code evidence.\n"
-        "If Semble or CRG returns warnings/errors, continue with available evidence.\n"
-        "Return JSON with keys: summary, diff_summary, semantic_context, "
-        "call_graph_context, code_snippets, warnings.\n"
-        "Input:\n"
+        "你是代码评审的 context subagent。\n"
+        "请先理解原始 diff，再动态决定需要使用哪些工具。\n"
+        "当语义上下文有帮助时使用 Semble。只有在需要符号/函数调用图时才使用 CRG；"
+        "CRG 最好靠后尝试，因为图可能仍在构建中。\n"
+        "使用 read_file/read_file_range 收集具体代码证据。\n"
+        "如果 Semble 或 CRG 返回 warnings/errors，请基于已有证据继续。\n"
+        "返回 JSON，字段为：summary、diff_summary、semantic_context、"
+        "call_graph_context、code_snippets、warnings。\n"
+        "输入：\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 
@@ -183,12 +183,12 @@ def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str
 def _parse_context_text(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
-        return {"summary": "", "warnings": ["context subagent returned empty output"]}
+        return {"summary": "", "warnings": ["context subagent 返回空输出"]}
     json_text = _strip_code_fence(stripped)
     try:
         parsed = json.loads(json_text)
     except json.JSONDecodeError:
-        return {"summary": stripped, "warnings": ["context subagent returned non-json summary"]}
+        return {"summary": stripped, "warnings": ["context subagent 返回非 JSON 摘要"]}
     return parsed if isinstance(parsed, dict) else {"summary": stripped}
 
 

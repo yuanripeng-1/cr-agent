@@ -83,9 +83,9 @@ class _DimensionRuntime:
 
 
 def _dimension_from_prompt(prompt: str) -> str:
-    marker = "Review dimension: "
+    marker = "评审维度："
     start = prompt.index(marker) + len(marker)
-    end = prompt.index(".", start)
+    end = prompt.index("。", start)
     return prompt[start:end]
 
 
