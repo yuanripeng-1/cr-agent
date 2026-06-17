@@ -25,6 +25,12 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
     review_input = runtime_context.review_input
     artifact_path = runtime_context.result_dir / "collected_context.json"
     evidence: list[dict[str, Any]] = []
+
+
+    '''
+        取出collect_context 需要的工具并包装成ToolSpec，包装成ToolSpec后，调用_trace_tools()方法进行包装，
+        
+    '''
     tools = _trace_tools(runtime_context.tool_facade.tools_for("context"), evidence)
     prompt = _build_prompt(runtime_context, tools)
     options = _build_context_options(runtime_context, tools)
@@ -33,6 +39,7 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         raise RuntimeError("context runtime is not configured")
 
     try:
+        # Context 子 Agent 启动
         result = await runtime.query_subagent(
             "context",
             prompt,
@@ -143,7 +150,7 @@ def _build_context_options(runtime_context: RuntimeContext, tools: list[ToolSpec
     options._cr_agent_tools = tools  # type: ignore[attr-defined]
     return options
 
-
+# 构建context subagent的prompt
 def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str:
     review_input = runtime_context.review_input
     skill_doc = load_skill_doc("collect_context")

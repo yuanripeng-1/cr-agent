@@ -138,6 +138,7 @@ async def _run_single_dimension(
         runtime = getattr(runtime_context, "dimension_runtime", None)
         if runtime is None:
             raise RuntimeCallError("dimension runtime is not configured")
+        # Dimension 子 Agent 启动
         response: QueryResult = await runtime.query_subagent(
             "dimension",
             prompt,

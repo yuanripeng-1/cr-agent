@@ -75,6 +75,7 @@ class MainAgentSession:
 def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
     """把 3 个占位 skill 包装成主 agent 可调用的 ToolSpec。"""
 
+    # 主 Agent 调 skill 时的回调函数
     async def collect_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("MAIN_AGENT_SKILL_CALL skill=collect_context")
         _logger.info("SKILL_START skill=collect_context")
@@ -235,9 +236,19 @@ class SdkMainAgentRuntime:
         from cr_agent.core.usage import extract_usage
         from cr_agent.tools.spec_sdk import to_sdk_tool
 
+        '''
+        to_sdk_tool(t) → 得到 SdkMcpTool（名字、描述、schema、handler）。
+        create_sdk_mcp_server(...) → 把这 3 个 SdkMcpTool 装进一个叫 "skills" 的 进程内 MCP 服务。
+        options.mcp_servers={"skills": server} → 告诉 SDK：主 Agent 可以用这些工具。
+        模型调 mcp__skills__collect_context 时，SDK 会调 to_sdk_tool 包出来的 handler → 最终到 collect_handler。
+        '''
+        # 创建 MCP server "skills"，把 skill 工具装进 in-process MCP server
+        # to_sdk_tool() 把 ToolSpec.handler 再包一层，转成 SDK 认识的格式；
         server = create_sdk_mcp_server(name="skills", tools=[to_sdk_tool(t) for t in skill_tools])
         allowed = [f"mcp__skills__{t.name}" for t in skill_tools]
         stderr_capture = SdkStderrCapture()
+
+        # 调用SDK的query方法传入的options参数
         options = ClaudeAgentOptions(
             model=self.model,
             env=self.env,
@@ -255,6 +266,7 @@ class SdkMainAgentRuntime:
         texts: list[str] = []
         final_text: str | None = None
         usage: dict[str, Any] | None = None
+        # 如果can_use_tool不为空，则使用_single_user_prompt包装user_prompt
         prompt = _single_user_prompt(user_prompt) if can_use_tool is not None else user_prompt
         request_id = uuid.uuid4().hex[:12]
         log_gateway_target("main", self.env, self.model)
@@ -262,6 +274,7 @@ class SdkMainAgentRuntime:
         try:
             async with asyncio.timeout(timeout_s):
                 # 真正启动 Claude Agent SDK 的入口
+                # query() 只调用 1 次，内部封装了完整的多轮 agent 循环
                 async for message in query(prompt=prompt, options=options):
                     _logger.info(
                         "MODEL_MESSAGE request_id=%s type=%s",

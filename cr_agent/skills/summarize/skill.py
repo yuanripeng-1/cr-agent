@@ -32,6 +32,7 @@ async def summarize_report(
         raise RuntimeCallError("summary runtime is not configured")
 
     prompt = _build_summary_prompt(runtime_context, collected_context, dimension_scores, validation_errors or [])
+    # Summary 子 Agent 启动
     result = await runtime.query_subagent(
         "summary",
         prompt,

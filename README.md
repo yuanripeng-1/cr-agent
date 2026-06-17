@@ -1,286 +1,215 @@
-# CR-Agent (Claude Agent SDK 重构版)
+# CR-Agent
 
-当前仓库处于**完全重构阶段**，已完成 M0 脚手架。
+基于 Claude Agent SDK 的 MR/PR 自动化 AI 代码审查引擎。读取任务输入（`context.json`），经主 Agent 编排四阶段 Skill 流水线，产出结构化报告供后端消费。
 
-## 运行入口
+> AI 编程 Agent（Claude Code 等）请阅读 [`CLAUDE.md`](CLAUDE.md)。
 
-- 启动脚本：`RUN.sh`
-- Python 入口：`cr_agent/main.py`
-- 启动命令：
+## 架构概览
 
-```bash
-bash RUN.sh --config workspace/<task>/agent_config.toml [--platform gitlab|infcode]
+```mermaid
+graph TD
+    Entry["RUN.sh / main.py"] --> Bootstrap["bootstrap_runtime"]
+    Bootstrap --> Orchestrator["run_review"]
+    Orchestrator --> MainAgent["SdkMainAgentRuntime"]
+    MainAgent --> Skills["MCP skill tools"]
+    Skills --> CollectCtx["collect_context"]
+    Skills --> DimReview["dimension_review"]
+    Skills --> Summarize["summarize_report"]
+    Skills --> Validate["validate_json"]
+    CollectCtx --> ToolFacade["ToolFacade"]
+    DimReview --> ToolFacade
+    ToolFacade --> Provider["CrNative / Infcode Provider"]
+    Orchestrator --> Artifacts["result.json / cr_result.md / run.log"]
 ```
 
-## 平台识别规则（严格）
+**设计要点**：控制流反转——主 Agent 通过 MCP skill 工具决定阶段顺序与重试；`orchestrator` 负责兜底、usage 汇总与产物写盘。
 
-仅支持两种来源，优先级如下：
+| 层级 | 路径 | 职责 |
+|------|------|------|
+| 入口 | `RUN.sh`, `cr_agent/main.py` | Shell/CLI 启动 |
+| Bootstrap | `cr_agent/bootstrap.py` | 加载配置，构建 `RuntimeContext` |
+| 编排 | `cr_agent/core/orchestrator.py` | 驱动主 Agent，写最终产物 |
+| 主 Agent | `cr_agent/core/main_agent.py` | 规划审查阶段 |
+| Skills | `cr_agent/skills/` | 收集上下文、维度评分、汇总、校验 |
+| Tools | `cr_agent/tools/` | 平台无关契约 + Provider 实现 |
 
-1. `--platform`
-2. `workspace/config.toml` 中的 `platform`
+## 快速开始
 
-若都缺失则启动失败。
+### 1. 安装
 
-## M0 已落地内容
+```bash
+bash INSTALL.sh
+```
 
-- 新目录骨架：`cr_agent/`、`config/`
-- 输入模型：`cr_agent/core/review_input.py`
-- 启动装配：`cr_agent/bootstrap.py`
-- 占位技能目录：`collect_context`、`dimension_review`、`summarize`、`validate_json`
-- 占位工具外观层：`cr_agent/tools/`
-- `context.json` 契约补充：`commit_messages`
+创建 conda 环境 `cragent`（Python 3.11），安装 `requirements.txt` 依赖，并检查 git / ripgrep / ast-grep / Semble 等外部工具。
 
-## 当前项目结构
+### 2. 运行完整审查
 
-> 说明：以下为当前仓库的实际结构（重构进行中）。`skills/`、`tools/` 下已建好目录与基础文件，后续里程碑会继续补全实现。
+```bash
+bash RUN.sh --config workspace/<task>/agent_config.toml --platform gitlab
+```
+
+等价于 `conda run -n cragent python -m cr_agent.main --config ... --platform gitlab`。默认跑完整 agentic 审查流水线。
+
+产物写入 `result_dir`（由 `agent_config.toml` 的 `[context].result_path` 指定）：
+
+```text
+result_dir/
+├── collected_context.json
+├── dimensions/
+│   ├── business.json
+│   ├── security.json
+│   └── manifest.json
+├── summary_report.json
+├── result.json
+├── cr_result.md
+└── run.log
+```
+
+## 运行模式
+
+### 生产入口（`RUN.sh` / `main.py`）
+
+完整审查：bootstrap → 主 Agent 驱动四阶段 Skill → 写盘产物。
+
+```bash
+bash RUN.sh --config workspace/<task>/agent_config.toml --platform gitlab [--timeout-s 300]
+```
+
+### Bootstrap 装配验证（`--bootstrap-only`）
+
+只验证配置与输入加载，写出 `status="bootstrap_ready"` 占位产物，不调用 LLM：
+
+```bash
+bash RUN.sh --config <agent_config.toml> --platform gitlab --bootstrap-only
+```
+
+### Agentic 冒烟（`cr_agent.smoke`）
+
+手动验证经 LiteLLM 网关的完整主 Agent 流程。前置条件：
+
+1. 已安装 `claude` CLI
+2. 运行中的 LiteLLM Anthropic-compatible Gateway
+3. `agent_config.toml` 的 `[llm]` 已配置 `model` / `api_key` / `api_base`
+
+```bash
+conda run -n cragent python -m cr_agent.smoke --config <abs_path>/agent_config.toml --platform gitlab
+```
+
+### 工具层冒烟（`cr_agent.tools_smoke`）
+
+端到端验收 cr-native 工具（`read_file` / `glob_files` / `grep_text` 等）。前置同 smoke，另需 `context.json` 的 `project_root` 指向真实仓库且系统已安装 `rg`。
+
+```bash
+conda run -n cragent python -m cr_agent.tools_smoke --config <abs_path>/agent_config.toml --platform gitlab
+```
+
+## 配置说明
+
+### 运行时配置（每次任务）
+
+位于 `workspace/<task>/`：
+
+- `agent_config.toml` — LLM、context 路径、result 路径、git 设置
+- `context.json` — diff、project_root、task_id 等审查输入
+
+### 静态策略模板（`config/`）
+
+- `dimensions.toml` — 平台维度列表与并发数
+- `agent_tools.toml` — 各 agent 工具 allowlist
+- `config.toml` — 项目模板样例
+- `router.config.json` — 路由配置（不进主架构）
+
+### Platform 识别
+
+优先级：`--platform` > `agent_config.toml` 根级 `[platform]` > `[llm].platform`。仅支持 `gitlab` 和 `infcode`，缺失则启动失败。
+
+### 本机路径注意
+
+任务目录的 `agent_config.toml` 可能使用容器路径（如 `/workspace/...`）。本机运行建议复制到临时文件并替换为绝对路径，不要直接改原任务文件。
+
+## 测试
+
+开发模式：**定义接口 → 搭建测试骨架 → Smoke 通过 → 开发功能 → 补充测试 → 持续回归**。
+
+约束：测试不访问真实外部服务、不调用真实 LLM、不启动 LiteLLM、不调真实 Claude SDK、不调真实工具。runtime / 主 agent / skill 均通过 `tests/fakes.py` 或 `unittest.mock.AsyncMock` 模拟。
+
+```bash
+# 全量
+conda run -n cragent python -m pytest -q
+
+# 单文件
+conda run -n cragent python -m pytest -q tests/test_collect_context.py
+```
+
+当前约 **125** 项测试，覆盖 bootstrap、orchestrator、skills、tools、artifacts、contracts 等。
+
+契约校验（三件套）：
+
+```bash
+conda run -n cragent python -m cr_agent.core.verify_contracts \
+  --config <agent_config.toml> --context <context.json> --result <result.json>
+```
+
+## 目录结构
 
 ```text
 cr-agent/
-├── RUN.sh
+├── CLAUDE.md              # AI Agent 工作说明
 ├── INSTALL.sh
+├── RUN.sh
 ├── requirements.txt
-├── README.md
 ├── config/
+│   ├── agent_tools.toml
+│   ├── config.toml
+│   ├── dimensions.toml
 │   └── router.config.json
-├── docs/
-│   ├── context_schema.md
-│   ├── requirements.md
-│   └── upgrade/
-│       ├── .CR-Agent.md
-│       ├── cr-agent-sdk-upgrade.md
-│       └── implemented-progress.md
+├── prompt/                # 维度审查与汇总 prompt
+│   ├── *.md
+│   └── rules/
 ├── cr_agent/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── bootstrap.py
+│   ├── main.py            # CLI 入口
+│   ├── bootstrap.py       # RuntimeContext 装配
+│   ├── smoke.py           # Agentic 冒烟
+│   ├── tools_smoke.py     # 工具层冒烟
 │   ├── agents/
-│   │   ├── definitions.py
-│   │   └── prompts/
-│   │       └── .gitkeep
-│   ├── core/
-│   │   ├── __init__.py
-│   │   └── review_input.py
+│   ├── core/              # 编排、主 Agent、契约、产物
 │   ├── schemas/
-│   │   └── summary_schema.json
 │   ├── skills/
-│   │   ├── registry.py
 │   │   ├── collect_context/
-│   │   │   ├── __init__.py
-│   │   │   ├── SKILL.md
-│   │   │   └── skill.py
 │   │   ├── dimension_review/
-│   │   │   ├── __init__.py
-│   │   │   ├── SKILL.md
-│   │   │   └── skill.py
-│   │   ├── summarize/
-│   │   │   ├── SKILL.md
-│   │   │   └── skill.py
-│   │   └── validate_json/
-│   │       ├── SKILL.md
-│   │       └── skill.py
+│   │   ├── summarize/     # skill 名: summarize_report
+│   │   ├── validate_json/
+│   │   └── registry.py
 │   ├── tools/
-│   │   ├── provider.py
-│   │   ├── facade.py
-│   │   ├── cr_native/
-│   │   │   └── registry.py
-│   │   └── infcode/
-│   │       └── adapter.py
 │   └── utils/
-│       ├── diff.py
-│       ├── git_ops.py
-│       └── logging.py
-└── workspace/
-    └── 764-ef5c5c99/
+├── tests/
+└── workspace/             # 任务输入与审查产物
+    └── <task>/
         ├── agent_config.toml
-        ├── changes.diff
-        └── context.json
+        ├── context.json
+        └── changes.diff
 ```
 
-## 关于 `config/` 目录
-
-`config/` 下文件是**项目模板/静态策略配置**（后续维度与工具授权会从这里读取），
-不是本次任务运行时必须传入的配置文件。
-当前运行时仍然以 `workspace/<task>/agent_config.toml` 为准。
-
-## 测试与本地 Smoke
-
-当前已建立 pytest 测试骨架,目标是先固定可长期复用的开发模式:
-
-```text
-定义接口 → 搭建测试骨架 → Smoke Test 通过 → 开发功能 → 补充测试数据 → 持续回归
-```
-
-测试约束:
-
-- 不访问真实外部服务。
-- 不调用真实 LLM。
-- 不启动 LiteLLM。
-- 不调用真实 Claude Agent SDK。
-- 不调用真实工具。
-- runtime、主 agent、skill 均通过 fake 或 `unittest.mock.AsyncMock` 模拟依赖。
-
-### 1. 首次准备环境
-
-```bash
-cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-```
-
-### 2. 运行全部测试
-
-```bash
-cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
-.venv/bin/python -m pytest -q
-```
-
-这条命令的含义:
-
-- `.venv/bin/python`:使用本项目虚拟环境里的 Python。
-- `-m pytest`:以 Python 模块方式运行 pytest。
-- `-q`:quiet 模式,只输出简洁测试结果。
-
-当前测试会自动发现并执行 `tests/test_*.py`,覆盖:
-
-- `test_bootstrap_smoke.py`:启动配置与 `context.json` 装配 smoke test。
-- `test_orchestrator_smoke.py`:fake runtime + fake skills 的端到端占位编排测试。
-- `test_runtime_contract.py`:mock Claude SDK client 的 runtime 契约测试。
-- `test_usage.py`:任务级 token usage 提取与累计测试。
-- `test_artifacts.py`:`result.json`、`cr_result.md`、`run.log` 写盘测试。
-- `test_skill_registry.py`:默认 skill registry 与 4 个占位 skill 链路测试。
-- `test_contracts.py`:已有外部契约测试。
-
-当前验证结果:
-
-```text
-22 passed
-```
-
-### 3. 运行当前占位审查流程
-
-当前真实审查能力还未接入,但 `main.py → bootstrap_runtime → run_review → skill registry → artifacts`
-这条占位链路已经可以跑通。
-
-如果直接在本机使用 `workspace/15-3de6a54a` 任务目录,需要注意原始
-`agent_config.toml` 使用的是容器路径:
-
-```toml
-json_path = "/workspace/15-3de6a54a/context.json"
-result_path = "/workspace/cr_result/15-3de6a54a"
-```
-
-本机对应路径是:
-
-```text
-/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/15-3de6a54a
-```
-
-建议复制一份临时配置,不要直接改任务目录原文件:
-
-```bash
-cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
-
-cp workspace/15-3de6a54a/agent_config.toml /private/tmp/cr-agent-15-agent_config.toml
-
-.venv/bin/python -c "from pathlib import Path; p=Path('/private/tmp/cr-agent-15-agent_config.toml'); s=p.read_text(); s=s.replace('/workspace/15-3de6a54a','/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/15-3de6a54a'); s=s.replace('/workspace/cr_result/15-3de6a54a','/Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent/workspace/cr_result/15-3de6a54a'); p.write_text(s)"
-
-.venv/bin/python -m cr_agent.main --config /private/tmp/cr-agent-15-agent_config.toml --platform gitlab
-```
-
-产物会写到:
-
-```text
-workspace/cr_result/15-3de6a54a/result.json
-workspace/cr_result/15-3de6a54a/cr_result.md
-workspace/cr_result/15-3de6a54a/run.log
-```
-
-说明:自 PR3 起,`main()` 是 **bootstrap-only 占位入口**:只做启动装配并写一份
-`status="bootstrap_ready"` 的 `result.json` / `cr_result.md` / `run.log`,**不跑 skill、不驱动主 agent、不需 claude CLI**。
-真实的 agentic 审查(主 agent 经 SDK 工具调用 skill)请用下面第 4 节的 `python -m cr_agent.smoke`。
-
-### 4. LiteLLM agentic 冒烟(手动)
-
-`main.py`(上面第 3 节)是 bootstrap-only 占位、不发起模型调用。要验证经
-LiteLLM Anthropic-compatible Gateway 的**主 agent agentic 流程**(主 agent 经 SDK 工具
-调用 collect_context / dimension_review / summarize_report,skills 仍为占位实现),使用独立入口
-`cr_agent.smoke`(内部复用 `run_review`,由 `SdkMainAgentRuntime` 驱动主 agent)。
-
-前置:
-
-1. 已安装 `claude` CLI(见 `INSTALL.sh`)。
-2. 有一个运行中的 LiteLLM Anthropic-compatible Gateway。
-3. 目标 `workspace/<task>/agent_config.toml` 的 `[llm]` 已填:
-
-```toml
-[llm]
-model    = "<gateway 可路由的模型名>"
-api_key  = "<gateway 鉴权 key>"   # 注入为 ANTHROPIC_API_KEY
-api_base = "<gateway 地址>"        # 注入为 ANTHROPIC_BASE_URL
-```
-
-运行:
-
-```bash
-cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
-.venv/bin/python -m cr_agent.smoke --config <abs path to agent_config.toml> --platform gitlab
-```
-
-观察:
-
-- 终端打印一次调用的 `status` 与四项 usage(input/output/cache_creation/cache_read);
-- `result.json` / `cr_result.md` / `run.log` 生成;**失败时同样有产物**,且 token 为真实累计值(不写假 0);
-- `run.log` 中只见 `api_key_configured=true`,**无明文 key**(统一脱敏 Filter 兜底)。
-
-不依赖 `config/router.config.json`,CCR 不进主架构;未配置 `[llm]` 或网关不可达时,
-冒烟会以失败状态结束并写出失败产物。
-
-### 5. cr-native 本地工具冒烟(手动)
-
-PR4 把 `read_file / read_file_range / glob_files / grep_text` 做实(限制在 `project_root` 下、
-路径规范化 + symlink 逃逸防护、超时/输出截断、结构化返回 `{ok,data,warnings,error}`;grep 走系统 rg,
-rg 缺失则降级不抛穿)。`cr_agent.tools_smoke` 把这些工具挂到真实主 agent 上端到端验收:
-
-```bash
-cd /Users/liyu/Desktop/MyCodeEnv/code/crAgent/cr-agent
-.venv/bin/python -m cr_agent.tools_smoke --config <abs path to agent_config.toml> --platform gitlab
-```
-
-前置同第 4 节(claude CLI + LiteLLM 网关 + 填好 `[llm]`),并确保 `context.json` 的
-`project_root` 指向真实仓库、系统已安装 `rg`。观察:
-
-- 终端打印暴露的工具名与四项 usage;
-- `run.log` 可见 agent 发起的 `TOOL_CALL_START/END`(`glob_files` / `read_file` / `grep_text`)与结构化结果;
-- 越权路径(`..` / 指向 `project_root` 外的 symlink)被工具拒绝;`run.log` 无 api_key 明文。
-
-> 自动化验收见 `tests/test_cr_native_tools.py`(正常/越权/截断/rg 缺失/超时降级)与
-> `tests/test_cr_native_agent_flow.py`(脚本化 agent 跑 glob→read→grep 最小流程),全程不联网。
-
-### 6. git 工具与分支不变量
-
-PR5 实现最小**只读** git 工具,并把远程/切分支做成**受控接口**:
+## Git 工具与分支不变量
 
 | 工具 | 行为 |
-| --- | --- |
-| `git_status` | `git status --porcelain`,只读 |
-| `git_rev_parse` | `git rev-parse <ref|HEAD>`,只读 |
-| `git_fetch` | 受控:`allow_network=false`(默认)直接降级、不联网;开启后远程失败也降级 |
-| `git_checkout` | 受控:**默认拒绝**,落实“不隐式切分支”不变量 |
+|------|------|
+| `git_status` | 只读 |
+| `git_rev_parse` | 只读 |
+| `git_fetch` | 受控，默认 `allow_network=false` 降级 |
+| `git_checkout` | **默认拒绝**，不隐式切分支 |
 
-**git token 解析**:优先级 `context.json.git_token > agent_config.toml [git].token > ""`。
-日志只记 `GIT_TOKEN_RESOLVED configured=true/false source=context|config|none hash=<短 hash>`,
-**绝不打印明文**(复用 PR1 脱敏 Filter)。可选配置:
+git token 优先级：`context.json.git_token` > `agent_config.toml [git].token` > `""`。日志只记 hash，不打印明文。
 
-```toml
-[git]
-token = ""
-timeout_s = 30
-allow_network = false
-```
+工作区在审查开始前应已处于 `source_branch`；分支切换由上游或显式步骤完成，CR-Agent 不自动 checkout。
 
-**分支不变量(重要)**:CRG 后台构建启动前,工作区必须**已处于待审查分支(即 `source_branch`)**;
-分支切换只能由上游或显式 git 步骤完成,**不得隐式切分支**——否则后台构建期间工作区被切走会产生竞态(见 PR7)。
-因此 `git_checkout` 默认拒绝执行;`context.json.source_branch` 仅用于日志与校验,不触发自动 checkout。
+## 扩展指引
 
-git/token/远程权限缺失时,所有 git 工具均返回结构化降级 `{ok:false,...}`,**不让任务失败**。
-自动化验收见 `tests/test_git_tools.py`(token 优先级、各类降级、日志无明文、真实只读 git)。
+| 扩展类型 | 关键文件 |
+|----------|----------|
+| 新 Skill | `skills/<name>/skill.py` + `SKILL.md` → `skills/registry.py` → `core/main_agent.py` |
+| 新 Tool | `tools/catalog.py` → provider handler → `config/agent_tools.toml` |
+| 新 Agent | `bootstrap.py` 注入 runtime → `config/agent_tools.toml` → `prompt/` |
+
+详细扩展步骤见架构分析报告或 [`CLAUDE.md`](CLAUDE.md)。

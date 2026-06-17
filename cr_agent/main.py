@@ -43,6 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _build_parser().parse_args()
 
+    # 创建 runtime：RuntimeContext，本次审查运行的上下文环境。
     runtime = bootstrap_runtime(
         config_path=Path(args.config).expanduser().resolve(),
         platform_override=args.platform,
@@ -69,8 +70,10 @@ def main() -> int:
         append_run_log(runtime.result_dir, "bootstrap_ready")
         return 0
 
+    # 创建 主 agent：SdkMainAgentRuntime
     agent_runtime = build_main_agent_runtime(runtime.config)
     result = asyncio.run(
+        # 调用 orchestrator：run_review，主 agent 驱动的审查编排。
         run_review(
             runtime,
             agent_runtime=agent_runtime,

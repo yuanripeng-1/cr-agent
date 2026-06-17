@@ -54,7 +54,7 @@ async def run_review(
 
     # 创建 状态：ReviewState，本次审查运行的状态（记录成功/失败、重试次数、token 消耗）
     state = ReviewState(max_retries=max_retries)
-    
+
     # 创建 会话：MainAgentSession，主 agent 运行期间共享的状态（收集的 context、维度评分、最终报告）
     session = MainAgentSession(
         runtime_context=runtime_context,
@@ -65,7 +65,9 @@ async def run_review(
     runtime_context.crg_lifecycle.start_background()
     append_run_log(runtime_context.result_dir, "review started")
     try:
+        # 把 3 个 skill 变成带 handler 的 ToolSpec 列表
         skill_tools = build_skill_tools(session)
+        # summarize 超过重试次数就拒绝
         can_use_tool = make_backstop_can_use_tool(session)
         try:
             planning_timeout_s = min(main_timeout_s, _MAIN_AGENT_PLANNING_TIMEOUT_S)
@@ -74,6 +76,7 @@ async def run_review(
                 planning_timeout_s,
                 main_timeout_s,
             )
+            # 启动主 Agent 对话循环
             main_result = await agent_runtime.run_review_loop(
                 system_prompt=MAIN_AGENT_SYSTEM_PROMPT,
                 user_prompt=_USER_PROMPT,
