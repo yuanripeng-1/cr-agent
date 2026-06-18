@@ -108,7 +108,15 @@ def test_crg_disabled_does_not_start(roots) -> None:
 @pytest.mark.asyncio
 async def test_crg_enabled_existing_graph_updates_source_repo(roots, monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
-    _patch_crg(monkeypatch, calls)
+
+    # 已构建的图:status 必须报告 Nodes>0,才走增量 update;
+    # 否则(空图/Nodes:0/never)应冷启动 build。
+    def _proc_factory(*args):
+        if args[1] == "status":
+            return _FakeProc(stdout=b"Nodes: 42\nEdges: 99\nFiles: 7\nLast updated: 2026-01-01\n")
+        return _FakeProc()
+
+    _patch_crg(monkeypatch, calls, _proc_factory)
     life = _lifecycle(roots)
     assert life.paths is not None
 
@@ -136,6 +144,28 @@ async def test_crg_enabled_existing_graph_updates_source_repo(roots, monkeypatch
             str(life.paths.data_dir),
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_crg_empty_graph_status_ok_triggers_build(roots, monkeypatch) -> None:
+    # status 退出码 0 但图为空(Nodes:0 / Last updated:never)时,必须冷启动 build,
+    # 不能走增量 update(否则空图永远不会被填充)。
+    calls: list[tuple[str, ...]] = []
+
+    def _proc_factory(*args):
+        if args[1] == "status":
+            return _FakeProc(stdout=b"Nodes: 0\nEdges: 0\nFiles: 0\nLast updated: never\n")
+        return _FakeProc()
+
+    _patch_crg(monkeypatch, calls, _proc_factory)
+    life = _lifecycle(roots)
+
+    life.start_background()
+    await life.task
+
+    assert life.ready is True
+    subcommands = [call[1] for call in calls]
+    assert subcommands == ["status", "build"]
 
 
 @pytest.mark.asyncio

@@ -52,6 +52,34 @@ def safe_resolve(project_root: Path, raw: str) -> Path:
     return candidate
 
 
+def _resolve_existing(project_root: Path, raw: str) -> Path:
+    """
+    在 safe_resolve 基础上做相对路径容错。
+
+    模型有时会把 path 写成带 project_root 名(如 `project_code/`)的相对路径,
+    例如 `workspace/<task>/project_code/frontend/src/app/page.tsx`,直接拼到
+    project_root 后会变成双重前缀而找不到文件。这里在直连结果不存在时,尝试剥掉
+    到最后一次 `<project_root.name>/` 之前的内容再解析一次;仅接受仍在 root 内的结果。
+    """
+    primary = safe_resolve(project_root, raw)
+    if primary.exists():
+        return primary
+
+    root = project_root.resolve()
+    marker = f"{root.name}/"
+    idx = raw.rfind(marker)
+    if idx != -1:
+        tail = raw[idx + len(marker):]
+        if tail:
+            try:
+                alt = safe_resolve(project_root, tail)
+            except PathEscapeError:
+                return primary
+            if alt.exists():
+                return alt
+    return primary
+
+
 def _read_text_blocking(path: Path, max_bytes: int) -> tuple[str, bool]:
     """阻塞读取(放进线程执行)。返回 (文本, 是否被截断)。"""
     data = path.read_bytes()
@@ -62,19 +90,24 @@ def _read_text_blocking(path: Path, max_bytes: int) -> tuple[str, bool]:
 
 
 async def _guard(coro, *, tool_name: str, timeout_s: float) -> ToolResult:
-    """统一超时与日志包装。超时/异常都转成降级结构,不抛穿主流程。"""
+    """统一超时与日志包装。超时/异常都转成降级结构,不抛穿主流程。
+
+    START/END 走 DEBUG:上层 skills.tool_trace 已经在 INFO 打了带 agent+args 的
+    工具调用日志,这里再打 INFO 会重复。但超时/异常仍走 ERROR——它带的是真实底层
+    原因(timeout / 具体异常),是上层 TOOL_CALL_FAILED 的根因,必须在 run.log 可见。
+    """
     start = time.monotonic()
-    _logger.info("TOOL_CALL_START tool=%s", tool_name)
+    _logger.debug("TOOL_GUARD_START tool=%s", tool_name)
     try:
         result: ToolResult = await asyncio.wait_for(coro, timeout=timeout_s)
     except asyncio.TimeoutError:
-        _logger.error("TOOL_CALL_ERROR tool=%s reason=timeout", tool_name)
+        _logger.error("TOOL_CALL_ERROR tool=%s reason=timeout timeout_s=%s", tool_name, timeout_s)
         return error_result(f"{tool_name} timed out after {timeout_s}s")
     except Exception as exc:  # 工具内部异常一律降级,主流程继续。
         _logger.error("TOOL_CALL_ERROR tool=%s reason=%s", tool_name, exc)
         return error_result(f"{tool_name} failed: {exc}")
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    _logger.info("TOOL_CALL_END tool=%s ok=%s ms=%s", tool_name, result.get("ok"), elapsed_ms)
+    _logger.debug("TOOL_GUARD_END tool=%s ok=%s ms=%s", tool_name, result.get("ok"), elapsed_ms)
     return result
 
 
@@ -93,16 +126,20 @@ def make_read_file(project_root: Path | None, limits: ToolLimits) -> ToolHandler
             return guard
 
         async def work() -> ToolResult:
-            target = safe_resolve(project_root, str(args.get("path", "")))
+            raw = str(args.get("path", ""))
+            target = _resolve_existing(project_root, raw)
             if not target.is_file():
-                return error_result(f"not a file: {args.get('path', '')}")
+                return error_result(
+                    f"not a file: {raw} (resolved={target}); "
+                    "path 应为相对 project_root 的路径"
+                )
             text, truncated = await asyncio.to_thread(
                 _read_text_blocking, target, limits.max_file_bytes
             )
             warnings = (
                 [f"file truncated to {limits.max_file_bytes} bytes"] if truncated else []
             )
-            return ok_result({"path": str(args.get("path", "")), "content": text}, warnings)
+            return ok_result({"path": raw, "content": text}, warnings)
 
         return await _guard(work(), tool_name="read_file", timeout_s=limits.timeout_s)
 
@@ -116,9 +153,13 @@ def make_read_file_range(project_root: Path | None, limits: ToolLimits) -> ToolH
             return guard
 
         async def work() -> ToolResult:
-            target = safe_resolve(project_root, str(args.get("path", "")))
+            raw = str(args.get("path", ""))
+            target = _resolve_existing(project_root, raw)
             if not target.is_file():
-                return error_result(f"not a file: {args.get('path', '')}")
+                return error_result(
+                    f"not a file: {raw} (resolved={target}); "
+                    "path 应为相对 project_root 的路径"
+                )
             start_line = int(args.get("start_line", 1))
             end_line = int(args.get("end_line", start_line))
             if start_line < 1 or end_line < start_line:
@@ -135,7 +176,7 @@ def make_read_file_range(project_root: Path | None, limits: ToolLimits) -> ToolH
             )
             return ok_result(
                 {
-                    "path": str(args.get("path", "")),
+                    "path": raw,
                     "start_line": start_line,
                     "end_line": end_line,
                     "content": "\n".join(selected),
@@ -198,11 +239,17 @@ def make_grep_text(project_root: Path | None, limits: ToolLimits) -> ToolHandler
                 # path 仍须在 project_root 内。
                 safe_resolve(project_root, str(search_path))
                 cmd.append(str(search_path))
+            else:
+                # 无显式 path 时显式给 "."(cwd=root)。否则 rg 在 stdin 为管道时
+                # 会去读 stdin 而非搜索目录,直接阻塞到工具超时。
+                cmd.append(".")
 
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
                     cwd=str(root),
+                    # 兜底:即便 rg 因故仍尝试读 stdin,也立刻拿到 EOF 而非挂起。
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

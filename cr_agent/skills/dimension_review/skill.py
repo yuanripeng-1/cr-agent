@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.skills.docs import load_skill_doc
+from cr_agent.skills.tool_trace import trace_tools
 from cr_agent.tools.provider import ToolSpec
 from cr_agent.tools.spec_sdk import to_sdk_tool
 from cr_agent.utils.logging import get_logger
@@ -126,15 +128,17 @@ async def _run_single_dimension(
     try:
         prompt_text = prompt_path.read_text(encoding="utf-8")
         rule_text = rule_path.read_text(encoding="utf-8") if rule_path.exists() else ""
+        # 每个维度单独包一层 tracing,日志里能区分是哪个维度发起的工具调用。
+        traced_tools = trace_tools(tools, agent_name=f"dimension:{dimension}")
         prompt = _build_prompt(
             runtime_context,
             collected_context,
             dimension,
             prompt_text,
             rule_text,
-            tools,
+            traced_tools,
         )
-        options = _build_dimension_options(runtime_context, tools)
+        options = _build_dimension_options(runtime_context, traced_tools)
         runtime = getattr(runtime_context, "dimension_runtime", None)
         if runtime is None:
             raise RuntimeCallError("dimension runtime is not configured")
@@ -268,7 +272,9 @@ def _build_prompt(
         "你是代码评审的 dimension subagent。\n"
         f"评审维度：{dimension}。\n"
         "请遵循下面的维度专属规则，在有帮助时使用可用工具，"
-        "并且只返回有效 YAML。不要包含 Markdown 代码围栏。\n"
+        "并且只返回有效 YAML。不要包含 Markdown 代码围栏，不要在 YAML 前后追加任何说明文字。\n"
+        "调用 read_file / read_file_range / grep_text 时，path 必须是相对 project_root 的路径"
+        "（例如 frontend/src/app/page.tsx），不要带 workspace/.../project_code 前缀，也不要用绝对路径。\n"
         "维度提示词：\n"
         f"{dimension_prompt}\n\n"
         "维度评分规则：\n"
@@ -282,20 +288,76 @@ def _parse_dimension_yaml(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         raise RuntimeCallError("dimension subagent returned empty output")
-    yaml_text = _extract_yaml_text(stripped)
-    parsed = _safe_load_yaml(yaml_text)
-    if not isinstance(parsed, dict):
-        raise RuntimeCallError("dimension subagent returned yaml that is not an object")
-    return parsed
+    yaml_text = _isolate_yaml(stripped)
+
+    # yaml 缺失时退回极简解析器(只处理纯净 mapping)。
+    if yaml is None:
+        parsed = _minimal_yaml_load(yaml_text)
+        if not isinstance(parsed, dict):
+            raise RuntimeCallError("dimension subagent returned yaml that is not an object")
+        return parsed
+
+    # 模型常在 YAML 主体后追加散文/说明,导致整体 safe_load 失败。
+    # 先整体解析;失败再从尾部逐行回退,取“仍能解析成 mapping 的最长前缀”。
+    parsed = _try_load_yaml(yaml_text)
+    if isinstance(parsed, dict):
+        return parsed
+
+    lines = yaml_text.splitlines()
+    for end in range(len(lines) - 1, 0, -1):
+        candidate = "\n".join(lines[:end]).rstrip()
+        if not candidate:
+            continue
+        parsed = _try_load_yaml(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+
+    raise RuntimeCallError("dimension subagent returned invalid yaml")
 
 
-def _safe_load_yaml(text: str) -> Any:
-    if yaml is not None:
-        try:
-            return yaml.safe_load(text)
-        except yaml.YAMLError as exc:
-            raise RuntimeCallError("dimension subagent returned invalid yaml") from exc
-    return _minimal_yaml_load(text)
+def _try_load_yaml(text: str) -> Any:
+    """安全 safe_load:任何 YAML 错误都吞掉返回 None,交由调用方回退。"""
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+    except Exception:  # noqa: BLE001 - 个别畸形输入会触发非 YAMLError。
+        return None
+
+
+# YAML 主体的起始锚点:覆盖各维度 prompt 产出的顶层键(见 _normalize_findings)。
+_YAML_ANCHORS = (
+    "review",
+    "dimension",
+    "score",
+    "findings",
+    "vulnerabilities",
+    "issues",
+    "analysis",
+    "suggestions",
+    "bottlenecks",
+    "violations",
+)
+
+
+def _isolate_yaml(text: str) -> str:
+    """
+    从模型输出里抠出 YAML 主体。
+
+    1. 若存在 ```yaml/```yml/``` 围栏,取第一个围栏块内容(忽略围栏前后的散文);
+    2. 否则从首个锚点行起取到末尾(尾部多余散文由 _parse_dimension_yaml 的回退裁掉)。
+    """
+    fence = re.search(r"```(?:ya?ml)?[ \t]*\n(.*?)\n[ \t]*```", text, re.DOTALL)
+    if fence:
+        return fence.group(1).strip()
+
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        for anchor in _YAML_ANCHORS:
+            if stripped == f"{anchor}:" or stripped.startswith(f"{anchor}:"):
+                return "\n".join(lines[index:]).strip()
+    return text
 
 
 def _minimal_yaml_load(text: str) -> dict[str, Any]:
@@ -336,31 +398,6 @@ def _minimal_yaml_scalar(value: str) -> Any:
         return int(value)
     except ValueError:
         return value.strip("\"'")
-
-
-def _extract_yaml_text(text: str) -> str:
-    fenced = _strip_code_fence(text)
-    if fenced != text:
-        return fenced
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped in {"review:", "dimension:", "score:", "findings:", "vulnerabilities:", "issues:"}:
-            return "\n".join(lines[index:]).strip()
-        if stripped.startswith(("review:", "dimension:", "score:", "findings:", "vulnerabilities:", "issues:")):
-            return "\n".join(lines[index:]).strip()
-    return text
-
-
-def _strip_code_fence(text: str) -> str:
-    if not text.startswith("```"):
-        return text
-    lines = text.splitlines()
-    if len(lines) >= 3 and lines[-1].strip() == "```":
-        first = lines[0].strip().lower()
-        if first in {"```", "```json"}:
-            return "\n".join(lines[1:-1]).strip()
-    return text
 
 
 def _success_artifact(

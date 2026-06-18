@@ -7,6 +7,7 @@ from typing import Any
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.skills.docs import load_skill_doc
+from cr_agent.skills.tool_trace import trace_tools
 from cr_agent.tools.provider import ToolResult, ToolSpec
 from cr_agent.tools.spec_sdk import to_sdk_tool
 from cr_agent.utils.diff import changed_file_payload
@@ -28,10 +29,16 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
 
 
     '''
-        取出collect_context 需要的工具并包装成ToolSpec，包装成ToolSpec后，调用_trace_tools()方法进行包装，
-        
+        取出 collect_context 需要的工具,用公共 trace_tools 包一层:
+        统一打 agent=context 的工具调用日志,并通过 on_call 把每次调用记进 evidence。
     '''
-    tools = _trace_tools(runtime_context.tool_facade.tools_for("context"), evidence)
+    tools = trace_tools(
+        runtime_context.tool_facade.tools_for("context"),
+        agent_name="context",
+        on_call=lambda tool_name, args, result: evidence.append(
+            _evidence_entry(tool_name, args, result)
+        ),
+    )
     prompt = _build_prompt(runtime_context, tools)
     options = _build_context_options(runtime_context, tools)
     runtime = getattr(runtime_context, "context_runtime", None)
@@ -96,39 +103,6 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         "warnings": warnings,
         "usage": _usage_dict(result.usage),
     }
-
-
-def _trace_tools(tools: list[ToolSpec], evidence: list[dict[str, Any]]) -> list[ToolSpec]:
-    traced: list[ToolSpec] = []
-    for tool in tools:
-        original_handler = tool.handler
-
-        async def traced_handler(args: dict[str, Any], *, _tool=tool, _handler=original_handler):
-            _logger.info(
-                "TOOL_CALL_START agent=context tool=%s args=%s",
-                _tool.name,
-                _summarize_args(args),
-            )
-            result: ToolResult = await _handler(args)
-            _logger.info(
-                "TOOL_CALL_END agent=context tool=%s ok=%s warnings=%s error=%s",
-                _tool.name,
-                bool(result.get("ok")),
-                len(result.get("warnings") or []),
-                result.get("error"),
-            )
-            evidence.append(_evidence_entry(_tool.name, args, result))
-            return result
-
-        traced.append(
-            ToolSpec(
-                name=tool.name,
-                description=tool.description,
-                input_schema=tool.input_schema,
-                handler=traced_handler,
-            )
-        )
-    return traced
 
 
 def _build_context_options(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> Any:
@@ -287,13 +261,3 @@ def _local_diff_summary(diff_content: str) -> str:
     preview = ", ".join(files[:20])
     suffix = "" if len(files) <= 20 else f", ... ({len(files)} files total)"
     return f"Changed files: {preview}{suffix}"
-
-
-def _summarize_args(args: dict[str, Any]) -> dict[str, Any]:
-    summary: dict[str, Any] = {}
-    for key, value in args.items():
-        if isinstance(value, str):
-            summary[key] = value if len(value) <= 160 else value[:160] + "...[truncated]"
-        else:
-            summary[key] = value
-    return summary

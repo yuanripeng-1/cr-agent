@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -106,7 +107,10 @@ class CrgLifecycle:
             status = await self._run_crg(
                 ["status", "--repo", str(project_root), "--data-dir", str(self.paths.data_dir)]
             )
-            if status["ok"]:
+            # status 即使图为空也会创建空 db 并返回 0,不能只看退出码:
+            # 必须从输出判断图是否已构建(Nodes:0 / Last updated:never 视为未构建),
+            # 否则对空图执行增量 update 不会产生任何节点,图永远是空的。
+            if status["ok"] and _graph_is_populated(str(status["data"].get("stdout", ""))):
                 self._log("CRG_SCENARIO graph_exists")
                 result = await self._run_crg(
                     [
@@ -201,6 +205,23 @@ class CrgLifecycle:
 
     def _base_ref(self) -> str:
         return self.review_input.base_sha or self.review_input.start_sha or "HEAD~1"
+
+
+def _graph_is_populated(status_stdout: str) -> bool:
+    """
+    根据 `code-review-graph status` 输出判断图是否已真正构建。
+
+    status 对空/未构建的图也会返回 0,并打印 `Nodes: 0` 与 `Last updated: never`。
+    只有节点数 > 0 时才视为已构建,可走增量 update;否则需要冷启动 build。
+    """
+    text = status_stdout.lower()
+    if "last updated: never" in text:
+        return False
+    match = re.search(r"nodes:\s*(\d+)", text)
+    if match:
+        return int(match.group(1)) > 0
+    # 输出格式不符合预期时保守起见当作未构建,触发全量 build。
+    return False
 
 
 def plan_crg_paths(
