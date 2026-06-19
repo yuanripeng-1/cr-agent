@@ -66,6 +66,9 @@ class CrgConfig(BaseModel):
     max_retry: int = 3
     retry_interval_s: float = 1.0
     timeout_s: float = 60.0
+    # 调用链工具(crg_callers/callees/affected_flows/get_flow)所用的 crg 环境 python。
+    # 留空则自动从 code-review-graph 命令位置推断;也可用环境变量 CRG_PYTHON 覆盖。
+    python_path: str = ""
 
 
 class ToolsConfig(BaseModel):

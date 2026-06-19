@@ -27,7 +27,7 @@ from cr_agent.skills.registry import SkillRegistry, build_default_skill_registry
 from cr_agent.utils.logging import get_logger
 
 _USER_PROMPT = "请使用可用的 skill 工具规划并运行代码评审。"
-_MAIN_AGENT_PLANNING_TIMEOUT_S = 600
+_MAIN_AGENT_PLANNING_TIMEOUT_S = 2000
 _MAIN_AGENT_MAX_TURNS = 12
 _logger = get_logger("cr_agent.core.orchestrator")
 

@@ -34,7 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout-s",
         type=float,
-        default=300,
+        default=2000,
         help="Main agent timeout in seconds.",
     )
     return parser

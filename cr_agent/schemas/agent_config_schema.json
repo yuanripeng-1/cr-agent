@@ -24,7 +24,8 @@
       "target_root": "兼容旧配置。code-review-graph 2.x 基于 context.project_root --repo 构建,不读取该字段。",
       "max_retry": "crg_query 等待 CRG ready 的最大重试次数。",
       "retry_interval_s": "crg_query 每次 ready 检查之间的等待秒数。",
-      "timeout_s": "单条 CRG build/update/query 命令超时时间。"
+      "timeout_s": "单条 CRG build/update/query 命令超时时间。",
+      "python_path": "调用链工具(crg_callers/callees/affected_flows/get_flow)所用 crg 环境 python 路径。留空自动从 code-review-graph 命令推断,也可用环境变量 CRG_PYTHON 覆盖。"
     }
   }
 }

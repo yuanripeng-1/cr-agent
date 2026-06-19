@@ -20,6 +20,7 @@ PR3 的 validate 仅做格式校验。将来(PR8)若要校验行号,只需给 va
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -269,8 +270,14 @@ class SdkMainAgentRuntime:
         # 如果can_use_tool不为空，则使用_single_user_prompt包装user_prompt
         prompt = _single_user_prompt(user_prompt) if can_use_tool is not None else user_prompt
         request_id = uuid.uuid4().hex[:12]
+        start = time.monotonic()
         log_gateway_target("main", self.env, self.model)
-        _logger.info("MODEL_CALL_START request_id=%s agent=main model=%s", request_id, self.model)
+        _logger.info(
+            "MODEL_CALL_START request_id=%s agent=main model=%s timeout_s=%s",
+            request_id,
+            self.model,
+            timeout_s,
+        )
         try:
             async with asyncio.timeout(timeout_s):
                 # 真正启动 Claude Agent SDK 的入口
@@ -299,19 +306,28 @@ class SdkMainAgentRuntime:
                     if isinstance(result_text, str) and result_text:
                         final_text = result_text
         except TimeoutError as exc:
-            _logger.error("MODEL_CALL_ERROR request_id=%s agent=main reason=timeout", request_id)
+            elapsed = time.monotonic() - start
+            _logger.error(
+                "MODEL_CALL_ERROR request_id=%s agent=main reason=timeout elapsed_s=%.1f timeout_s=%s",
+                request_id,
+                elapsed,
+                timeout_s,
+            )
             raise RuntimeTimeoutError(
                 append_stderr_diagnostic(
-                    f"Main agent runtime timed out after {timeout_s}s",
+                    f"Main agent runtime timed out after {elapsed:.1f}s (limit {timeout_s}s)",
                     stderr_capture.tail(),
                 )
             ) from exc
 
         text = final_text if final_text else "".join(texts)
         extracted = extract_usage({"usage": usage})
+        elapsed = time.monotonic() - start
         _logger.info(
-            "MODEL_CALL_END request_id=%s agent=main input=%s output=%s cache_creation=%s cache_read=%s",
+            "MODEL_CALL_END request_id=%s agent=main elapsed_s=%.1f input=%s output=%s "
+            "cache_creation=%s cache_read=%s",
             request_id,
+            elapsed,
             extracted.input_tokens,
             extracted.output_tokens,
             extracted.cache_creation_tokens,

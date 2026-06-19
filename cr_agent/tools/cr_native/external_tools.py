@@ -264,3 +264,87 @@ def make_crg_query(
         return await _guard(work(), tool_name="crg_query", timeout_s=limits.timeout_s)
 
     return handler
+
+
+_DEFAULT_GRAPH_LIMIT = 20
+
+
+def _coerce_limit(raw: object) -> int:
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return _DEFAULT_GRAPH_LIMIT
+    return value if value > 0 else _DEFAULT_GRAPH_LIMIT
+
+
+def _crg_graph_unavailable(tool_name: str) -> ToolResult:
+    # 调用链工具依赖 crg 生命周期(持有 data_dir 与 crg 环境 python),无 CLI 兜底。
+    warning = f"{tool_name} unavailable: CRG lifecycle not active"
+    return error_result(warning, warnings=[warning])
+
+
+def make_crg_callers(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
+    async def handler(args: dict) -> ToolResult:
+        target = str(args.get("target") or "")
+        if not target:
+            return error_result("crg_callers requires a target")
+        if crg_lifecycle is None:
+            return _crg_graph_unavailable("crg_callers")
+        return await crg_lifecycle.callers(target, _coerce_limit(args.get("limit")))
+
+    return handler
+
+
+def make_crg_callees(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
+    async def handler(args: dict) -> ToolResult:
+        target = str(args.get("target") or "")
+        if not target:
+            return error_result("crg_callees requires a target")
+        if crg_lifecycle is None:
+            return _crg_graph_unavailable("crg_callees")
+        return await crg_lifecycle.callees(target, _coerce_limit(args.get("limit")))
+
+    return handler
+
+
+def make_crg_affected_flows(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
+    async def handler(args: dict) -> ToolResult:
+        if crg_lifecycle is None:
+            return _crg_graph_unavailable("crg_affected_flows")
+        base = args.get("base")
+        return await crg_lifecycle.affected_flows(
+            str(base) if base else None, _coerce_limit(args.get("limit"))
+        )
+
+    return handler
+
+
+def make_crg_get_flow(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
+    async def handler(args: dict) -> ToolResult:
+        if crg_lifecycle is None:
+            return _crg_graph_unavailable("crg_get_flow")
+        flow_name = args.get("flow_name")
+        flow_id_raw = args.get("flow_id")
+        if not flow_name and flow_id_raw is None:
+            return error_result("crg_get_flow requires flow_name or flow_id")
+        flow_id: int | None = None
+        if flow_id_raw is not None:
+            try:
+                flow_id = int(flow_id_raw)
+            except (TypeError, ValueError):
+                return error_result("crg_get_flow flow_id must be an integer")
+        return await crg_lifecycle.get_flow(
+            str(flow_name) if flow_name else None,
+            flow_id,
+            _coerce_limit(args.get("limit")),
+        )
+
+    return handler

@@ -21,6 +21,10 @@ from cr_agent.tools.cr_native.fs_tools import (
 )
 from cr_agent.tools.cr_native.external_tools import (
     make_ast_grep_search,
+    make_crg_affected_flows,
+    make_crg_callees,
+    make_crg_callers,
+    make_crg_get_flow,
     make_crg_query,
     make_crg_status,
     make_semble_search,
@@ -81,6 +85,14 @@ class CrNativeToolProvider:
             return make_crg_status(root, limits, crg)
         if tool_name == "crg_query":
             return make_crg_query(root, limits, crg)
+        if tool_name == "crg_callers":
+            return make_crg_callers(root, limits, crg)
+        if tool_name == "crg_callees":
+            return make_crg_callees(root, limits, crg)
+        if tool_name == "crg_affected_flows":
+            return make_crg_affected_flows(root, limits, crg)
+        if tool_name == "crg_get_flow":
+            return make_crg_get_flow(root, limits, crg)
 
         async def placeholder(args: dict) -> ToolResult:
             return not_implemented_result(tool_name, PROVIDER_NAME)

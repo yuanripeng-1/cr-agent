@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections import deque
 from typing import Any, Callable
@@ -318,7 +319,14 @@ class ClaudeAgentRuntime:
 
         model = getattr(self._client, "model", "?")
         request_id = uuid.uuid4().hex[:12]
-        _logger.info("MODEL_CALL_START request_id=%s agent=%s model=%s", request_id, agent_name, model)
+        start = time.monotonic()
+        _logger.info(
+            "MODEL_CALL_START request_id=%s agent=%s model=%s timeout_s=%s",
+            request_id,
+            agent_name,
+            model,
+            timeout_s,
+        )
         try:
             raw_response = await asyncio.wait_for(
                 self._invoke_client(
@@ -329,32 +337,62 @@ class ClaudeAgentRuntime:
                 timeout=timeout_s,
             )
         except asyncio.TimeoutError as exc:
+            elapsed = time.monotonic() - start
             stderr_callback = getattr(self._client, "_last_stderr", None)
             stderr_tail = stderr_callback.tail() if hasattr(stderr_callback, "tail") else ""
-            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=timeout", request_id, agent_name)
+            _logger.error(
+                "MODEL_CALL_ERROR request_id=%s agent=%s reason=timeout elapsed_s=%.1f timeout_s=%s",
+                request_id,
+                agent_name,
+                elapsed,
+                timeout_s,
+            )
             raise RuntimeTimeoutError(
                 append_stderr_diagnostic(
-                    f"Runtime call timed out for agent={agent_name}",
+                    f"Runtime call timed out for agent={agent_name} after {elapsed:.1f}s (limit {timeout_s}s)",
                     stderr_tail,
                 )
             ) from exc
         except RuntimeCallError as exc:
-            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=%s", request_id, agent_name, exc)
+            elapsed = time.monotonic() - start
+            _logger.error(
+                "MODEL_CALL_ERROR request_id=%s agent=%s reason=%s elapsed_s=%.1f",
+                request_id,
+                agent_name,
+                exc,
+                elapsed,
+            )
             raise
         except Exception as exc:
-            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=%s", request_id, agent_name, exc)
+            elapsed = time.monotonic() - start
+            _logger.error(
+                "MODEL_CALL_ERROR request_id=%s agent=%s reason=%s elapsed_s=%.1f",
+                request_id,
+                agent_name,
+                exc,
+                elapsed,
+            )
             raise _classify_runtime_error(exc, agent_name) from exc
 
         text = _extract_text(raw_response)
         if not text.strip():
-            _logger.error("MODEL_CALL_ERROR request_id=%s agent=%s reason=empty_result", request_id, agent_name)
+            elapsed = time.monotonic() - start
+            _logger.error(
+                "MODEL_CALL_ERROR request_id=%s agent=%s reason=empty_result elapsed_s=%.1f",
+                request_id,
+                agent_name,
+                elapsed,
+            )
             raise RuntimeCallError(f"Runtime returned empty result for agent={agent_name}")
 
         usage = extract_usage(raw_response)
+        elapsed = time.monotonic() - start
         _logger.info(
-            "MODEL_CALL_END request_id=%s agent=%s input=%s output=%s cache_creation=%s cache_read=%s",
+            "MODEL_CALL_END request_id=%s agent=%s elapsed_s=%.1f input=%s output=%s "
+            "cache_creation=%s cache_read=%s",
             request_id,
             agent_name,
+            elapsed,
             usage.input_tokens,
             usage.output_tokens,
             usage.cache_creation_tokens,

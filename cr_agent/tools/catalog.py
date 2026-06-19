@@ -82,6 +82,25 @@ CANONICAL_TOOLS: dict[str, tuple[str, JsonSchema]] = {
         "Query the code-review-graph.",
         _obj({"query": _STR}, ["query"]),
     ),
+    "crg_callers": (
+        "List direct callers (one hop) of a symbol via the code-review-graph. "
+        "target is a symbol name or 'path::funcName'.",
+        _obj({"target": _STR, "limit": _INT}, ["target"]),
+    ),
+    "crg_callees": (
+        "List direct callees (one hop) of a symbol via the code-review-graph. "
+        "target is a symbol name or 'path::funcName'.",
+        _obj({"target": _STR, "limit": _INT}, ["target"]),
+    ),
+    "crg_affected_flows": (
+        "List execution flows affected by the MR changes via the code-review-graph.",
+        _obj({"base": _STR, "limit": _INT}, []),
+    ),
+    "crg_get_flow": (
+        "Get one execution flow's step path via the code-review-graph. "
+        "Provide flow_name or flow_id.",
+        _obj({"flow_name": _STR, "flow_id": _INT, "limit": _INT}, []),
+    ),
 }
 
 # ToolSpec 注册表全集的工具名集合,"*" 展开以它为基准与 provider 可用集求交。
