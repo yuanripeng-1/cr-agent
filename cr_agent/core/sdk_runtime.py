@@ -70,6 +70,11 @@ def build_sdk_env(llm: Any) -> dict[str, str]:
         env["ANTHROPIC_BASE_URL"] = api_base
     if api_key:
         env["ANTHROPIC_API_KEY"] = api_key
+    # 可选:隔离 claude CLI 配置目录,避免宿主 ~/.claude/settings.json 的 env 块
+    # (如 ANTHROPIC_BASE_URL/AUTH_TOKEN)覆盖本进程注入的网关地址与鉴权。
+    claude_config_dir = getattr(llm, "claude_config_dir", "") or ""
+    if claude_config_dir:
+        env["CLAUDE_CONFIG_DIR"] = claude_config_dir
     return env
 
 
