@@ -153,43 +153,52 @@ class LiteLLMGateway:
     def start(self) -> None:
         if self._proc is not None:
             return
-        config_path = self._write_config()
-        bin_path = _resolve_litellm_bin()
-        cmd = [
-            bin_path,
-            "--config",
-            str(config_path),
-            "--host",
-            self.host,
-            "--port",
-            str(self.port),
-            "--num_workers",
-            "1",
-        ]
+        # 启动早期任何一步失败(解析二进制/开日志/Popen)都要释放已占资源:
+        # 此时 _proc 仍为 None、atexit 未注册,若不在此清理,临时目录与日志句柄会泄漏。
+        try:
+            config_path = self._write_config()
+            bin_path = _resolve_litellm_bin()
+            cmd = [
+                bin_path,
+                "--config",
+                str(config_path),
+                "--host",
+                self.host,
+                "--port",
+                str(self.port),
+                "--num_workers",
+                "1",
+            ]
 
-        if self.log_path is not None:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            self._log_handle = open(self.log_path, "w", encoding="utf-8")
-            stdout = self._log_handle
-            stderr = subprocess.STDOUT
-        else:
-            stdout = subprocess.DEVNULL
-            stderr = subprocess.DEVNULL
+            if self.log_path is not None:
+                self.log_path.parent.mkdir(parents=True, exist_ok=True)
+                self._log_handle = open(self.log_path, "w", encoding="utf-8")
+                stdout = self._log_handle
+                stderr = subprocess.STDOUT
+            else:
+                stdout = subprocess.DEVNULL
+                stderr = subprocess.DEVNULL
 
-        _logger.info(
-            "LITELLM_GATEWAY_SPAWN host=%s port=%s model=%s upstream=%s provider=%s",
-            self.host,
-            self.port,
-            self.model,
-            self.upstream_api_base,
-            self.provider,
-        )
-        self._proc = subprocess.Popen(  # noqa: S603 - 受控命令,参数非用户拼接
-            cmd,
-            stdout=stdout,
-            stderr=stderr,
-            env=self._build_env(),
-        )
+            _logger.info(
+                "LITELLM_GATEWAY_SPAWN host=%s port=%s model=%s upstream=%s provider=%s",
+                self.host,
+                self.port,
+                self.model,
+                self.upstream_api_base,
+                self.provider,
+            )
+            self._proc = subprocess.Popen(  # noqa: S603 - 受控命令,参数非用户拼接
+                cmd,
+                stdout=stdout,
+                stderr=stderr,
+                env=self._build_env(),
+            )
+        except BaseException:
+            # 进程尚未拉起:关闭可能已打开的日志句柄并清理临时文件,再抛给上层。
+            self._close_log_handle()
+            self._cleanup_files()
+            raise
+
         atexit.register(self.stop)
         self._wait_ready()
 
@@ -237,13 +246,16 @@ class LiteLLMGateway:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        self._close_log_handle()
+        self._cleanup_files()
+
+    def _close_log_handle(self) -> None:
         if self._log_handle is not None:
             try:
                 self._log_handle.close()
             except OSError:
                 pass
             self._log_handle = None
-        self._cleanup_files()
 
     def _cleanup_files(self) -> None:
         if self._config_dir is not None:

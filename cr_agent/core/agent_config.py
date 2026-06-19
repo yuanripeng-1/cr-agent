@@ -48,6 +48,9 @@ class LlmConfig(BaseModel):
     gateway_provider: str = "openai"
     # 本地 proxy 端口;留空自动取空闲端口。
     gateway_port: int | None = None
+    # 隔离的 claude CLI 配置目录;由 bootstrap 在启动网关后注入,
+    # 经 build_sdk_env 落到 CLAUDE_CONFIG_DIR,使 CLI 不读宿主 ~/.claude/settings.json。
+    claude_config_dir: str = ""
 
 
 class GitConfig(BaseModel):

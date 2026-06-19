@@ -256,7 +256,7 @@ def _maybe_start_litellm_gateway(config_data: AgentConfig, result_dir: Path):
     使后续 build_runtime / build_main_agent_runtime / build_sdk_env 自然走网关。
     """
     llm = config_data.llm
-    if not getattr(llm, "use_litellm_gateway", False):
+    if not llm.use_litellm_gateway:
         return None
 
     from cr_agent.core.litellm_gateway import LiteLLMGateway
@@ -265,8 +265,8 @@ def _maybe_start_litellm_gateway(config_data: AgentConfig, result_dir: Path):
         model=llm.model,
         upstream_api_base=llm.api_base,
         upstream_api_key=llm.api_key,
-        provider=getattr(llm, "gateway_provider", "openai") or "openai",
-        port=getattr(llm, "gateway_port", None),
+        provider=llm.gateway_provider or "openai",
+        port=llm.gateway_port,
         log_path=result_dir / "litellm_gateway.log",
     )
     upstream_base = llm.api_base
