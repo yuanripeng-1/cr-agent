@@ -70,6 +70,13 @@ async def test_main_agent_skill_call_emits_skill_start_log(
     tools = {spec.name: spec for spec in build_skill_tools(session)}
 
     assert "# collect_context" in tools["collect_context"].description
+    assert "## 执行契约" in tools["collect_context"].description
+    assert "工具失败必须记录为 warnings" in tools["collect_context"].description
+    assert "collected_context.json" in tools["collect_context"].description
+    assert "只返回有效 YAML" in tools["dimension_review"].description
+    assert "path` 必须是相对 `project_root`" in tools["dimension_review"].description
+    assert "summary subagent 不得使用任何工具" in tools["summarize_report"].description
+    assert "validation_errors" in tools["summarize_report"].description
     with caplog.at_level(logging.INFO, logger="cr_agent.core.main_agent"):
         await tools["collect_context"].handler({})
 

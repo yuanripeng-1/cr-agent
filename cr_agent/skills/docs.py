@@ -12,6 +12,4 @@ def load_skill_doc(skill_name: str) -> str:
 
 
 def load_skill_description(skill_name: str) -> str:
-    doc = load_skill_doc(skill_name)
-    lines = [line.strip() for line in doc.splitlines() if line.strip()]
-    return "\n".join(lines[:12]) if lines else skill_name
+    return load_skill_doc(skill_name)

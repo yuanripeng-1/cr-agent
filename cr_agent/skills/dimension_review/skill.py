@@ -262,25 +262,17 @@ def _build_prompt(
         "title": review_input.title,
         "project_root": review_input.project_root,
         "collected_context": collected_context,
-        "available_tools": [
-            {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
-            for tool in tools
-        ],
     }
     return (
         f"{skill_doc}\n\n"
-        "你是代码评审的 dimension subagent。\n"
-        f"评审维度：{dimension}。\n"
-        "请遵循下面的维度专属规则，在有帮助时使用可用工具，"
-        "并且只返回有效 YAML。不要包含 Markdown 代码围栏，不要在 YAML 前后追加任何说明文字。\n"
-        "调用 read_file / read_file_range / grep_text 时，path 必须是相对 project_root 的路径"
-        "（例如 frontend/src/app/page.tsx），不要带 workspace/.../project_code 前缀，也不要用绝对路径。\n"
+        f"当前评审维度：{dimension}\n\n"
         "维度提示词：\n"
         f"{dimension_prompt}\n\n"
         "维度评分规则：\n"
         f"{dimension_rule}\n\n"
-        "输入：\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
+        "以下是本次运行输入：\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+        "请严格按照上方 SKILL.md、维度提示词和维度评分规则执行，并返回指定 YAML 输出。"
     )
 
 

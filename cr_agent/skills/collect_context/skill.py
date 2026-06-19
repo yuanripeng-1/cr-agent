@@ -14,6 +14,10 @@ from cr_agent.utils.diff import changed_file_payload
 from cr_agent.utils.logging import get_logger
 
 _logger = get_logger("cr_agent.skills.collect_context")
+_MAX_CONTEXT_ENTRIES = 8
+_MAX_CONTEXT_TEXT = 1200
+_MAX_SNIPPETS = 12
+_MAX_SNIPPET_TEXT = 1600
 
 
 async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
@@ -100,6 +104,11 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         "task_id": review_input.task_id,
         "artifact_path": str(artifact_path),
         "summary": artifact["summary"] or artifact["diff_summary"],
+        "diff_summary": artifact["diff_summary"],
+        "changed_files": _compact_changed_files(artifact["changed_files"]),
+        "semantic_context": _compact_context_entries(artifact["semantic_context"]),
+        "call_graph_context": _compact_context_entries(artifact["call_graph_context"]),
+        "code_snippets": _compact_code_snippets(artifact["code_snippets"]),
         "warnings": warnings,
         "usage": _usage_dict(result.usage),
     }
@@ -128,10 +137,6 @@ def _build_context_options(runtime_context: RuntimeContext, tools: list[ToolSpec
 def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str:
     review_input = runtime_context.review_input
     skill_doc = load_skill_doc("collect_context")
-    tool_descriptions = [
-        {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
-        for tool in tools
-    ]
     payload = {
         "task_id": review_input.task_id,
         "title": review_input.title,
@@ -144,20 +149,12 @@ def _build_prompt(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> str
         "previous_report": review_input.previous_report,
         "changed_files": changed_file_payload(review_input.diff_content),
         "diff_content": review_input.diff_content,
-        "available_tools": tool_descriptions,
     }
     return (
         f"{skill_doc}\n\n"
-        "你是代码评审的 context subagent。\n"
-        "请先理解原始 diff，再动态决定需要使用哪些工具。\n"
-        "当语义上下文有帮助时使用 Semble。只有在需要符号/函数调用图时才使用 CRG；"
-        "CRG 最好靠后尝试，因为图可能仍在构建中。\n"
-        "使用 read_file/read_file_range 收集具体代码证据。\n"
-        "如果 Semble 或 CRG 返回 warnings/errors，请基于已有证据继续。\n"
-        "返回 JSON，字段为：summary、diff_summary、semantic_context、"
-        "call_graph_context、code_snippets、warnings。\n"
-        "输入：\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
+        "以下是本次运行输入：\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+        "请严格按照上方 SKILL.md 执行，并返回指定的 JSON 格式输出。"
     )
 
 
@@ -225,6 +222,142 @@ def _code_snippets(report: dict[str, Any], evidence: list[dict[str, Any]]) -> li
         for entry in evidence
         if entry.get("tool_name") in {"read_file", "read_file_range"}
     ]
+
+
+def _compact_changed_files(changed_files: Any) -> list[dict[str, Any]]:
+    if not isinstance(changed_files, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in changed_files:
+        if not isinstance(item, dict):
+            continue
+        new_path = str(item.get("new_path") or item.get("path") or "")
+        old_path = str(item.get("old_path") or "")
+        entry: dict[str, Any] = {}
+        if old_path:
+            entry["old_path"] = old_path
+        if new_path:
+            entry["new_path"] = new_path
+            entry["path"] = new_path
+        status = item.get("status")
+        if status:
+            entry["status"] = status
+        entry["added_ranges"] = _line_ranges(item.get("added_lines"))
+        compact.append(entry)
+    return compact
+
+
+def _line_ranges(lines: Any) -> list[list[int]]:
+    if not isinstance(lines, list):
+        return []
+    numbers: list[int] = []
+    for line in lines:
+        try:
+            numbers.append(int(line))
+        except (TypeError, ValueError):
+            continue
+    if not numbers:
+        return []
+
+    ranges: list[list[int]] = []
+    start = previous = sorted(set(numbers))[0]
+    for line in sorted(set(numbers))[1:]:
+        if line == previous + 1:
+            previous = line
+            continue
+        ranges.append([start, previous])
+        start = previous = line
+    ranges.append([start, previous])
+    return ranges
+
+
+def _compact_context_entries(entries: Any) -> list[dict[str, Any]]:
+    if not isinstance(entries, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in entries[:_MAX_CONTEXT_ENTRIES]:
+        if isinstance(item, dict):
+            compact.append(_compact_mapping(item, text_limit=_MAX_CONTEXT_TEXT))
+        else:
+            compact.append({"summary": _limit_text(item, _MAX_CONTEXT_TEXT)})
+    return compact
+
+
+def _compact_code_snippets(snippets: Any) -> list[dict[str, Any]]:
+    if not isinstance(snippets, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in snippets[:_MAX_SNIPPETS]:
+        if not isinstance(item, dict):
+            compact.append({"excerpt": _limit_text(item, _MAX_SNIPPET_TEXT)})
+            continue
+        entry = _snippet_entry(item)
+        if entry:
+            compact.append(entry)
+    return compact
+
+
+def _snippet_entry(item: dict[str, Any]) -> dict[str, Any]:
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    entry: dict[str, Any] = {}
+    for key in ("path", "start_line", "end_line", "source", "reason", "summary", "why_relevant"):
+        value = item.get(key, data.get(key))
+        if value not in (None, "", []):
+            entry[key] = value
+
+    content = item.get("content", item.get("text", data.get("content", data.get("text"))))
+    if content not in (None, ""):
+        excerpt, truncated = _limited_text_with_flag(content, _MAX_SNIPPET_TEXT)
+        entry["excerpt"] = excerpt
+        if truncated:
+            entry["truncated"] = True
+    return entry
+
+
+def _compact_mapping(item: dict[str, Any], *, text_limit: int) -> dict[str, Any]:
+    keep = {
+        "source",
+        "tool_name",
+        "query",
+        "summary",
+        "path",
+        "file_path",
+        "start_line",
+        "end_line",
+        "why_relevant",
+        "related_changed_files",
+        "flow_name",
+        "flow_id",
+    }
+    compact: dict[str, Any] = {}
+    for key, value in item.items():
+        if key in keep:
+            compact[key] = _compact_value(value, text_limit=text_limit)
+        elif key in {"content", "text", "result", "matches", "results", "lines"}:
+            compact[key] = _compact_value(value, text_limit=text_limit)
+    return compact
+
+
+def _compact_value(value: Any, *, text_limit: int) -> Any:
+    if isinstance(value, str):
+        return _limit_text(value, text_limit)
+    if isinstance(value, list):
+        return [_compact_value(item, text_limit=text_limit) for item in value[:8]]
+    if isinstance(value, dict):
+        return _compact_mapping(value, text_limit=text_limit)
+    return value
+
+
+def _limit_text(value: Any, limit: int) -> str:
+    text = "" if value is None else str(value)
+    return text if len(text) <= limit else text[:limit] + "\n...[truncated]"
+
+
+def _limited_text_with_flag(value: Any, limit: int) -> tuple[str, bool]:
+    text = "" if value is None else str(value)
+    if len(text) <= limit:
+        return text, False
+    return text[:limit] + "\n...[truncated]", True
 
 
 def _collect_warnings(evidence: list[dict[str, Any]], report: dict[str, Any]) -> list[str]:

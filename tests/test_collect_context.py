@@ -9,7 +9,7 @@ import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.types import QueryResult, TokenUsage
-from cr_agent.skills.collect_context.skill import collect_context
+from cr_agent.skills.collect_context.skill import _compact_changed_files, collect_context
 from cr_agent.tools.provider import ToolSpec, error_result, ok_result
 
 
@@ -24,8 +24,9 @@ class _FakeFacade:
 
 
 class _ContextRuntime:
-    def __init__(self, *, call_crg: bool = True) -> None:
+    def __init__(self, *, call_crg: bool = True, long_snippet: bool = False) -> None:
         self.call_crg = call_crg
+        self.long_snippet = long_snippet
         self.calls: list[dict[str, Any]] = []
 
     async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
@@ -49,7 +50,14 @@ class _ContextRuntime:
                     "call_graph_context": [{"source": "crg_query", "summary": "call chain"}]
                     if self.call_crg
                     else [],
-                    "code_snippets": [{"path": "app.py", "start_line": 1, "end_line": 5}],
+                    "code_snippets": [
+                        {
+                            "path": "app.py",
+                            "start_line": 1,
+                            "end_line": 5,
+                            "content": ("x" * 2000) if self.long_snippet else "def handler(): pass",
+                        }
+                    ],
                     "warnings": [],
                 }
             ),
@@ -109,6 +117,22 @@ async def test_collect_context_writes_stable_artifact_with_provenance(agent_conf
     assert facade.calls == ["context"]
     assert result["artifact_path"] == str(runtime_context.result_dir / "collected_context.json")
     assert "diff_content" not in result
+    assert "tool_evidence" not in result
+    assert result["diff_summary"] == "Session aux panel changed."
+    assert result["semantic_context"] == [{"source": "semble_search", "summary": "semantic hit"}]
+    assert result["call_graph_context"] == [{"source": "crg_query", "summary": "call chain"}]
+    assert result["code_snippets"][0]["path"] == "app.py"
+    assert result["code_snippets"][0]["excerpt"] == "def handler(): pass"
+    assert "added_ranges" in result["changed_files"][0]
+    assert "added_lines" not in result["changed_files"][0]
+    prompt = context_runtime.calls[0]["prompt"]
+    assert "## 执行契约" in prompt
+    assert "工具失败必须记录为 warnings" in prompt
+    assert "collected_context.json" in prompt
+    assert "以下是本次运行输入" in prompt
+    assert "diff_content" in prompt
+    assert "changed_files" in prompt
+    assert "available_tools" not in prompt
     artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
     assert artifact["raw_diff"]["source"] == "context.json.diff_content"
     assert artifact["tool_evidence"][0]["tool_name"] == "grep_text"
@@ -117,6 +141,47 @@ async def test_collect_context_writes_stable_artifact_with_provenance(agent_conf
     assert artifact["code_snippets"][0]["path"] == "app.py"
     assert "semble missing" in artifact["warnings"]
     assert "graph not ready" in artifact["warnings"]
+
+
+def test_compact_changed_files_converts_added_lines_to_ranges() -> None:
+    result = _compact_changed_files(
+        [
+            {
+                "old_path": "frontend/src/app/page.tsx",
+                "new_path": "frontend/src/app/page.tsx",
+                "added_lines": [7, 8, 9, 10, 37, 38],
+            }
+        ]
+    )
+
+    assert result == [
+        {
+            "old_path": "frontend/src/app/page.tsx",
+            "new_path": "frontend/src/app/page.tsx",
+            "path": "frontend/src/app/page.tsx",
+            "added_ranges": [[7, 10], [37, 38]],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_compacts_downstream_context(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    runtime_context = replace(
+        runtime_context,
+        tool_facade=_FakeFacade(_tools()),
+        context_runtime=_ContextRuntime(long_snippet=True),
+    )
+
+    result = await collect_context(runtime_context)
+    snippet = result["code_snippets"][0]
+
+    assert "tool_evidence" not in result
+    assert len(snippet["excerpt"]) < 1700
+    assert snippet["truncated"] is True
+    for changed_file in result["changed_files"]:
+        assert "added_ranges" in changed_file
+        assert "added_lines" not in changed_file
 
 
 @pytest.mark.asyncio

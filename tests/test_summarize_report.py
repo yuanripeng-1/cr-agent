@@ -41,8 +41,13 @@ async def test_summarize_report_calls_summary_subagent_without_tools(agent_confi
     assert report["llm_result"] == "# report"
     assert runtime.calls[0]["agent_name"] == "summary"
     assert runtime.calls[0]["assembled_options"] is None
-    assert "# summarize_report" in runtime.calls[0]["prompt"]
-    assert "汇总评级规则" in runtime.calls[0]["prompt"]
+    prompt = runtime.calls[0]["prompt"]
+    assert "# summarize_report" in prompt
+    assert "summary subagent 不得使用任何工具" in prompt
+    assert "汇总提示词" in prompt
+    assert "汇总评级规则" in prompt
+    assert "validation_errors" in prompt
+    assert "请严格按照上方 SKILL.md、汇总提示词和汇总评级规则执行" in prompt
 
 
 @pytest.mark.asyncio

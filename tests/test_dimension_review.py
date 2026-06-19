@@ -83,10 +83,10 @@ class _DimensionRuntime:
 
 
 def _dimension_from_prompt(prompt: str) -> str:
-    marker = "评审维度："
+    marker = "以下是本次运行输入："
     start = prompt.index(marker) + len(marker)
-    end = prompt.index("。", start)
-    return prompt[start:end]
+    payload_text = prompt[start:].split("\n\n请严格按照", 1)[0].strip()
+    return str(json.loads(payload_text)["dimension"])
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -207,7 +207,50 @@ async def test_dimension_review_respects_configured_concurrency_limit(
         "DIMENSION_CONCURRENCY configured=2 effective=2 total=4" in message
         for message in messages
     )
-    assert "# dimension_review" in dimension_runtime.calls[0]["prompt"]
+    prompt = dimension_runtime.calls[0]["prompt"]
+    assert "# dimension_review" in prompt
+    assert "维度提示词" in prompt
+    assert "维度评分规则" in prompt
+    assert "只返回有效 YAML" in prompt
+    assert "path` 必须是相对 `project_root`" in prompt
+    assert "available_tools" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_dimension_review_prompt_uses_compact_context_without_tool_evidence(
+    agent_config_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dimensions_config = tmp_path / "dimensions.toml"
+    _write_dimensions_config(dimensions_config, dimensions=["business"], concurrency=1)
+    monkeypatch.setattr(dimension_skill, "_DIMENSIONS_CONFIG", dimensions_config)
+    dimension_runtime = _DimensionRuntime()
+    runtime_context = _runtime_context(
+        agent_config_path,
+        platform="gitlab",
+        dimension_runtime=dimension_runtime,
+    )
+    collected_context = {
+        "task_id": "task-1",
+        "artifact_path": "/tmp/collected_context.json",
+        "summary": "context summary",
+        "diff_summary": "diff summary",
+        "changed_files": [{"path": "app.py", "new_path": "app.py", "added_ranges": [[1, 3]]}],
+        "semantic_context": [{"summary": "semantic hit", "why_relevant": "touches changed function"}],
+        "call_graph_context": [{"summary": "caller hit"}],
+        "code_snippets": [{"path": "app.py", "start_line": 1, "end_line": 3, "excerpt": "def f(): pass"}],
+        "warnings": [],
+    }
+
+    await dimension_review(runtime_context, collected_context)
+
+    prompt = dimension_runtime.calls[0]["prompt"]
+    assert "diff_summary" in prompt
+    assert "added_ranges" in prompt
+    assert "semantic hit" in prompt
+    assert "def f(): pass" in prompt
+    assert "tool_evidence" not in prompt
 
 
 @pytest.mark.asyncio

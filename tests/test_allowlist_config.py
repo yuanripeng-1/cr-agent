@@ -7,7 +7,7 @@ def test_load_real_agent_tools_config() -> None:
     config = load_agent_tools(default_agent_tools_path())
     # config/agent_tools.toml 的声明应被原样读出。
     assert config["context"] == ["*"]
-    assert config["dimension"] == ["*"]
+    assert config["dimension"] == ["read_file", "read_file_range", "grep_text"]
     assert config["summary"] == []
     assert config["main"] == []
 
