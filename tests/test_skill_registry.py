@@ -64,6 +64,6 @@ async def test_default_registry_placeholder_flow(agent_config_path) -> None:
     validation = await registry.validate_json(runtime_context, report)
 
     assert context["task_id"] == "task-1"
-    assert scores[0]["dimension"] == "business"
+    assert scores == []
     assert report["llm_result"].startswith("# CR-Agent")
     assert validation.valid is True

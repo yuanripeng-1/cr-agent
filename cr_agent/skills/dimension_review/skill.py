@@ -15,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError
+from cr_agent.core.finding_filter import filter_dimension_result, flatten_filtered_findings
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.skills.docs import load_skill_doc
 from cr_agent.skills.tool_trace import trace_tools
@@ -74,12 +75,17 @@ async def dimension_review(
     results = await asyncio.gather(
         *(run_limited(dimension) for dimension in selection.dimensions)
     )
-    manifest_entries = [_manifest_entry(result) for result in results]
-    successful = [
-        _score_for_summary(result)
-        for result in results
-        if result["status"] == "success"
-    ]
+    persisted_results: list[dict[str, Any]] = []
+    for result in results:
+        if result["status"] == "success":
+            filtered = filter_dimension_result(result)
+            _write_json(Path(result["artifact_path"]), filtered)
+            _logger.info("ARTIFACT_WRITE path=%s filtered=true", result["artifact_path"])
+            persisted_results.append(filtered)
+        else:
+            persisted_results.append(result)
+
+    manifest_entries = [_manifest_entry(result) for result in persisted_results]
 
     manifest = _build_manifest(
         platform=runtime_context.platform,
@@ -89,7 +95,8 @@ async def dimension_review(
     _write_json(artifact_dir / "manifest.json", manifest)
     _logger.info("ARTIFACT_WRITE path=%s", artifact_dir / "manifest.json")
 
-    if not successful:
+    successful_findings = flatten_filtered_findings(persisted_results)
+    if not any(result.get("status") == "success" for result in persisted_results):
         errors = sorted({str(entry.get("error") or "unknown") for entry in manifest_entries})
         _logger.error(
             "DIMENSION_ALL_FAILED total=%s manifest=%s errors=%s",
@@ -102,7 +109,7 @@ async def dimension_review(
             f"manifest={artifact_dir / 'manifest.json'}; "
             f"errors={errors}"
         )
-    return successful
+    return successful_findings
 
 
 @dataclass(frozen=True)
@@ -460,21 +467,6 @@ def _manifest_entry(result: dict[str, Any]) -> dict[str, Any]:
         "confidence": result["confidence"],
         "error": result["error"],
     }
-
-
-def _score_for_summary(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "dimension": result["dimension"],
-        "score": result["score"],
-        "confidence": result["confidence"],
-        "findings": result["findings"],
-        "normalized_findings": result.get("normalized_findings", result["findings"]),
-        "raw_yaml": result.get("raw_yaml", ""),
-        "warnings": result["warnings"],
-        "artifact_path": result["artifact_path"],
-        "usage": result["usage"],
-    }
-
 
 def _build_manifest(
     *,

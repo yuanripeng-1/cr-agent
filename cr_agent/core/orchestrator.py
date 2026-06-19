@@ -22,7 +22,7 @@ from cr_agent.core.review_output import (
 )
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage
-from cr_agent.core.usage import accumulate_usage, extract_usage
+from cr_agent.core.usage import accumulate_usage, accumulate_usage_from_dimension_artifacts, extract_usage
 from cr_agent.skills.registry import SkillRegistry, build_default_skill_registry
 from cr_agent.utils.logging import get_logger
 
@@ -171,8 +171,10 @@ async def _run_sequential_skill_fallback(
             session.runtime_context,
             session.collected_context or {},
         )
-        for item in scores:
-            _accumulate_result_usage(session, item)
+        accumulate_usage_from_dimension_artifacts(
+            session.runtime_context.result_dir / "dimensions",
+            add_usage=session.add_usage,
+        )
         session.dimension_scores = scores
         _logger.info("SKILL_END skill=dimension_review source=fallback")
     else:

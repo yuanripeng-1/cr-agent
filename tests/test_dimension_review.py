@@ -148,7 +148,7 @@ async def test_dimension_review_gitlab_runs_all_dimensions_in_config_order(agent
         "documentation",
     ]
     assert [call["agent_name"] for call in dimension_runtime.calls] == ["dimension"] * 10
-    assert [score["dimension"] for score in scores] == expected
+    assert scores == []
 
     artifact_dir = runtime_context.result_dir / "dimensions"
     manifest = _load_json(artifact_dir / "manifest.json")
@@ -195,12 +195,7 @@ async def test_dimension_review_respects_configured_concurrency_limit(
     with caplog.at_level("INFO", logger="cr_agent.skills.dimension_review"):
         scores = await dimension_review(runtime_context, {"task_id": "task-1"})
 
-    assert [score["dimension"] for score in scores] == [
-        "business",
-        "security",
-        "performance",
-        "testing",
-    ]
+    assert scores == []
     assert dimension_runtime.max_inflight == 2
     messages = [record.getMessage() for record in caplog.records]
     assert any(
@@ -223,12 +218,7 @@ async def test_dimension_review_infcode_uses_fallback_when_profile_empty(
 
     scores = await dimension_review(runtime_context, {"task_id": "task-1"})
 
-    assert [score["dimension"] for score in scores] == [
-        "security",
-        "error_handling",
-        "business",
-        "readability",
-    ]
+    assert scores == []
     manifest = _load_json(runtime_context.result_dir / "dimensions" / "manifest.json")
     assert manifest["fallback_used"] is True
     assert manifest["status"] == "success"
@@ -266,7 +256,7 @@ async def test_dimension_review_infcode_prefers_configured_subset(
 
     scores = await dimension_review(runtime_context, {"task_id": "task-1"})
 
-    assert [score["dimension"] for score in scores] == ["security", "testing"]
+    assert scores == []
     manifest = _load_json(runtime_context.result_dir / "dimensions" / "manifest.json")
     assert manifest["fallback_used"] is False
     assert manifest["configured_dimensions"] == ["security", "testing"]
@@ -285,10 +275,7 @@ async def test_dimension_failure_degrades_without_failing_whole_task(
 
     scores = await dimension_review(runtime_context, {"task_id": "task-1"})
 
-    returned = {score["dimension"] for score in scores}
-    assert "security" not in returned
-    assert "performance" not in returned
-    assert "business" in returned
+    assert scores == []
     artifact_dir = runtime_context.result_dir / "dimensions"
     manifest = _load_json(artifact_dir / "manifest.json")
     assert manifest["status"] == "degraded"
@@ -327,7 +314,7 @@ async def test_dimension_manifest_stays_consistent_when_concurrent_tasks_finish_
 
     scores = await dimension_review(runtime_context, {"task_id": "task-1"})
 
-    assert [score["dimension"] for score in scores] == ["business", "security", "testing"]
+    assert scores == []
     artifact_dir = runtime_context.result_dir / "dimensions"
     manifest = _load_json(artifact_dir / "manifest.json")
     assert manifest["status"] == "degraded"
@@ -463,3 +450,51 @@ async def test_dimension_usage_is_accumulated_once_across_summary_retry(
     assert result.tokens_consume.input_tokens == 106
     assert result.tokens_consume.output_tokens == 260
     assert load_review_result(runtime_context.result_dir / "result.json").status == "success"
+
+
+class _ScoredFindingsRuntime:
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
+        dimension = _dimension_from_prompt(prompt)
+        return QueryResult(
+            text=(
+                "review:\n"
+                f"  dimension: {dimension}\n"
+                "  score: 90\n"
+                "  confidence: 80\n"
+                "  findings:\n"
+                "    - title: low\n"
+                "      score: 55\n"
+                "    - title: keep\n"
+                "      score: 85\n"
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_dimension_review_filters_findings_before_returning_to_summary(
+    agent_config_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dimensions_config = tmp_path / "dimensions.toml"
+    _write_dimensions_config(
+        dimensions_config,
+        dimensions=["security", "readability"],
+        concurrency=2,
+    )
+    monkeypatch.setattr(dimension_skill, "_DIMENSIONS_CONFIG", dimensions_config)
+    runtime_context = _runtime_context(
+        agent_config_path,
+        platform="gitlab",
+        dimension_runtime=_ScoredFindingsRuntime(),
+    )
+
+    scores = await dimension_review(runtime_context, {"task_id": "task-1"})
+
+    assert len(scores) == 2
+    assert {finding["dimension"] for finding in scores} == {"security", "readability"}
+    assert {finding["title"] for finding in scores} == {"keep"}
+
+    security_artifact = _load_json(runtime_context.result_dir / "dimensions" / "security.json")
+    assert [finding["title"] for finding in security_artifact["findings"]] == ["keep"]
+
