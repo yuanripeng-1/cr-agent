@@ -73,8 +73,8 @@ async def test_summarize_report_passes_validation_errors_to_prompt(agent_config_
     )
 
     assert report["validation_errors"] == ["llm_result: String should have at least 1 character"]
-    assert "validation_errors" in runtime.calls[0]["prompt"]
     assert "String should have at least 1 character" in runtime.calls[0]["prompt"]
+    assert '"validation_errors"' not in runtime.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -90,17 +90,11 @@ async def test_summarize_report_compacts_large_dimension_payload(agent_config_pa
         [
             {
                 "dimension": "security",
+                "title": "issue",
+                "analysis": "analysis",
+                "suggestion": "fix",
                 "score": 90,
-                "artifact_path": "/tmp/security.json",
-                "raw_yaml": huge_yaml,
-                "normalized_findings": [
-                    {
-                        "title": "issue",
-                        "analysis": "analysis",
-                        "suggestion": "fix",
-                        "raw": huge_raw,
-                    }
-                ],
+                "raw": huge_raw,
             }
         ],
         None,
@@ -110,4 +104,20 @@ async def test_summarize_report_compacts_large_dimension_payload(agent_config_pa
     assert "raw_yaml" not in prompt
     assert "code_suggestion" not in prompt
     assert "irrelevant" not in prompt
-    assert "artifact_path" in prompt
+    assert "artifact_path" not in prompt
+    assert '"findings"' not in prompt
+    assert "collected_context" not in prompt
+    assert "raw_diff" not in prompt
+    assert "结果过滤的评分后缺陷总结文件" in prompt
+
+
+@pytest.mark.asyncio
+async def test_summarize_report_writes_summary_prompt_artifact(agent_config_path: Path) -> None:
+    runtime = _Runtime('{"llm_result": "# report"}')
+    context = replace(bootstrap_runtime(agent_config_path, platform_override=None), summary_runtime=runtime)
+
+    await summarize_report(context, {"task_id": "task-1"}, [], None)
+
+    prompt_path = context.result_dir / "summary_prompt.txt"
+    assert prompt_path.exists()
+    assert prompt_path.read_text(encoding="utf-8") == runtime.calls[0]["prompt"]

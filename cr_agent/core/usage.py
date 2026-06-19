@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from cr_agent.core.types import TokenUsage
@@ -58,4 +60,27 @@ def _int_field(payload: Any, *names: str) -> int:
             except (TypeError, ValueError):
                 return 0
     return 0
+
+
+def accumulate_usage_from_dimension_artifacts(
+    dimensions_dir: Path,
+    *,
+    add_usage: Any,
+) -> None:
+    if not dimensions_dir.is_dir():
+        return
+    for path in sorted(dimensions_dir.glob("*.json")):
+        if path.name == "manifest.json":
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("status") != "success":
+            continue
+        usage = payload.get("usage")
+        if isinstance(usage, TokenUsage):
+            add_usage(usage)
+        elif isinstance(usage, dict):
+            add_usage(extract_usage({"usage": usage}))
 

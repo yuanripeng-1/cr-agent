@@ -30,7 +30,7 @@ from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.sdk_runtime import sdk_message_diagnostics
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage, ValidationResult
-from cr_agent.core.usage import accumulate_usage, extract_usage
+from cr_agent.core.usage import accumulate_usage, accumulate_usage_from_dimension_artifacts, extract_usage
 from cr_agent.skills.docs import load_skill_description
 from cr_agent.skills.registry import SkillRegistry
 from cr_agent.tools.provider import ToolSpec, ok_result
@@ -104,15 +104,13 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
             session.runtime_context,
             session.collected_context or {},
         )
-        for item in result:
-            usage = item.get("usage")
-            if isinstance(usage, TokenUsage):
-                session.add_usage(usage)
-            elif isinstance(usage, dict):
-                session.add_usage(extract_usage({"usage": usage}))
+        accumulate_usage_from_dimension_artifacts(
+            session.runtime_context.result_dir / "dimensions",
+            add_usage=session.add_usage,
+        )
         session.dimension_scores = result
         _logger.info("SKILL_END skill=dimension_review")
-        return ok_result({"dimensions": len(result)})
+        return ok_result({"findings": len(result)})
 
     async def summarize_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("MAIN_AGENT_SKILL_CALL skill=summarize_report attempt_next=%s", session.state.attempt + 1)
