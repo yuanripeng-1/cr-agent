@@ -131,14 +131,22 @@ def test_stop_terminates_process_and_cleans_files(tmp_path: Path, monkeypatch: p
 
 # ----- _wait_ready:子进程早退抛错 -----
 
-def test_wait_ready_raises_when_process_exits_early() -> None:
-    gw = _make_gateway()
+def test_wait_ready_raises_and_releases_resources_when_process_exits_early(tmp_path: Path) -> None:
+    log_path = tmp_path / "gw.log"
+    gw = _make_gateway(log_path=log_path)
+    gw._log_handle = open(log_path, "w", encoding="utf-8")
     gw._proc = _FakeProc(poll_value=1)  # 已退出,returncode=1
-    try:
-        with pytest.raises(RuntimeError, match="启动失败"):
-            gw._wait_ready()
-    finally:
-        gw._cleanup_files()
+    cfg_dir = gw._write_config()
+    assert Path(cfg_dir).exists()
+
+    with pytest.raises(RuntimeError, match="启动失败"):
+        gw._wait_ready()
+
+    # 早退路径必须彻底释放:进程复位、日志句柄关闭、临时目录清理。
+    assert gw._proc is None
+    assert gw._log_handle is None
+    assert gw._config_dir is None
+    assert not Path(cfg_dir).exists()
 
 
 # ----- start():拉起进程失败时清理资源并抛出(bug1 回归) -----

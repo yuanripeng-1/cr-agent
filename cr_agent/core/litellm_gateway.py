@@ -208,10 +208,14 @@ class LiteLLMGateway:
         last_err = ""
         while time.monotonic() < deadline:
             if self._proc is not None and self._proc.poll() is not None:
-                self._cleanup_files()
+                # 子进程早退:先取 returncode 与日志尾,再 stop()(关句柄/复位 _proc/清临时目录),
+                # 与超时分支保持一致,避免日志句柄泄漏。
+                returncode = self._proc.returncode
+                tail = self._log_tail()
+                self.stop()
                 raise RuntimeError(
-                    f"LiteLLM proxy 启动失败(exit={self._proc.returncode});"
-                    f"详见日志 {self.log_path}\n{self._log_tail()}"
+                    f"LiteLLM proxy 启动失败(exit={returncode});"
+                    f"详见日志 {self.log_path}\n{tail}"
                 )
             try:
                 with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
