@@ -52,6 +52,9 @@ class RuntimeContext:
     dimension_runtime: object
     # 贯穿本次审查运行的 trace id。
     trace_id: str
+    # 可选:本地 LiteLLM proxy 网关句柄(use_litellm_gateway=true 时存在),
+    # 由 main.py 在运行结束后关闭;atexit 兜底。
+    litellm_gateway: object | None = None
 
 
 def _record_bootstrap_issue(
@@ -185,6 +188,11 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         config_data.git.allow_network,
     )
 
+    # 方案 B:按需在本机起 LiteLLM proxy 作为 Anthropic 兼容网关,并把 [llm] 的
+    # api_base/api_key 改写为本地 proxy。改写发生在 build_runtime / build_sdk_env 之前,
+    # 因此主/子 agent 与早期 env 都会自然指向网关。upstream 仍记录在 proxy 内部路由。
+    litellm_gateway = _maybe_start_litellm_gateway(config_data, result_dir)
+
     crg_lifecycle = build_crg_lifecycle(
         config=config_data.tools.crg,
         review_input=context_data,
@@ -234,4 +242,44 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         context_runtime=context_runtime,
         dimension_runtime=dimension_runtime,
         trace_id=trace_id,
+        litellm_gateway=litellm_gateway,
     )
+
+
+def _maybe_start_litellm_gateway(config_data: AgentConfig, result_dir: Path):
+    """
+    若 [llm].use_litellm_gateway 为真,启动本地 LiteLLM proxy 并把 [llm] 的
+    api_base/api_key 改写为本地 proxy 地址 / master_key。返回网关句柄(供关闭),
+    未开启时返回 None。
+
+    注意:此处原地改写 config_data.llm(pydantic, extra=allow, 非 frozen),
+    使后续 build_runtime / build_main_agent_runtime / build_sdk_env 自然走网关。
+    """
+    llm = config_data.llm
+    if not llm.use_litellm_gateway:
+        return None
+
+    from cr_agent.core.litellm_gateway import LiteLLMGateway
+
+    gateway = LiteLLMGateway(
+        model=llm.model,
+        upstream_api_base=llm.api_base,
+        upstream_api_key=llm.api_key,
+        provider=llm.gateway_provider or "openai",
+        port=llm.gateway_port,
+        log_path=result_dir / "litellm_gateway.log",
+    )
+    upstream_base = llm.api_base
+    gateway.start()
+    # 改写为本地网关入口;upstream 仍由 proxy 内部路由,真实 key 不再出现在 env。
+    llm.api_base = gateway.base_url
+    llm.api_key = gateway.api_key
+    # 隔离 claude CLI 配置目录,防止宿主 ~/.claude/settings.json 覆盖网关地址。
+    llm.claude_config_dir = gateway.claude_config_dir
+    _logger.info(
+        "LITELLM_GATEWAY_CONFIGURED base_url=%s upstream=%s model=%s",
+        gateway.base_url,
+        upstream_base,
+        llm.model,
+    )
+    return gateway

@@ -12,6 +12,8 @@ requirements_path = ""
 model = "anthropic/claude-sonnet-4-5"
 api_key = ""
 api_base = ""
+use_litellm_gateway = true
+gateway_provider = "openai"
 
 # 可选 git 配置。token 为全局兜底,per-task context.json 的 git_token 优先级更高。
 # 日志只记 configured/短 hash,绝不打印明文。allow_network 默认关闭。

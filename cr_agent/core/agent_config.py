@@ -40,6 +40,17 @@ class LlmConfig(BaseModel):
     api_key: str = ""
     api_base: str = ""
     platform: Platform | None = None
+    # 是否在本机起 LiteLLM proxy 做 Anthropic<->OpenAI 协议转换。
+    # 默认关:沿用直连(仅适用于原生支持 Anthropic /v1/messages 的网关)。
+    # 开启后,bootstrap 会把 api_base/api_key 改写为本地 proxy。
+    use_litellm_gateway: bool = False
+    # LiteLLM 路由前缀(上游协议)。OpenAI 兼容厂商用 "openai"。
+    gateway_provider: str = "openai"
+    # 本地 proxy 端口;留空自动取空闲端口。
+    gateway_port: int | None = None
+    # 隔离的 claude CLI 配置目录;由 bootstrap 在启动网关后注入,
+    # 经 build_sdk_env 落到 CLAUDE_CONFIG_DIR,使 CLI 不读宿主 ~/.claude/settings.json。
+    claude_config_dir: str = ""
 
 
 class GitConfig(BaseModel):

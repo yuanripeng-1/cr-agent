@@ -70,16 +70,22 @@ def main() -> int:
         append_run_log(runtime.result_dir, "bootstrap_ready")
         return 0
 
-    # 创建 主 agent：SdkMainAgentRuntime
-    agent_runtime = build_main_agent_runtime(runtime.config)
-    result = asyncio.run(
-        # 调用 orchestrator：run_review，主 agent 驱动的审查编排。
-        run_review(
-            runtime,
-            agent_runtime=agent_runtime,
-            main_timeout_s=args.timeout_s,
+    try:
+        # 创建 主 agent：SdkMainAgentRuntime
+        agent_runtime = build_main_agent_runtime(runtime.config)
+        result = asyncio.run(
+            # 调用 orchestrator：run_review，主 agent 驱动的审查编排。
+            run_review(
+                runtime,
+                agent_runtime=agent_runtime,
+                main_timeout_s=args.timeout_s,
+            )
         )
-    )
+    finally:
+        # 关闭可选的本地 LiteLLM proxy 网关(若已启动);atexit 兜底。
+        gateway = getattr(runtime, "litellm_gateway", None)
+        if gateway is not None:
+            gateway.stop()
     return 0 if result.status == "success" else 1
 
 

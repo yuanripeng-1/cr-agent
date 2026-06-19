@@ -25,3 +25,9 @@ Thumbs.db
 # Large runtime workspace code copies
 workspaces/
 workspace/
+
+# Dot-files: 默认忽略所有以 . 开头的文件/目录,只放行明确需要的。
+# 新增需要保留的点文件时,在下面追加 ! 例外即可。
+.*
+!.gitignore
+!.python-version
