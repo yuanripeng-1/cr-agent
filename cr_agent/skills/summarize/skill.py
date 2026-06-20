@@ -31,7 +31,9 @@ async def summarize_report(
     if runtime is None:
         raise RuntimeCallError("summary runtime is not configured")
 
-    prompt = _build_summary_prompt(runtime_context, collected_context, dimension_scores, validation_errors or [])
+    # 汇总仅依赖过滤后的维度缺陷，不注入 collected_context 完整 payload。
+    del collected_context
+    prompt = _build_summary_prompt(dimension_scores, validation_errors or [])
     prompt_path = runtime_context.result_dir / "summary_prompt.txt"
     prompt_path.write_text(prompt, encoding="utf-8")
     _logger.info("ARTIFACT_WRITE path=%s", prompt_path)
@@ -51,12 +53,9 @@ async def summarize_report(
 
 
 def _build_summary_prompt(
-    runtime_context: RuntimeContext,
-    collected_context: dict[str, Any],
     dimension_scores: list[dict[str, Any]],
     validation_errors: list[str],
 ) -> str:
-    del runtime_context, collected_context  # 汇总上下文仅使用过滤后的维度缺陷，不注入完整 payload。
     skill_doc = load_skill_doc("summarize")
     summary_prompt = (_PROMPT_DIR / "summary.md").read_text(encoding="utf-8")
     summary_rule = (_PROMPT_DIR / "rules" / "summaryRule.md").read_text(encoding="utf-8")
@@ -77,7 +76,8 @@ def _build_summary_prompt(
         "llm_result、line_comments、issues。运行时字段由 Python 补充。\n"
         f"{validation_note}"
         "结果过滤的评分后缺陷总结文件：\n"
-        f"{json.dumps(filtered_reports, ensure_ascii=False, indent=2)}"
+        f"{json.dumps(filtered_reports, ensure_ascii=False, indent=2)}\n\n"
+        "请严格按照上方 SKILL.md、汇总提示词和汇总评级规则执行，并返回指定 JSON 输出。"
     )
 
 

@@ -9,6 +9,8 @@ import yaml
 from cr_agent.core import litellm_gateway as gw_mod
 from cr_agent.core.litellm_gateway import (
     _MASTER_KEY_ENV,
+    _TOKENHUB_SERVICE_KEY_DEFAULT,
+    _TOKENHUB_SERVICE_KEY_ENV,
     _UPSTREAM_KEY_ENV,
     LiteLLMGateway,
 )
@@ -73,6 +75,10 @@ def test_write_config_structure_and_no_plaintext_secret() -> None:
         assert entry["model_name"] == "glm-4-flash"
         assert entry["litellm_params"]["model"] == "openai/glm-4-flash"
         assert entry["litellm_params"]["api_base"] == "https://open.bigmodel.cn/api/paas/v4"
+        # tokenhub header 值同样用 os.environ/ 引用注入,不在 config 落明文。
+        assert entry["litellm_params"]["extra_headers"] == {
+            "X-InfOne-Service-Key": f"os.environ/{_TOKENHUB_SERVICE_KEY_ENV}",
+        }
         # 关键开关:走 chat/completions 而非 /responses。
         assert data["litellm_settings"]["use_chat_completions_url_for_anthropic_messages"] is True
 
@@ -81,6 +87,8 @@ def test_write_config_structure_and_no_plaintext_secret() -> None:
         assert data["general_settings"]["master_key"] == f"os.environ/{_MASTER_KEY_ENV}"
         assert "UPSTREAM-SECRET-KEY" not in raw
         assert "sk-master-secret" not in raw
+        # 服务密钥不再以明文常量落进 config 文件。
+        assert _TOKENHUB_SERVICE_KEY_DEFAULT not in raw
     finally:
         gw._cleanup_files()
 
@@ -90,6 +98,8 @@ def test_write_config_structure_and_no_plaintext_secret() -> None:
 def test_build_env_strips_host_anthropic_and_injects_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://tokenhub.infplacex.com/")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "host-key")
+    # 显式清除,确认 build_env 注入的是兜底默认值而非宿主已有值。
+    monkeypatch.delenv(_TOKENHUB_SERVICE_KEY_ENV, raising=False)
 
     gw = _make_gateway()
     env = gw._build_env()
@@ -98,9 +108,24 @@ def test_build_env_strips_host_anthropic_and_injects_secrets(monkeypatch: pytest
     assert "ANTHROPIC_API_KEY" not in env
     assert env[_UPSTREAM_KEY_ENV] == "UPSTREAM-SECRET-KEY"
     assert env[_MASTER_KEY_ENV] == "sk-master-secret"
+    assert env[_TOKENHUB_SERVICE_KEY_ENV] == _TOKENHUB_SERVICE_KEY_DEFAULT
     assert env["PYTHONUNBUFFERED"] == "1"
     # 不污染调用方进程环境。
     assert os.environ.get("ANTHROPIC_BASE_URL") == "https://tokenhub.infplacex.com/"
+
+
+def test_tokenhub_service_key_overridable_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(_TOKENHUB_SERVICE_KEY_ENV, "rotated-service-key")
+    gw = _make_gateway()
+    env = gw._build_env()
+    assert gw.tokenhub_service_key == "rotated-service-key"
+    assert env[_TOKENHUB_SERVICE_KEY_ENV] == "rotated-service-key"
+
+
+def test_tokenhub_service_key_explicit_arg_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(_TOKENHUB_SERVICE_KEY_ENV, "env-key")
+    gw = _make_gateway(tokenhub_service_key="explicit-key")
+    assert gw.tokenhub_service_key == "explicit-key"
 
 
 # ----- stop 幂等 -----

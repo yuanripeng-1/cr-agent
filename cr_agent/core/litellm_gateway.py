@@ -41,6 +41,14 @@ _logger = get_logger("cr_agent.core.litellm_gateway")
 # 上游与 master key 注入 LiteLLM 时使用的环境变量名(避免把密钥写进 config 文件)。
 _UPSTREAM_KEY_ENV = "CR_AGENT_LITELLM_UPSTREAM_KEY"
 _MASTER_KEY_ENV = "CR_AGENT_LITELLM_MASTER_KEY"
+# tokenhub 流量标识 header(公司侧用于区分 code review 业务流量)。
+# 与上游/master key 一致:header 值经环境变量 os.environ/<VAR> 注入 LiteLLM,
+# 不在 config 文件落盘明文,且支持轮换 / 分环境覆盖。
+_TOKENHUB_SERVICE_KEY_HEADER = "X-InfOne-Service-Key"
+_TOKENHUB_SERVICE_KEY_ENV = "CR_AGENT_TOKENHUB_SERVICE_KEY"
+# 未显式注入环境变量时的兜底默认值,保证既有部署不因缺省而中断;
+# 生产应通过 CR_AGENT_TOKENHUB_SERVICE_KEY 覆盖。
+_TOKENHUB_SERVICE_KEY_DEFAULT = "qaz!-codereview-key"
 
 
 def _find_free_port() -> int:
@@ -76,6 +84,7 @@ class LiteLLMGateway:
         host: str = "127.0.0.1",
         port: int | None = None,
         master_key: str | None = None,
+        tokenhub_service_key: str | None = None,
         log_path: Path | None = None,
         startup_timeout_s: float = 120.0,
     ) -> None:
@@ -86,6 +95,12 @@ class LiteLLMGateway:
         self.host = host
         self.port = port or _find_free_port()
         self.master_key = master_key or ("sk-" + secrets.token_hex(16))
+        # 优先用显式入参,其次取环境变量,最后回落到兜底默认值。
+        self.tokenhub_service_key = (
+            tokenhub_service_key
+            or os.environ.get(_TOKENHUB_SERVICE_KEY_ENV)
+            or _TOKENHUB_SERVICE_KEY_DEFAULT
+        )
         self.log_path = log_path
         self.startup_timeout_s = startup_timeout_s
 
@@ -123,6 +138,11 @@ class LiteLLMGateway:
                         "model": f"{self.provider}/{self.model}",
                         "api_base": self.upstream_api_base,
                         "api_key": f"os.environ/{_UPSTREAM_KEY_ENV}",
+                        "extra_headers": {
+                            # 与 api_key 一致用 os.environ/ 引用,真实值经环境变量注入,
+                            # LiteLLM 加载 config 时会递归解析,不在 config 落盘明文。
+                            _TOKENHUB_SERVICE_KEY_HEADER: f"os.environ/{_TOKENHUB_SERVICE_KEY_ENV}",
+                        },
                     },
                 }
             ],
@@ -143,6 +163,7 @@ class LiteLLMGateway:
         env = os.environ.copy()
         env[_UPSTREAM_KEY_ENV] = self.upstream_api_key
         env[_MASTER_KEY_ENV] = self.master_key
+        env[_TOKENHUB_SERVICE_KEY_ENV] = self.tokenhub_service_key
         # 关闭子进程 stdio 缓冲,保证 proxy 访问日志/报错实时落进 litellm_gateway.log。
         env["PYTHONUNBUFFERED"] = "1"
         # 防止把宿主可能存在的 ANTHROPIC_* 透传给 proxy 子进程,污染其行为。

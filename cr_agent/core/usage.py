@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from cr_agent.core.types import TokenUsage
+from cr_agent.utils.logging import get_logger
+
+_logger = get_logger("cr_agent.core.usage")
 
 
 def accumulate_usage(total: TokenUsage, call: TokenUsage) -> TokenUsage:
@@ -74,7 +77,12 @@ def accumulate_usage_from_dimension_artifacts(
             continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.warning(
+                "USAGE_ARTIFACT_SKIP path=%s error=%s",
+                path,
+                exc,
+            )
             continue
         if not isinstance(payload, dict) or payload.get("status") != "success":
             continue
