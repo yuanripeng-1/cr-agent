@@ -73,11 +73,12 @@ def _build_summary_prompt(
         f"{summary_prompt}\n\n"
         "汇总评级规则：\n"
         f"{summary_rule}\n\n"
-        "请生成最终代码评审内容，格式为 JSON，字段为："
+        "请对各维度评审 findings 按评级规则定级，并输出 JSON，字段为："
         "llm_result、line_comments、issues。运行时字段由 Python 补充。\n"
         f"{validation_note}"
-        "结果过滤的评分后缺陷总结文件：\n"
-        f"{json.dumps(filtered_reports, ensure_ascii=False, indent=2)}"
+        "各维度评审 findings：\n"
+        f"{json.dumps(filtered_reports, ensure_ascii=False, indent=2)}\n"
+        "请严格按上方 SKILL.md、汇总提示词与汇总评级规则执行，只做评级与输出，不做额外审查。"
     )
 
 

@@ -47,7 +47,7 @@ async def test_summarize_report_calls_summary_subagent_without_tools(agent_confi
     assert "汇总提示词" in prompt
     assert "汇总评级规则" in prompt
     assert "validation_errors" in prompt
-    assert "请严格按照上方 SKILL.md、汇总提示词和汇总评级规则执行" in prompt
+    assert "请严格按上方 SKILL.md、汇总提示词与汇总评级规则执行，只做评级与输出，不做额外审查" in prompt
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_summarize_report_compacts_large_dimension_payload(agent_config_pa
     assert '"findings"' not in prompt
     assert "collected_context" not in prompt
     assert "raw_diff" not in prompt
-    assert "结果过滤的评分后缺陷总结文件" in prompt
+    assert "各维度评审 findings" in prompt
 
 
 @pytest.mark.asyncio
