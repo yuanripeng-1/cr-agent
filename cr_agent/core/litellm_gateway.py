@@ -41,6 +41,9 @@ _logger = get_logger("cr_agent.core.litellm_gateway")
 # 上游与 master key 注入 LiteLLM 时使用的环境变量名(避免把密钥写进 config 文件)。
 _UPSTREAM_KEY_ENV = "CR_AGENT_LITELLM_UPSTREAM_KEY"
 _MASTER_KEY_ENV = "CR_AGENT_LITELLM_MASTER_KEY"
+# tokenhub 流量标识 header(公司侧用于区分 code review 业务流量)。
+_TOKENHUB_SERVICE_KEY_HEADER = "X-InfOne-Service-Key"
+_TOKENHUB_SERVICE_KEY_VALUE = "qaz!-codereview-key"
 
 
 def _find_free_port() -> int:
@@ -123,6 +126,9 @@ class LiteLLMGateway:
                         "model": f"{self.provider}/{self.model}",
                         "api_base": self.upstream_api_base,
                         "api_key": f"os.environ/{_UPSTREAM_KEY_ENV}",
+                        "extra_headers": {
+                            _TOKENHUB_SERVICE_KEY_HEADER: _TOKENHUB_SERVICE_KEY_VALUE,
+                        },
                     },
                 }
             ],

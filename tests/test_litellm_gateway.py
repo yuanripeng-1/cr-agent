@@ -73,6 +73,9 @@ def test_write_config_structure_and_no_plaintext_secret() -> None:
         assert entry["model_name"] == "glm-4-flash"
         assert entry["litellm_params"]["model"] == "openai/glm-4-flash"
         assert entry["litellm_params"]["api_base"] == "https://open.bigmodel.cn/api/paas/v4"
+        assert entry["litellm_params"]["extra_headers"] == {
+            "X-InfOne-Service-Key": "qaz!-codereview-key",
+        }
         # 关键开关:走 chat/completions 而非 /responses。
         assert data["litellm_settings"]["use_chat_completions_url_for_anthropic_messages"] is True
 
