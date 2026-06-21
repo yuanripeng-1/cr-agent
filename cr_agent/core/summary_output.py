@@ -17,69 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 Severity = Literal["critical", "major", "minor"]
 
-# ── JSON Schema（与 SummaryOutput 结构保持同步）────────────────────────────────
-# 用于 sdk_runtime.query_subagent_structured() 的 response_format 参数。
-# 不设 strict/additionalProperties，兼容不同 provider 的结构化输出实现。
-SUMMARY_JSON_SCHEMA: dict[str, Any] = {
-    "name": "summary_output",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "llm_result": {
-                "type": "string",
-                "description": "完整 Markdown 代码评审报告",
-            },
-            "line_comments": {
-                "type": "object",
-                "properties": {
-                    "comments": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "new_path": {"type": "string"},
-                                "body": {"type": "string"},
-                                "start_line": {"type": "integer", "minimum": 1},
-                                "end_line": {"type": "integer", "minimum": 1},
-                            },
-                            "required": ["new_path", "body", "start_line", "end_line"],
-                        },
-                    }
-                },
-                "required": ["comments"],
-            },
-            "issues": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "severity": {
-                            "type": "string",
-                            "enum": ["critical", "major", "minor"],
-                        },
-                        "title": {"type": "string"},
-                        "count": {"type": "integer", "minimum": 1},
-                        "locations": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "path": {"type": "string"},
-                                    "start_line": {"type": "integer", "minimum": 1},
-                                    "end_line": {"type": "integer", "minimum": 1},
-                                },
-                                "required": ["path", "start_line", "end_line"],
-                            },
-                        },
-                    },
-                    "required": ["severity", "title", "count", "locations"],
-                },
-            },
-        },
-        "required": ["llm_result", "line_comments", "issues"],
-    },
-}
-
 
 # ── Pydantic 模型（extra="allow"：允许 LLM 附带额外诊断字段，但不放宽已知字段校验）──
 
@@ -123,6 +60,14 @@ class SummaryOutput(BaseModel):
     llm_result: str = Field(min_length=1)
     line_comments: SummaryLineComments
     issues: list[SummaryIssue]
+
+
+# ── JSON Schema（由 SummaryOutput 自动生成，与 Pydantic 模型保持单一真相来源）──────
+# 用于 sdk_runtime.query_subagent_structured() 的 response_format 参数。
+SUMMARY_JSON_SCHEMA: dict[str, Any] = {
+    "name": "summary_output",
+    "schema": SummaryOutput.model_json_schema(),
+}
 
 
 def validate_summary_output(report: dict[str, Any]) -> list[str]:

@@ -291,21 +291,7 @@ def structured_output_unsupported(exc: Exception) -> bool:
     message = repr(exc).lower()
     if "timeout" in message or "timed out" in message:
         return False
-    if "response_format" in message or "json_schema" in message:
-        return True
-    if any(
-        phrase in message
-        for phrase in (
-            "does not support",
-            "not supported",
-            "unsupported",
-            "invalid_request_error",
-        )
-    ):
-        return True
-    if any(marker in message for marker in _UNSUPPORTED_STRUCTURED_MARKERS):
-        return "format" in message or "schema" in message or "structured" in message
-    return False
+    return any(marker in message for marker in _UNSUPPORTED_STRUCTURED_MARKERS)
 
 
 def build_runtime(config: Any) -> "ClaudeAgentRuntime":
@@ -569,52 +555,19 @@ class ClaudeAgentRuntime:
             if kind == "unsupported"
             else "structured_output"
         )
-        if kind == "timeout":
-            _logger.error(
-                "STRUCTURED_OUTPUT_TIMEOUT request_id=%s agent=%s elapsed_s=%.1f "
-                "detail=%s kind=%s next_call_mode=%s",
-                request_id,
-                agent_name,
-                elapsed_s,
-                detail,
-                kind,
-                next_mode,
-            )
-        elif kind == "empty":
-            _logger.error(
-                "STRUCTURED_OUTPUT_EMPTY request_id=%s agent=%s elapsed_s=%.1f "
-                "detail=%s kind=%s next_call_mode=%s",
-                request_id,
-                agent_name,
-                elapsed_s,
-                detail,
-                kind,
-                next_mode,
-            )
-        elif kind == "unsupported":
-            _logger.error(
-                "STRUCTURED_OUTPUT_UNSUPPORTED request_id=%s agent=%s reason=%s "
-                "elapsed_s=%.1f detail=%s kind=%s next_call_mode=%s",
-                request_id,
-                agent_name,
-                exc,
-                elapsed_s,
-                detail,
-                kind,
-                next_mode,
-            )
-        else:
-            _logger.error(
-                "STRUCTURED_OUTPUT_FAILED request_id=%s agent=%s reason=%s "
-                "elapsed_s=%.1f detail=%s kind=%s next_call_mode=%s",
-                request_id,
-                agent_name,
-                exc,
-                elapsed_s,
-                detail,
-                kind,
-                next_mode,
-            )
+        label = f"STRUCTURED_OUTPUT_{kind.upper()}"
+        _logger.error(
+            "%s request_id=%s agent=%s reason=%s elapsed_s=%.1f "
+            "detail=%s kind=%s next_call_mode=%s",
+            label,
+            request_id,
+            agent_name,
+            exc,
+            elapsed_s,
+            detail,
+            kind,
+            next_mode,
+        )
 
     async def _query(
         self,
