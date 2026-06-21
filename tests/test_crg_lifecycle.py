@@ -8,7 +8,7 @@ import pytest
 from cr_agent.core.agent_config import CrgConfig
 from cr_agent.core.review_input import ReviewInput
 from cr_agent.tools.cr_native import crg_lifecycle
-from cr_agent.tools.cr_native.crg_lifecycle import build_crg_lifecycle
+from cr_agent.tools.cr_native.crg_lifecycle import build_crg_lifecycle, plan_crg_paths
 
 
 class _FakeProc:
@@ -53,16 +53,25 @@ def roots(tmp_path: Path):
     }
 
 
-def _review_input(project_root: Path, *, target_branch: str = "release/x") -> ReviewInput:
+def _review_input(
+    project_root: Path,
+    *,
+    target_branch: str = "release/x",
+    task_id: str = "task-1",
+    project_id: int | None = 35,
+    mr_iid: int | None = 7,
+    source_branch: str = "feature/a",
+) -> ReviewInput:
     return ReviewInput.model_validate(
         {
-            "task_id": "task-1",
+            "task_id": task_id,
             "title": "fix",
             "diff_content": "diff --git a/a.py b/a.py",
             "project_root": str(project_root),
-            "project_id": 35,
+            "project_id": project_id,
+            "mr_iid": mr_iid,
             "base_sha": "abc123",
-            "source_branch": "feature/a",
+            "source_branch": source_branch,
             "target_branch": target_branch,
         }
     )
@@ -72,7 +81,7 @@ def _lifecycle(roots, *, enabled: bool = True, target_branch: str = "release/x")
     return build_crg_lifecycle(
         config=CrgConfig(
             enabled=enabled,
-            base_dir=str(roots["config_dir"] / ".crg"),
+            base_dir=".crg",
             target_root=str(roots["target_root"]),
             max_retry=2,
             retry_interval_s=0.01,
@@ -103,6 +112,68 @@ def test_crg_disabled_does_not_start(roots) -> None:
     assert life.task is None
     assert life.ready is False
     assert "CRG_DISABLED reason=enabled_false" in (roots["result_dir"] / "run.log").read_text()
+
+
+def test_crg_paths_use_shared_workspace_root_and_mr_lineage(roots) -> None:
+    review_input = _review_input(
+        roots["project_root"],
+        task_id="task-a",
+        project_id=35,
+        mr_iid=7,
+        source_branch="feature/a",
+    )
+
+    paths = plan_crg_paths(
+        CrgConfig(base_dir=".crg"),
+        review_input,
+        roots["workspace"],
+        roots["config_dir"],
+    )
+
+    assert paths.data_dir == roots["workspace"].parent / ".crg" / "projects" / "35" / "mrs" / "7"
+    assert "task-a" not in str(paths.data_dir)
+
+
+def test_crg_paths_fall_back_to_source_branch_without_mr_iid(roots) -> None:
+    review_input = _review_input(
+        roots["project_root"],
+        task_id="task-a",
+        project_id=35,
+        mr_iid=None,
+        source_branch="feature/a",
+    )
+
+    paths = plan_crg_paths(
+        CrgConfig(base_dir=".crg"),
+        review_input,
+        roots["workspace"],
+        roots["config_dir"],
+    )
+
+    assert paths.data_dir == (
+        roots["workspace"].parent / ".crg" / "projects" / "35" / "branches" / "feature__a"
+    )
+
+
+def test_crg_paths_fall_back_to_project_root_and_default_lineage(roots) -> None:
+    review_input = _review_input(
+        roots["project_root"],
+        task_id="task-a",
+        project_id=None,
+        mr_iid=None,
+        source_branch="",
+    )
+
+    paths = plan_crg_paths(
+        CrgConfig(base_dir=".crg"),
+        review_input,
+        roots["workspace"],
+        roots["config_dir"],
+    )
+
+    assert paths.data_dir == (
+        roots["workspace"].parent / ".crg" / "projects" / "source" / "default"
+    )
 
 
 @pytest.mark.asyncio

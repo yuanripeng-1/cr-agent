@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -50,8 +49,6 @@ class RuntimeContext:
     context_runtime: object
     # 子 agent runtime;dimension_review skill 通过它逐维调用 dimension subagent。
     dimension_runtime: object
-    # 贯穿本次审查运行的 trace id。
-    trace_id: str
     # 可选:本地 LiteLLM proxy 网关句柄(use_litellm_gateway=true 时存在),
     # 由 main.py 在运行结束后关闭;atexit 兜底。
     litellm_gateway: object | None = None
@@ -158,16 +155,19 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         )
         raise ValueError(message)
 
-    trace_id = uuid.uuid4().hex[:12]
     install_run_log_handler(result_dir)
     _logger.info(
-        "BOOTSTRAP_CONFIG_LOADED trace_id=%s config=%s context=%s result_dir=%s",
-        trace_id,
+        "BOOTSTRAP_CONFIG_LOADED task_id=%s config=%s context=%s result_dir=%s",
+        context_data.task_id,
         config_path,
         context_path,
         result_dir,
     )
-    _logger.info("PLATFORM_SELECTED trace_id=%s platform=%s", trace_id, final_platform)
+    _logger.info(
+        "PLATFORM_SELECTED task_id=%s platform=%s",
+        context_data.task_id,
+        final_platform,
+    )
 
     workspace_dir = context_path.parent
 
@@ -241,7 +241,6 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         summary_runtime=summary_runtime,
         context_runtime=context_runtime,
         dimension_runtime=dimension_runtime,
-        trace_id=trace_id,
         litellm_gateway=litellm_gateway,
     )
 

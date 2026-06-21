@@ -428,11 +428,17 @@ def plan_crg_paths(
     config_dir: Path,
 ) -> CrgPaths:
     raw_base = Path(config.base_dir).expanduser()
-    base_dir = raw_base if raw_base.is_absolute() else (config_dir / raw_base).resolve()
+    base_dir = raw_base if raw_base.is_absolute() else (workspace_dir.parent / raw_base).resolve()
     project_key = str(review_input.project_id or Path(review_input.project_root).name or "unknown")
-    task_key = review_input.task_id or "task"
+    project_key = _safe_branch_name(project_key)
+    if review_input.mr_iid is not None:
+        lineage_dir = Path("mrs") / str(review_input.mr_iid)
+    elif review_input.source_branch:
+        lineage_dir = Path("branches") / _safe_branch_name(review_input.source_branch)
+    else:
+        lineage_dir = Path("default")
     return CrgPaths(
-        data_dir=base_dir / project_key / _safe_branch_name(task_key),
+        data_dir=base_dir / "projects" / project_key / lineage_dir,
     )
 
 

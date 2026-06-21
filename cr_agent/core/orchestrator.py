@@ -245,7 +245,6 @@ def _build_review_result(
         ),
         line_comments=report.get("line_comments") or LineComments(comments=[]),
         issues=report.get("issues") or [],
-        task_id=runtime_context.review_input.task_id,
         platform=runtime_context.platform,
         errors=state.errors,
         warnings=state.warnings,

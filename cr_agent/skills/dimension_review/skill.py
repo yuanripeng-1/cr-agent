@@ -450,6 +450,14 @@ def _bounded_int(value: Any, *, default: int) -> int:
     return max(0, min(100, number))
 
 
+def _positive_int(value: Any, *, default: int = 0) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, number)
+
+
 def _manifest_entry(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "dimension": result["dimension"],
@@ -533,8 +541,8 @@ def _normalize_findings(dimension: str, report: dict[str, Any]) -> list[dict[str
                 "evidence": _text(item.get("evidence") or item.get("existing_code") or ""),
                 "severity_hint": _text(item.get("severity") or item.get("category") or ""),
                 "file_path": _text(item.get("file_path") or item.get("path") or ""),
-                "start_line": _bounded_int(item.get("start_line"), default=0),
-                "end_line": _bounded_int(item.get("end_line"), default=0),
+                "start_line": _positive_int(item.get("start_line"), default=0),
+                "end_line": _positive_int(item.get("end_line"), default=0),
                 "suggestion": _text(
                     item.get("suggestion")
                     or item.get("mitigation")

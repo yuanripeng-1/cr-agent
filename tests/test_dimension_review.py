@@ -13,7 +13,7 @@ from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import load_review_result
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.skills.dimension_review import skill as dimension_skill
-from cr_agent.skills.dimension_review.skill import dimension_review
+from cr_agent.skills.dimension_review.skill import _bounded_int, _normalize_findings, dimension_review
 from cr_agent.skills.registry import SkillRegistry
 from cr_agent.tools.provider import ToolSpec
 from tests.fakes import ScriptedMainAgentRuntime
@@ -122,6 +122,48 @@ def _write_dimensions_config(path: Path, *, dimensions: list[str], concurrency: 
         ),
         encoding="utf-8",
     )
+
+
+def test_normalize_findings_preserves_source_lines_above_100() -> None:
+    report = {
+        "score": 72,
+        "vulnerabilities": [
+            {
+                "file_path": "internal/storage/mysql/mysql.go",
+                "start_line": 437,
+                "end_line": 439,
+                "description": "SQL injection",
+                "score": 95,
+            }
+        ],
+    }
+
+    findings = _normalize_findings("security", report)
+
+    assert findings[0]["start_line"] == 437
+    assert findings[0]["end_line"] == 439
+    assert findings[0]["score"] == 95
+
+
+def test_normalize_findings_line_numbers_and_scores_use_separate_bounds() -> None:
+    report = {
+        "score": 72,
+        "findings": [
+            {"title": "zero line", "start_line": 0, "end_line": 0, "score": 150},
+            {"title": "bad line", "start_line": "abc", "end_line": "abc", "score": -5},
+        ],
+    }
+
+    findings = _normalize_findings("security", report)
+
+    assert findings[0]["start_line"] == 0
+    assert findings[0]["end_line"] == 0
+    assert findings[0]["score"] == 100
+    assert findings[1]["start_line"] == 0
+    assert findings[1]["end_line"] == 0
+    assert findings[1]["score"] == 0
+    assert _bounded_int(150, default=0) == 100
+    assert _bounded_int(-5, default=0) == 0
 
 
 @pytest.mark.asyncio
@@ -540,4 +582,3 @@ async def test_dimension_review_filters_findings_before_returning_to_summary(
 
     security_artifact = _load_json(runtime_context.result_dir / "dimensions" / "security.json")
     assert [finding["title"] for finding in security_artifact["findings"]] == ["keep"]
-

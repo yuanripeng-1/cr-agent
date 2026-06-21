@@ -24,6 +24,8 @@ allow_network = false
 
 [tools.crg]
 enabled = false
+# CRG 全局缓存根目录。相对路径按共享 workspace 根解析,实际落到
+# <base_dir>/projects/<project_id 或 project_root 名>/mrs/<mr_iid>。
 base_dir = ".crg"
 target_root = ""
 max_retry = 3

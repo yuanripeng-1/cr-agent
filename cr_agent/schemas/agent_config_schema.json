@@ -20,7 +20,7 @@
   "tools": {
     "crg": {
       "enabled": "是否启用 code-review-graph 生命周期管理。默认 false。",
-      "base_dir": "CRG data-dir 根目录。相对路径按 agent_config.toml 所在目录解析。",
+      "base_dir": "CRG 全局 data-dir 缓存根目录。相对路径按共享 workspace 根解析。",
       "target_root": "兼容旧配置。code-review-graph 2.x 基于 context.project_root --repo 构建,不读取该字段。",
       "max_retry": "crg_query 等待 CRG ready 的最大重试次数。",
       "retry_interval_s": "crg_query 每次 ready 检查之间的等待秒数。",
