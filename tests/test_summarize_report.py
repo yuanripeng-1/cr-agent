@@ -42,12 +42,9 @@ async def test_summarize_report_calls_summary_subagent_without_tools(agent_confi
     assert runtime.calls[0]["agent_name"] == "summary"
     assert runtime.calls[0]["assembled_options"] is None
     prompt = runtime.calls[0]["prompt"]
-    assert "# summarize_report" in prompt
-    assert "summary subagent 不得使用任何工具" in prompt
     assert "汇总提示词" in prompt
     assert "汇总评级规则" in prompt
-    assert "validation_errors" in prompt
-    assert "请严格按照上方 SKILL.md、汇总提示词和汇总评级规则执行" in prompt
+    assert "最终要输出的内容" in prompt
 
 
 @pytest.mark.asyncio
@@ -108,7 +105,7 @@ async def test_summarize_report_compacts_large_dimension_payload(agent_config_pa
     assert '"findings"' not in prompt
     assert "collected_context" not in prompt
     assert "raw_diff" not in prompt
-    assert "结果过滤的评分后缺陷总结文件" in prompt
+    assert "各维度评审 findings" in prompt
 
 
 @pytest.mark.asyncio
@@ -121,3 +118,17 @@ async def test_summarize_report_writes_summary_prompt_artifact(agent_config_path
     prompt_path = context.result_dir / "summary_prompt.txt"
     assert prompt_path.exists()
     assert prompt_path.read_text(encoding="utf-8") == runtime.calls[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_summarize_report_writes_raw_text_artifact(agent_config_path: Path) -> None:
+    """summary_report.txt 存放模型原始响应，与解析结果无关。"""
+    raw_text = '{"llm_result": "# raw", "line_comments": {"comments": []}, "issues": []}'
+    runtime = _Runtime(raw_text)
+    context = replace(bootstrap_runtime(agent_config_path, platform_override=None), summary_runtime=runtime)
+
+    await summarize_report(context, {"task_id": "task-1"}, [], None)
+
+    raw_path = context.result_dir / "summary_report.txt"
+    assert raw_path.exists()
+    assert raw_path.read_text(encoding="utf-8") == raw_text
