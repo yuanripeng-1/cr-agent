@@ -9,7 +9,14 @@ from cr_agent.skills.validate_json.skill import validate_json
 @pytest.mark.asyncio
 async def test_validate_json_accepts_minimal_report(agent_config_path) -> None:
     runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
-    result = await validate_json(runtime_context, {"llm_result": "# ok"})
+    result = await validate_json(
+        runtime_context,
+        {
+            "llm_result": "# ok",
+            "line_comments": {"comments": []},
+            "issues": [],
+        },
+    )
     assert result.valid is True
     assert result.errors == []
 

@@ -21,6 +21,48 @@ def test_main_bootstrap_only_writes_bootstrap_ready(agent_config_path: Path, mon
     assert result.status == "bootstrap_ready"
 
 
+def test_main_bootstrap_only_skips_overwrite_when_review_in_progress(
+    agent_config_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from cr_agent import main as main_module
+    from cr_agent.core.artifacts import append_run_log, write_result_json, write_result_markdown
+    from cr_agent.core.review_output import LineComments, ReviewResult, TokenUsage
+
+    result_dir = agent_config_path.parent / "cr_result"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    append_run_log(result_dir, "review started")
+    write_result_json(
+        result_dir,
+        ReviewResult(
+            status="success",
+            llm_result="# in-progress review",
+            log_path=str(result_dir / "run.log"),
+            tokens_consume=TokenUsage(input_tokens=1, output_tokens=2, cost=0.0),
+            line_comments=LineComments(comments=[]),
+            issues=[],
+        ),
+    )
+    write_result_markdown(result_dir, "# in-progress review")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["cr_agent.main", "--config", str(agent_config_path), "--bootstrap-only"],
+    )
+
+    assert main_module.main() == 0
+
+    result = load_review_result(result_dir / "result.json")
+    assert result.status == "success"
+    assert result.llm_result == "# in-progress review"
+    assert (result_dir / "cr_result.md").read_text(encoding="utf-8") == "# in-progress review"
+    assert "bootstrap_ready skipped: review in progress" in (result_dir / "run.log").read_text(
+        encoding="utf-8"
+    )
+    assert "skipping result.json" in capsys.readouterr().out
+
+
 def test_main_default_runs_review(agent_config_path: Path, monkeypatch) -> None:
     from cr_agent import main as main_module
     from cr_agent.core.main_agent import MainAgentResult

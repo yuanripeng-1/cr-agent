@@ -7,7 +7,12 @@ from pathlib import Path
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.agent_config import VALID_PLATFORMS
-from cr_agent.core.artifacts import append_run_log, write_result_json, write_result_markdown
+from cr_agent.core.artifacts import (
+    append_run_log,
+    review_in_progress,
+    write_result_json,
+    write_result_markdown,
+)
 from cr_agent.core.main_agent import build_main_agent_runtime
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import LineComments, ReviewResult, TokenUsage
@@ -34,7 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout-s",
         type=float,
-        default=2000,
+        default=3000,
         help="Main agent timeout in seconds.",
     )
     return parser
@@ -55,6 +60,16 @@ def main() -> int:
     )
 
     if args.bootstrap_only:
+        if review_in_progress(runtime.result_dir):
+            print(
+                "[bootstrap] review in progress; skipping result.json / cr_result.md overwrite"
+            )
+            append_run_log(
+                runtime.result_dir,
+                "bootstrap_ready skipped: review in progress",
+            )
+            return 0
+
         result = ReviewResult(
             status="bootstrap_ready",
             llm_result="# CR-Agent\n\nBootstrap ready.",

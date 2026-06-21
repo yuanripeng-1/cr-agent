@@ -12,12 +12,24 @@ from cr_agent.core.errors import (
     RuntimeContextLimitError,
     RuntimeTimeoutError,
     RuntimeTokenLimitError,
+    StructuredOutputError,
+    StructuredOutputFailureKind,
 )
-from cr_agent.core.types import QueryResult
+from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.core.usage import extract_usage
 from cr_agent.utils.logging import get_logger, redact
 
 _logger = get_logger("cr_agent.core.sdk_runtime")
+_UNSUPPORTED_STRUCTURED_MARKERS = (
+    "response_format",
+    "json_schema",
+    "structured outputs",
+    "structured output",
+    "does not support",
+    "not supported",
+    "unsupported",
+    "invalid_request_error",
+)
 _RESULT_MESSAGE_FIELDS = (
     "subtype",
     "is_error",
@@ -261,6 +273,41 @@ def _truncate(text: str, limit: int = 800) -> str:
     return text[:limit] + "...[truncated]"
 
 
+def classify_structured_output_failure(
+    *,
+    reason: str,
+    exc: Exception | None = None,
+) -> StructuredOutputFailureKind:
+    if reason == "timeout":
+        return "timeout"
+    if reason == "empty":
+        return "empty"
+    if exc is not None and structured_output_unsupported(exc):
+        return "unsupported"
+    return "error"
+
+
+def structured_output_unsupported(exc: Exception) -> bool:
+    message = repr(exc).lower()
+    if "timeout" in message or "timed out" in message:
+        return False
+    if "response_format" in message or "json_schema" in message:
+        return True
+    if any(
+        phrase in message
+        for phrase in (
+            "does not support",
+            "not supported",
+            "unsupported",
+            "invalid_request_error",
+        )
+    ):
+        return True
+    if any(marker in message for marker in _UNSUPPORTED_STRUCTURED_MARKERS):
+        return "format" in message or "schema" in message or "structured" in message
+    return False
+
+
 def build_runtime(config: Any) -> "ClaudeAgentRuntime":
     """
     从 per-task agent_config.toml 的 [llm] 读取 model/api_base/api_key,
@@ -282,6 +329,9 @@ class ClaudeAgentRuntime:
     def __init__(self, config: Any, client: Any | None = None) -> None:
         self.config = config
         self._client = client
+        # structured output 失败后禁用；同一次 review 的后续 summarize 改走 query_subagent。
+        self.structured_output_disabled: bool = False
+        self.last_structured_output_error: str | None = None
 
     async def query_main(
         self,
@@ -311,6 +361,260 @@ class ClaudeAgentRuntime:
             assembled_options=assembled_options,
             timeout_s=timeout_s,
         )
+
+    async def query_subagent_structured(
+        self,
+        agent_name: str,
+        prompt: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
+        timeout_s: float = 300,
+    ) -> QueryResult:
+        """
+        以 litellm.acompletion() 直接请求模型，支持 response_format JSON Schema 结构化输出。
+
+        当 response_schema 为 None、litellm 不可用、或缺少网关配置时，
+        自动退化为 query_subagent()，不中断主流程。
+
+        litellm 调用超时 / 上游报错 / 空响应时：**不再**降级到 query_subagent()，
+        而是记录错误并抛出 StructuredOutputError（携带 kind）：
+        - unsupported：模型/网关不支持 json_schema → 禁用后续 structured，重试走 plain
+        - timeout / empty / error：保留 structured，由 summarize 触发 validate 重试
+
+        调用链：litellm.acompletion → LiteLLM proxy /chat/completions（或直连上游）
+        与 query_subagent 的 Claude Agent SDK 路径独立，互不干扰。
+        """
+        if response_schema is None:
+            return await self.query_subagent(agent_name, prompt, timeout_s=timeout_s)
+
+        llm = getattr(self.config, "llm", None)
+        if llm is None:
+            _logger.warning(
+                "STRUCTURED_OUTPUT_SKIP reason=no_llm_config agent=%s", agent_name
+            )
+            return await self.query_subagent(agent_name, prompt, timeout_s=timeout_s)
+
+        api_base = getattr(llm, "api_base", "") or ""
+        api_key = getattr(llm, "api_key", "") or ""
+        model = getattr(llm, "model", "") or ""
+        # gateway_provider 默认 "openai"，适配 LiteLLM proxy 的 /chat/completions 端点
+        gateway_provider = getattr(llm, "gateway_provider", "openai") or "openai"
+
+        if not api_base or not model:
+            _logger.warning(
+                "STRUCTURED_OUTPUT_SKIP reason=missing_config agent=%s model=%s api_base_set=%s",
+                agent_name,
+                model,
+                bool(api_base),
+            )
+            return await self.query_subagent(agent_name, prompt, timeout_s=timeout_s)
+
+        try:
+            import litellm  # noqa: PLC0415 - 惰性导入，避免无 litellm 环境报错
+        except ImportError:
+            _logger.warning(
+                "STRUCTURED_OUTPUT_SKIP reason=litellm_not_installed agent=%s", agent_name
+            )
+            return await self.query_subagent(agent_name, prompt, timeout_s=timeout_s)
+
+        request_id = uuid.uuid4().hex[:12]
+        start = time.monotonic()
+        # LiteLLM 需要 "{provider}/{model}" 格式，proxy 暴露 OpenAI 协议故用 gateway_provider
+        litellm_model = f"{gateway_provider}/{model}"
+        log_gateway_target(
+            agent_name,
+            {"ANTHROPIC_BASE_URL": api_base, "ANTHROPIC_API_KEY": api_key},
+            litellm_model,
+        )
+        _logger.info(
+            "STRUCTURED_OUTPUT_START request_id=%s agent=%s model=%s",
+            request_id,
+            agent_name,
+            litellm_model,
+        )
+        try:
+            response = await asyncio.wait_for(
+                litellm.acompletion(
+                    model=litellm_model,
+                    api_base=api_base,
+                    api_key=api_key or None,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": response_schema,
+                    },
+                    # Claude Sonnet 4 系列最大输出 token 数为 64000；
+                    # 不从 config 读取，避免在 agent_config.toml 引入额外字段。
+                    max_tokens=64000,
+                ),
+                timeout=timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            elapsed = time.monotonic() - start
+            detail = (
+                f"structured output timed out after {elapsed:.1f}s "
+                f"(limit {timeout_s}s) request_id={request_id}"
+            )
+            self._log_structured_output_failure(
+                agent_name=agent_name,
+                kind="timeout",
+                detail=detail,
+                request_id=request_id,
+                elapsed_s=elapsed,
+            )
+            raise StructuredOutputError(detail, kind="timeout") from exc
+        except StructuredOutputError:
+            raise
+        except Exception as exc:
+            elapsed = time.monotonic() - start
+            kind = classify_structured_output_failure(reason="error", exc=exc)
+            detail = (
+                f"structured output failed: {exc!r} request_id={request_id} "
+                f"elapsed_s={elapsed:.1f}"
+            )
+            if kind == "unsupported":
+                self._mark_structured_unsupported(
+                    agent_name=agent_name,
+                    kind=kind,
+                    detail=detail,
+                    request_id=request_id,
+                    elapsed_s=elapsed,
+                    exc=exc,
+                )
+            else:
+                self._log_structured_output_failure(
+                    agent_name=agent_name,
+                    kind=kind,
+                    detail=detail,
+                    request_id=request_id,
+                    elapsed_s=elapsed,
+                    exc=exc,
+                )
+            raise StructuredOutputError(detail, kind=kind) from exc
+
+        # 从 litellm 响应中提取文本
+        text = ""
+        choices = getattr(response, "choices", None) or []
+        if choices:
+            message = getattr(choices[0], "message", None)
+            if message is not None:
+                text = getattr(message, "content", "") or ""
+
+        if not text.strip():
+            elapsed = time.monotonic() - start
+            detail = (
+                f"structured output returned empty content request_id={request_id} "
+                f"elapsed_s={elapsed:.1f}"
+            )
+            self._log_structured_output_failure(
+                agent_name=agent_name,
+                kind="empty",
+                detail=detail,
+                request_id=request_id,
+                elapsed_s=elapsed,
+            )
+            raise StructuredOutputError(detail, kind="empty")
+
+        # 从 litellm 响应中提取 usage（字段名与 OpenAI 一致）
+        usage_data = getattr(response, "usage", None)
+        usage = TokenUsage(
+            input_tokens=int(getattr(usage_data, "prompt_tokens", 0) or 0),
+            output_tokens=int(getattr(usage_data, "completion_tokens", 0) or 0),
+        )
+        elapsed = time.monotonic() - start
+        _logger.info(
+            "STRUCTURED_OUTPUT_END request_id=%s agent=%s elapsed_s=%.1f "
+            "input=%s output=%s",
+            request_id,
+            agent_name,
+            elapsed,
+            usage.input_tokens,
+            usage.output_tokens,
+        )
+        return QueryResult(text=text, usage=usage)
+
+    def _mark_structured_unsupported(
+        self,
+        *,
+        agent_name: str,
+        kind: StructuredOutputFailureKind,
+        detail: str,
+        request_id: str,
+        elapsed_s: float,
+        exc: Exception | None = None,
+    ) -> None:
+        self.structured_output_disabled = True
+        self.last_structured_output_error = detail
+        self._log_structured_output_failure(
+            agent_name=agent_name,
+            kind=kind,
+            detail=detail,
+            request_id=request_id,
+            elapsed_s=elapsed_s,
+            exc=exc,
+        )
+
+    def _log_structured_output_failure(
+        self,
+        *,
+        agent_name: str,
+        kind: StructuredOutputFailureKind,
+        detail: str,
+        request_id: str,
+        elapsed_s: float,
+        exc: Exception | None = None,
+    ) -> None:
+        next_mode = (
+            "query_subagent_no_structured"
+            if kind == "unsupported"
+            else "structured_output"
+        )
+        if kind == "timeout":
+            _logger.error(
+                "STRUCTURED_OUTPUT_TIMEOUT request_id=%s agent=%s elapsed_s=%.1f "
+                "detail=%s kind=%s next_call_mode=%s",
+                request_id,
+                agent_name,
+                elapsed_s,
+                detail,
+                kind,
+                next_mode,
+            )
+        elif kind == "empty":
+            _logger.error(
+                "STRUCTURED_OUTPUT_EMPTY request_id=%s agent=%s elapsed_s=%.1f "
+                "detail=%s kind=%s next_call_mode=%s",
+                request_id,
+                agent_name,
+                elapsed_s,
+                detail,
+                kind,
+                next_mode,
+            )
+        elif kind == "unsupported":
+            _logger.error(
+                "STRUCTURED_OUTPUT_UNSUPPORTED request_id=%s agent=%s reason=%s "
+                "elapsed_s=%.1f detail=%s kind=%s next_call_mode=%s",
+                request_id,
+                agent_name,
+                exc,
+                elapsed_s,
+                detail,
+                kind,
+                next_mode,
+            )
+        else:
+            _logger.error(
+                "STRUCTURED_OUTPUT_FAILED request_id=%s agent=%s reason=%s "
+                "elapsed_s=%.1f detail=%s kind=%s next_call_mode=%s",
+                request_id,
+                agent_name,
+                exc,
+                elapsed_s,
+                detail,
+                kind,
+                next_mode,
+            )
 
     async def _query(
         self,
