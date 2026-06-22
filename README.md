@@ -33,6 +33,18 @@ graph TD
 | Skills | `cr_agent/skills/` | 收集上下文、维度评分、汇总、校验 |
 | Tools | `cr_agent/tools/` | 平台无关契约 + Provider 实现 |
 
+## 审查维度与评分
+
+`dimension_review` 按 `config/dimensions.toml` 的 platform profile 并发跑多个维度专家（gitlab profile 共 **10 个**）：
+
+`business` · `security` · `performance` · `dependency` · `testing` · `error_handling` · `consistency` · `readability` · `maintainability` · `documentation`
+
+- 每个维度有一对 prompt：`prompt/<dim>.md`（审查话术）+ `prompt/rules/<dim>Rule.md`（0-100 直接打分规则）。
+- 维度产出的 finding 先经 `core/finding_filter.py` 按维度阈值过滤（business/security≥60，多数维度≥70，consistency/readability/documentation≥80；与 `summaryRule.md` 的「丢弃」阈值一致）。
+- `summarize_report` 依 `prompt/rules/summaryRule.md` 的分组阈值把存活 finding 评定为 Critical/Major/Minor，去重聚合后产出报告与按行评论。
+- 改审查话术只动 `prompt/`，改严重度计算只动 `prompt/rules/` 与 `finding_filter.py`，不动 skill 控制流。
+
+
 ## 快速开始
 
 ### 1. 安装
@@ -142,7 +154,7 @@ conda run -n cragent python -m pytest -q
 conda run -n cragent python -m pytest -q tests/test_collect_context.py
 ```
 
-当前约 **125** 项测试，覆盖 bootstrap、orchestrator、skills、tools、artifacts、contracts 等。
+当前约 **154** 项测试，覆盖 bootstrap、orchestrator、skills、tools、artifacts、contracts 等。
 
 契约校验（三件套）：
 
