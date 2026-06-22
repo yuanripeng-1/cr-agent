@@ -96,6 +96,25 @@ def main() -> int:
                 main_timeout_s=args.timeout_s,
             )
         )
+    except Exception as exc:
+        # 顶层兜底:run_review 内部有写盘保护,但 build_main_agent_runtime / asyncio.run
+        # 等环节抛错会绕过它,导致进程崩溃且不写任何产物。这里构造 status="error" 的
+        # ReviewResult 并落盘,保证下游 CI/平台总能读到结构化结果。
+        result = ReviewResult(
+            status="error",
+            llm_result="# CR-Agent\n\nReview failed before completion.",
+            log_path=str(runtime.result_dir / "run.log"),
+            tokens_consume=TokenUsage(),
+            line_comments=LineComments(comments=[]),
+            issues=[],
+            task_id=runtime.review_input.task_id,
+            platform=runtime.platform,
+            errors=[str(exc)],
+        )
+        write_result_json(runtime.result_dir, result)
+        write_result_markdown(runtime.result_dir, result.llm_result)
+        append_run_log(runtime.result_dir, f"review error: {exc}")
+        return 1
     finally:
         # 关闭可选的本地 LiteLLM proxy 网关(若已启动);atexit 兜底。
         gateway = getattr(runtime, "litellm_gateway", None)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,8 +57,24 @@ def short_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()[:8]
 
 
-async def _run_git(args: list[str], *, cwd: Path, timeout_s: float, tool_name: str) -> ToolResult:
-    """执行一条 git 命令并结构化返回。git 缺失/非零退出/超时都降级,不抛穿。"""
+async def _run_git(
+    args: list[str],
+    *,
+    cwd: Path,
+    timeout_s: float,
+    tool_name: str,
+    extra_env: dict[str, str] | None = None,
+) -> ToolResult:
+    """执行一条 git 命令并结构化返回。git 缺失/非零退出/超时都降级,不抛穿。
+
+    extra_env 用于注入鉴权等敏感配置(如 http.extraHeader),走环境变量而非 argv,
+    避免 token 出现在进程命令行(防 `ps` 泄露)。
+    """
+
+    env = None
+    if extra_env:
+        env = os.environ.copy()
+        env.update(extra_env)
 
     async def work() -> ToolResult:
         try:
@@ -67,6 +84,7 @@ async def _run_git(args: list[str], *, cwd: Path, timeout_s: float, tool_name: s
                 cwd=str(cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
         except FileNotFoundError:
             return error_result("git not available")
@@ -139,8 +157,24 @@ def make_git_fetch(project_root: Path | None, gs: GitSettings) -> ToolHandler:
             if str(ref).startswith("-"):
                 return error_result("invalid ref")
             cmd.append(str(ref))
+        # token 非空时,经环境变量注入 http.extraHeader 鉴权(不进 argv,防 ps 泄露),
+        # 否则私有仓库 fetch 必定 Authentication failed。GIT_TERMINAL_PROMPT=0 防交互挂起。
+        extra_env: dict[str, str] | None = None
+        if gs.token:
+            extra_env = {
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "http.extraHeader",
+                "GIT_CONFIG_VALUE_0": f"Authorization: Bearer {gs.token}",
+            }
         # 远程权限不足/失败由 _run_git 的非零退出转成降级。
-        return await _run_git(cmd, cwd=project_root, timeout_s=gs.timeout_s, tool_name="git_fetch")
+        return await _run_git(
+            cmd,
+            cwd=project_root,
+            timeout_s=gs.timeout_s,
+            tool_name="git_fetch",
+            extra_env=extra_env,
+        )
 
     return handler
 

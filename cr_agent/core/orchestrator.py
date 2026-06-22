@@ -199,6 +199,10 @@ async def _run_sequential_skill_fallback(
             session.dimension_scores or [],
             prior_errors,
         )
+        # summary 子 agent 每次调用(含重试)都是真实计费,逐次累加其 usage。
+        usage = report.get("usage")
+        if isinstance(usage, dict):
+            session.add_usage(extract_usage({"usage": usage}))
         validation = await session.registry.validate_json(session.runtime_context, report)
         session.last_report = report
         session.last_validation = validation

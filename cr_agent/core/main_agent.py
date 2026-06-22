@@ -126,6 +126,10 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
             session.dimension_scores or [],
             prior_errors,
         )
+        # summary 子 agent 每次调用(含重试)都是真实计费,逐次累加其 usage。
+        usage = report.get("usage")
+        if isinstance(usage, dict):
+            session.add_usage(extract_usage({"usage": usage}))
         # validate_json 是纯代码校验,不持有 attempt;结果回给主 agent 决策重调。
         validation = await session.registry.validate_json(session.runtime_context, report)
         session.last_report = report

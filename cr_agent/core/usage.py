@@ -86,9 +86,8 @@ def accumulate_usage_from_dimension_artifacts(
             continue
         if not isinstance(payload, dict) or payload.get("status") != "success":
             continue
+        # 维度产物经 json.loads 得到 dict,usage 永远是 dict(不会是 TokenUsage 实例)。
         usage = payload.get("usage")
-        if isinstance(usage, TokenUsage):
-            add_usage(usage)
-        elif isinstance(usage, dict):
+        if isinstance(usage, dict):
             add_usage(extract_usage({"usage": usage}))
 
