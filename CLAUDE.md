@@ -42,12 +42,12 @@ conda run -n cragent python -m cr_agent.core.verify_contracts --config <cfg> --c
 |------|------|----------|
 | `cr_agent/main.py` | CLI 入口 | 只接参数、调 bootstrap + run_review，不写业务 |
 | `cr_agent/bootstrap.py` | 装配 `RuntimeContext` | 配置加载、ToolFacade、3× subagent runtime |
-| `cr_agent/core/` | 编排、主 Agent、契约模型、产物 | 改流水线/重试/写盘逻辑来这里 |
+| `cr_agent/core/` | 编排、主 Agent、契约模型、产物、finding 过滤 | 改流水线/重试/写盘/评分阈值（`finding_filter.py`）来这里 |
 | `cr_agent/skills/` | 四阶段审查逻辑 | 新业务阶段放 `skills/<name>/skill.py` + `SKILL.md`，并在 `registry.py` 注册 |
 | `cr_agent/tools/` | 平台无关工具契约 + Provider | 新工具先改 `catalog.py`，再实现 provider handler |
 | `cr_agent/agents/` | Agent 定义与 prompt 占位 | 新 subagent 契约与 prompt |
-| `config/` | 静态策略模板（维度、工具 allowlist） | 非单次任务运行时配置 |
-| `prompt/` | 维度审查与汇总 prompt 文本 | 改审查话术来这里，不改 skill 控制流 |
+| `config/` | 静态策略模板（维度列表、工具 allowlist） | `dimensions.toml`（gitlab 10 维度+并发）、`agent_tools.toml` |
+| `prompt/` | 维度审查话术 + 汇总 prompt | 改审查话术来这里；`prompt/<dim>.md`=话术、`prompt/rules/<dim>Rule.md`=0-100 评分规则；不改 skill 控制流 |
 | `workspace/` | 任务输入与审查产物 | **运行时配置**在 `<task>/agent_config.toml`；勿擅自改用户任务目录 |
 | `tests/` | 回归测试 | 新功能必须补对应 `test_*.py` |
 
