@@ -94,7 +94,7 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         "summary": report.get("summary", ""),
         "tool_evidence": evidence,
         "semantic_context": _section(report, "semantic_context", "semble_search", evidence),
-        "call_graph_context": _section(report, "call_graph_context", "crg_query", evidence),
+        "call_graph_context": _section(report, "call_graph_context", "crg_", evidence),
         "code_snippets": _code_snippets(report, evidence),
         "warnings": warnings,
     }
@@ -162,12 +162,59 @@ def _parse_context_text(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         return {"summary": "", "warnings": ["context subagent 返回空输出"]}
-    json_text = _strip_code_fence(stripped)
-    try:
-        parsed = json.loads(json_text)
-    except json.JSONDecodeError:
-        return {"summary": stripped, "warnings": ["context subagent 返回非 JSON 摘要"]}
-    return parsed if isinstance(parsed, dict) else {"summary": stripped}
+    for candidate in _json_candidates(stripped):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return {"summary": stripped, "warnings": ["context subagent 返回非 JSON 摘要"]}
+
+
+def _json_candidates(text: str) -> list[str]:
+    """按优先级给出可能是 JSON 的子串：整体 → 去围栏 → 围栏内 → 首{到末}。"""
+    candidates: list[str] = [text]
+    fenced = _strip_code_fence(text)
+    if fenced != text:
+        candidates.append(fenced)
+    block = _extract_fenced_block(text)
+    if block:
+        candidates.append(block)
+    brace = _extract_brace_span(text)
+    if brace:
+        candidates.append(brace)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for candidate in candidates:
+        key = candidate.strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(key)
+    return unique
+
+
+def _extract_fenced_block(text: str) -> str:
+    """提取任意位置的 ```json ... ``` 或 ``` ... ``` 代码块内容。"""
+    fence = text.find("```")
+    if fence == -1:
+        return ""
+    after = text.find("\n", fence)
+    if after == -1:
+        return ""
+    close = text.find("```", after + 1)
+    if close == -1:
+        return ""
+    return text[after + 1 : close].strip()
+
+
+def _extract_brace_span(text: str) -> str:
+    """取首个 `{` 到末个 `}` 的子串作为兜底 JSON 候选。"""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return ""
+    return text[start : end + 1].strip()
 
 
 def _strip_code_fence(text: str) -> str:
@@ -206,11 +253,20 @@ def _summarize_tool_result(result: ToolResult) -> str:
     return "tool succeeded"
 
 
-def _section(report: dict[str, Any], key: str, tool_name: str, evidence: list[dict[str, Any]]) -> list[Any]:
+def _section(report: dict[str, Any], key: str, tool_match: str, evidence: list[dict[str, Any]]) -> list[Any]:
+    """显式提供则直接采用；否则按工具名回退收集 evidence。
+
+    `tool_match` 既支持精确名（如 `semble_search`），也支持前缀（如 `crg_`），
+    后者用于把 `crg_query/callers/callees/affected_flows/get_flow` 全部归入调用图上下文。
+    """
     explicit = report.get(key)
     if isinstance(explicit, list):
         return explicit
-    return [entry for entry in evidence if entry.get("tool_name") == tool_name]
+    return [
+        entry
+        for entry in evidence
+        if str(entry.get("tool_name") or "").startswith(tool_match)
+    ]
 
 
 def _code_snippets(report: dict[str, Any], evidence: list[dict[str, Any]]) -> list[Any]:

@@ -9,7 +9,11 @@ import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.types import QueryResult, TokenUsage
-from cr_agent.skills.collect_context.skill import _compact_changed_files, collect_context
+from cr_agent.skills.collect_context.skill import (
+    _compact_changed_files,
+    _parse_context_text,
+    collect_context,
+)
 from cr_agent.tools.provider import ToolSpec, error_result, ok_result
 
 
@@ -234,3 +238,63 @@ async def test_collect_context_writes_local_fallback_when_subagent_fails(agent_c
     artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
     assert artifact["changed_files"]
     assert "context subagent 失败: context sdk failed" in artifact["warnings"]
+
+
+def test_parse_context_text_extracts_json_from_fenced_and_prose() -> None:
+    # 带前后说明文字 + ```json 围栏
+    fenced = (
+        "这是分析说明，下面是结果：\n"
+        "```json\n"
+        '{"summary": "ok", "warnings": []}\n'
+        "```\n"
+        "以上即为输出。"
+    )
+    assert _parse_context_text(fenced) == {"summary": "ok", "warnings": []}
+
+    # 无围栏但有前缀文字：取首 { 到末 } 兜底
+    brace = 'note: here\n{"summary": "spanned"}\ntrailing'
+    assert _parse_context_text(brace) == {"summary": "spanned"}
+
+    # 纯非 JSON 文本：回退为摘要 + warning
+    plain = _parse_context_text("just a plain summary")
+    assert plain["summary"] == "just a plain summary"
+    assert plain["warnings"] == ["context subagent 返回非 JSON 摘要"]
+
+
+class _CrgCallersRuntime:
+    """调用 crg_callers 但不在 report 中显式给出 call_graph_context。"""
+
+    async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
+        tools = {tool.name: tool for tool in assembled_options._cr_agent_tools}
+        await tools["crg_callers"].handler({"target": "pkg/x.go::Foo"})
+        return QueryResult(
+            text=json.dumps(
+                {
+                    "summary": "graph collected",
+                    "diff_summary": "changed",
+                    # 故意不提供 call_graph_context，触发 evidence 回退
+                    "warnings": [],
+                }
+            ),
+            usage=TokenUsage(input_tokens=1, output_tokens=1),
+        )
+
+
+@pytest.mark.asyncio
+async def test_call_graph_context_falls_back_to_any_crg_tool(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    crg_tools = [
+        _tool("crg_callers", lambda args: ok_result({"results": [{"caller": "Bar"}]})),
+    ]
+    runtime_context = replace(
+        runtime_context,
+        tool_facade=_FakeFacade(crg_tools),
+        context_runtime=_CrgCallersRuntime(),
+    )
+
+    result = await collect_context(runtime_context)
+    artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+
+    captured = artifact["call_graph_context"]
+    assert captured, "crg_callers 调用应回退进 call_graph_context"
+    assert captured[0]["tool_name"] == "crg_callers"

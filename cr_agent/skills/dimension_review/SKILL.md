@@ -26,7 +26,7 @@ dimension subagent 不使用 Semble 或 CRG 工具；语义上下文和调用图
 - dimension subagent 必须遵循当前维度的 `prompt/<dimension>.md` 和 `prompt/rules/<dimension>Rule.md`。
 - 输入中的 `collected_context` 是 compact 结构化上下文，不是要求 subagent 读取 `collected_context.json`。
 - 消费上下文时优先使用 `changed_files.added_ranges` 和 `diff_summary`，再结合 `code_snippets`、`semantic_context`、`call_graph_context`。
-- 工具只用于少量补充证据或核实上下文，不要重复执行 context agent 已完成的语义检索或调用图探索。
+- 工具用于少量补充证据或核实上下文。若新增代码依赖被调函数语义、共享状态读取端或既有契约，而 `collected_context` 未包含对应实现，必须用 `grep_text` / `read_file_range` 补齐该 callee 或读取端实现；仅在 `collected_context` 已明确提供该证据时才不重复检索。补查到的实现位于 diff 之外，只能作为 analysis/evidence，finding 仍须锚定到 diff 内调用点行。
 - 每个维度写入 `dimensions/<dimension>.json`。
 - 所有维度结束后，skill 写入 `dimensions/manifest.json`。
 
