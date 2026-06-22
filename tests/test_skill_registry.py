@@ -13,7 +13,13 @@ class _SummaryRuntime:
     async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
         assert agent_name == "summary"
         assert assembled_options is None
-        return QueryResult(text='{"llm_result": "# CR-Agent\\n\\nGenerated."}')
+        return QueryResult(
+            text=(
+                '{"llm_result": "# CR-Agent\\n\\nGenerated.", '
+                '"line_comments": {"comments": []}, '
+                '"issues": []}'
+            )
+        )
 
 
 class _ContextRuntime:
