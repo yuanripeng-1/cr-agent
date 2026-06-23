@@ -7,7 +7,7 @@ from typing import Any
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError, StructuredOutputError
 from cr_agent.core.summary_output import SUMMARY_JSON_SCHEMA
-from cr_agent.core.types import TokenUsage
+from cr_agent.core.usage import usage_to_dict
 from cr_agent.utils.logging import get_logger
 
 _logger = get_logger("cr_agent.skills.summarize")
@@ -87,7 +87,7 @@ async def summarize_report(
     report["validation_errors"] = validation_errors or []
     # summary 子 agent 是独立模型调用,其 usage 不在主 agent 循环内;
     # 带回 report 供上层逐次累加,否则这部分 token 会被完全漏统计。
-    report["usage"] = _usage_dict(result.usage)
+    report["usage"] = usage_to_dict(result.usage)
     artifact_path = runtime_context.result_dir / "summary_report.json"
     _write_json(artifact_path, report)
     _logger.info("ARTIFACT_WRITE path=%s", artifact_path)
@@ -179,16 +179,6 @@ def _strip_code_fence(text: str) -> str:
     if len(lines) >= 3 and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
     return text
-
-
-def _usage_dict(usage: TokenUsage) -> dict[str, Any]:
-    return {
-        "input_tokens": usage.input_tokens,
-        "output_tokens": usage.output_tokens,
-        "cache_creation_tokens": usage.cache_creation_tokens,
-        "cache_read_tokens": usage.cache_read_tokens,
-        "cost": usage.cost,
-    }
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

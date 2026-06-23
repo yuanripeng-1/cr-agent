@@ -11,6 +11,28 @@ from cr_agent.utils.logging import get_logger
 _logger = get_logger("cr_agent.core.usage")
 
 
+def usage_to_dict(usage: TokenUsage) -> dict[str, Any]:
+    """把 TokenUsage 序列化成产物/回传用的 dict(三个 skill 共用,避免重复)。"""
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cache_creation_tokens": usage.cache_creation_tokens,
+        "cache_read_tokens": usage.cache_read_tokens,
+        "cost": usage.cost,
+    }
+
+
+def coerce_cost(value: Any) -> float:
+    """把 total_cost_usd 安全转 float:None 或不可转换类型一律回退 0.0(只记 warning)。"""
+    if value is None:
+        return 0.0
+    try:
+        return max(float(value), 0.0)
+    except (TypeError, ValueError):
+        _logger.warning("USAGE_COST_COERCE_FAILED value=%r", value)
+        return 0.0
+
+
 def accumulate_usage(total: TokenUsage, call: TokenUsage) -> TokenUsage:
     return TokenUsage(
         input_tokens=total.input_tokens + call.input_tokens,

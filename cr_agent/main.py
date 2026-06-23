@@ -16,6 +16,9 @@ from cr_agent.core.artifacts import (
 from cr_agent.core.main_agent import build_main_agent_runtime
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import LineComments, ReviewResult, TokenUsage
+from cr_agent.utils.logging import get_logger
+
+_logger = get_logger("cr_agent.main")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -104,6 +107,8 @@ def main() -> int:
         # 顶层兜底:run_review 内部有写盘保护,但 build_main_agent_runtime / asyncio.run
         # 等环节抛错会绕过它,导致进程崩溃且不写任何产物。这里构造 status="error" 的
         # ReviewResult 并落盘,保证下游 CI/平台总能读到结构化结果。
+        # 先用标准 logger 记含 traceback 的根因:即使后续写盘失败,根因也不丢。
+        _logger.exception("REVIEW_FATAL_ERROR: %s", exc)
         result = ReviewResult(
             status="error",
             llm_result="# CR-Agent\n\nReview failed before completion.",
@@ -115,9 +120,19 @@ def main() -> int:
             platform=runtime.platform,
             errors=[str(exc)],
         )
-        write_result_json(runtime.result_dir, result)
-        write_result_markdown(runtime.result_dir, result.llm_result)
-        append_run_log(runtime.result_dir, f"review error: {exc}")
+        # 写盘各自包一层:任一写盘失败只记录,不再次抛出掩盖上面已记录的原始异常。
+        try:
+            write_result_json(runtime.result_dir, result)
+        except Exception:
+            _logger.exception("REVIEW_FATAL_ERROR_WRITE_JSON_FAILED")
+        try:
+            write_result_markdown(runtime.result_dir, result.llm_result)
+        except Exception:
+            _logger.exception("REVIEW_FATAL_ERROR_WRITE_MD_FAILED")
+        try:
+            append_run_log(runtime.result_dir, f"review error: {exc}")
+        except Exception:
+            _logger.exception("REVIEW_FATAL_ERROR_APPEND_LOG_FAILED")
         return 1
     finally:
         # 关闭可选的本地 LiteLLM proxy 网关(若已启动);atexit 兜底。

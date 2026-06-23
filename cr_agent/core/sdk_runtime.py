@@ -30,7 +30,7 @@ from cr_agent.core.errors import (
     StructuredOutputFailureKind,
 )
 from cr_agent.core.types import QueryResult, TokenUsage
-from cr_agent.core.usage import extract_usage
+from cr_agent.core.usage import coerce_cost, extract_usage
 from cr_agent.utils.logging import get_logger, redact
 
 _logger = get_logger("cr_agent.core.sdk_runtime")
@@ -232,7 +232,7 @@ class SdkQueryClient:
                         diagnostics,
                     )
                     is_error = bool(message.is_error)
-                    total_cost = float(message.total_cost_usd or 0.0)
+                    total_cost = coerce_cost(message.total_cost_usd)
                     if isinstance(message.result, str):
                         final_text = message.result
                     if message.errors or diagnostics:
@@ -733,9 +733,10 @@ class ClaudeAgentRuntime:
         prompt: str,
         assembled_options: Any | None,
     ) -> Any:
-        # _query 已保证 self._client is not None;client 契约由 QueryClient 约束,
-        # 故直接调用 query(),无需 getattr 探测。
-        assert self._client is not None
+        # _query 已先判 None,这里再显式守卫一次:用 raise 而非 assert,避免 python -O
+        # 剥离断言后退化成不可理解的 AttributeError。client 契约由 QueryClient 约束。
+        if self._client is None:
+            raise RuntimeCallError("Injected SDK client is None; cannot invoke query()")
         return await self._client.query(
             agent_name=agent_name,
             prompt=prompt,

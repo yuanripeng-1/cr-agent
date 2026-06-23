@@ -34,7 +34,12 @@ from cr_agent.core.sdk_runtime import (
 )
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage, ValidationResult
-from cr_agent.core.usage import accumulate_usage, accumulate_usage_from_dimension_artifacts, extract_usage
+from cr_agent.core.usage import (
+    accumulate_usage,
+    accumulate_usage_from_dimension_artifacts,
+    coerce_cost,
+    extract_usage,
+)
 from cr_agent.skills.docs import load_skill_description
 from cr_agent.skills.registry import SkillRegistry
 from cr_agent.tools.provider import ToolSpec, ok_result
@@ -314,7 +319,7 @@ class SdkMainAgentRuntime:
                             request_id,
                             sdk_message_diagnostics(message),
                         )
-                        total_cost = float(message.total_cost_usd or 0.0)
+                        total_cost = coerce_cost(message.total_cost_usd)
                         if isinstance(message.result, str) and message.result:
                             final_text = message.result
         except TimeoutError as exc:
