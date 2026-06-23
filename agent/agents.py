@@ -25,6 +25,85 @@ except ImportError:
     ContentFilterViolationError = Exception
     Timeout = Exception
 
+
+class LLMTimeoutCalculator:
+    """
+    根据 prompt 长度与配置参数计算 LLM 调用的动态超时时间。
+    支持固定超时与动态超时两种模式。
+    """
+
+    def __init__(
+        self,
+        timeout_seconds: int | None,
+        timeout_base_seconds: int,
+        timeout_per_1k_chars: int,
+        timeout_max_seconds: int,
+    ):
+        self.timeout_seconds = timeout_seconds
+        self.timeout_base_seconds = max(1, int(timeout_base_seconds))
+        self.timeout_per_1k_chars = max(0, int(timeout_per_1k_chars))
+        self.timeout_max_seconds = max(1, int(timeout_max_seconds))
+        self._current_timeout = self.timeout_base_seconds
+
+    @property
+    def is_fixed_mode(self) -> bool:
+        return self.timeout_seconds is not None
+
+    def compute_initial_timeout(self, system_prompt: str, user_prompt: str) -> int:
+        if self.is_fixed_mode:
+            return max(1, int(self.timeout_seconds))
+
+        total_prompt_length = len(system_prompt) + len(user_prompt)
+        base_timeout = self.timeout_base_seconds
+        per_unit = self.timeout_per_1k_chars
+        max_timeout = max(base_timeout, self.timeout_max_seconds)
+        char_units = total_prompt_length // 100
+        additional_timeout = max(0, char_units * per_unit)
+        dynamic_timeout = min(base_timeout + additional_timeout, max_timeout)
+        self._current_timeout = dynamic_timeout
+        return int(dynamic_timeout)
+
+    def get_current_timeout(self) -> int:
+        return max(1, int(self._current_timeout))
+
+    def increase_for_retry(self) -> int:
+        if self.is_fixed_mode:
+            return self.get_current_timeout()
+        max_timeout = max(1, int(self.timeout_max_seconds))
+        self._current_timeout = min(self._current_timeout * 1.5, max_timeout)
+        return int(self._current_timeout)
+
+    def describe_strategy(self) -> str:
+        if self.is_fixed_mode:
+            return f"fixed:{self.get_current_timeout()}s"
+        return (
+            f"dynamic:base={self.timeout_base_seconds}s,"
+            f"per_100_chars={self.timeout_per_1k_chars}s,"
+            f"max={self.timeout_max_seconds}s"
+        )
+
+
+class LLMRetryPolicy:
+    """封装 LLM 调用的重试延迟策略。"""
+
+    def __init__(self, retry_delay: float, max_retries: int):
+        self.retry_delay = retry_delay
+        self.max_retries = max_retries
+
+    def compute_delay(self, attempt: int, error_category: str) -> float:
+        base_delay = self.retry_delay * (2 ** attempt)
+        if error_category == "rate_limit":
+            return max(base_delay, 10.0)
+        if error_category == "server_error":
+            return max(base_delay, 5.0)
+        if error_category == "timeout":
+            return max(base_delay * 2.0, 5.0)
+        return base_delay
+
+    def should_retry(self, attempt: int, is_retryable: bool) -> bool:
+        return is_retryable and attempt < self.max_retries - 1
+
+
 class BaseAgent:
     def __init__(
         self,
@@ -131,23 +210,19 @@ class BaseAgent:
         """
         last_exception = None
         agent_label = self._agent_label()
-        
-        # Timeout strategy:
-        # 1) If timeout_seconds is configured, use fixed timeout for each call.
-        # 2) Otherwise use dynamic timeout based on prompt length.
-        if self.timeout_seconds is not None:
-            dynamic_timeout = max(1, int(self.timeout_seconds))
-        else:
-            total_prompt_length = len(system_prompt) + len(user_prompt)
-            base_timeout = max(1, int(self.timeout_base_seconds))
-            per_1k_chars = max(0, int(self.timeout_per_1k_chars))
-            max_timeout = max(base_timeout, int(self.timeout_max_seconds))
-            additional_timeout = max(0, (total_prompt_length // 1000) * per_1k_chars)
-            dynamic_timeout = min(base_timeout + additional_timeout, max_timeout)
+
+        timeout_calc = LLMTimeoutCalculator(
+            timeout_seconds=self.timeout_seconds,
+            timeout_base_seconds=self.timeout_base_seconds,
+            timeout_per_1k_chars=self.timeout_per_1k_chars,
+            timeout_max_seconds=self.timeout_max_seconds,
+        )
+        retry_policy = LLMRetryPolicy(self.retry_delay, self.max_retries)
+        dynamic_timeout = timeout_calc.compute_initial_timeout(system_prompt, user_prompt)
         
         for attempt in range(self.max_retries):
             try:
-                current_timeout = int(dynamic_timeout)
+                current_timeout = timeout_calc.get_current_timeout()
                 kwargs = {
                     "model": self.model,
                     "messages": [
@@ -198,28 +273,15 @@ class BaseAgent:
                 last_exception = e
                 is_retryable, error_category = self._is_retryable_error(e)
                 
-                # Check if we should retry
-                if is_retryable and attempt < self.max_retries - 1:
-                    # Calculate delay with exponential backoff
-                    base_delay = self.retry_delay * (2 ** attempt)
+                if retry_policy.should_retry(attempt, is_retryable):
+                    delay = retry_policy.compute_delay(attempt, error_category)
                     
-                    # Adjust delay based on error category
-                    if error_category == "rate_limit":
-                        delay = max(base_delay, 10.0)  # Rate limits need longer delay
-                    elif error_category == "server_error":
-                        delay = max(base_delay, 5.0)   # Server errors need moderate delay
-                    elif error_category == "timeout":
-                        # For timeouts, use longer delay and increase timeout for next attempt
-                        delay = max(base_delay * 2.0, 5.0)  # Timeouts need longer delay
-                        # Increase timeout for next retry attempt only for dynamic timeout mode.
-                        if self.timeout_seconds is None:
-                            max_timeout = max(1, int(self.timeout_max_seconds))
-                            dynamic_timeout = min(dynamic_timeout * 1.5, max_timeout)
-                            print(f"   下次重试将使用更长的超时时间: {int(dynamic_timeout)} 秒")
+                    if error_category == "timeout":
+                        if not timeout_calc.is_fixed_mode:
+                            timeout_calc.increase_for_retry()
+                            print(f"   下次重试将使用更长的超时时间: {timeout_calc.get_current_timeout()} 秒")
                         else:
-                            print(f"   固定超时模式: {int(dynamic_timeout)} 秒")
-                    else:
-                        delay = base_delay
+                            print(f"   固定超时模式: {timeout_calc.get_current_timeout()} 秒")
                     
                     # Log retry attempt
                     error_msg = str(e)[:200]  # Limit error message length
@@ -240,7 +302,7 @@ class BaseAgent:
                         print(f"   错误类型: {error_category}")
                         print(f"   错误信息: {error_msg}")
                         if error_category == "timeout":
-                            print(f"   最终超时设置: {int(dynamic_timeout)} 秒")
+                            print(f"   最终超时设置: {timeout_calc.get_current_timeout()} 秒")
                     RunLog.write_agent_error(agent_label, e)
                     raise
         

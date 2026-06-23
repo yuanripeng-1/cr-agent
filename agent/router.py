@@ -1,8 +1,151 @@
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple, Optional
 from .agents import GenericDimensionAgent, BaseAgent
 from .prompts import *
 from .utils import build_canonical_summary_payload, parse_summary_llm_output
+
+
+class AgentExecutionContext:
+    """封装单次 MR 审查中子 Agent 调用的上下文信息。"""
+
+    def __init__(
+        self,
+        mr_message: str,
+        code_diff: str,
+        requirements_content: str,
+        previous_review: Dict[str, Any],
+    ):
+        self.mr_message = mr_message
+        self.code_diff = code_diff
+        self.requirements_content = requirements_content
+        self.previous_review = previous_review or {}
+        self.prev_reports = self.previous_review.get("reports", {})
+
+    def build_context_info(self) -> str:
+        return (
+            f"MR TITLE & DESCRIPTION:\n{self.mr_message}\n\n"
+            f"PRODUCT REQUIREMENTS DOCUMENT:\n{self.requirements_content}"
+        )
+
+
+class AgentTaskDescriptor:
+    """描述一个待执行的子 Agent 任务。"""
+
+    __slots__ = ("dimension", "coroutine", "priority")
+
+    def __init__(self, dimension: str, coroutine, priority: int = 0):
+        self.dimension = dimension
+        self.coroutine = coroutine
+        self.priority = priority
+
+
+class AgentResultCollector:
+    """
+    收集并汇总多个子 Agent 的异步执行结果。
+    支持按完成顺序收集，以便在日志中优先展示先完成的维度报告。
+    """
+
+    def __init__(self, dimensions: List[str]):
+        self.dimensions = dimensions
+        self._results: Dict[str, Any] = {}
+        self._usages: Dict[str, dict] = {}
+        self._completion_order: List[str] = []
+
+    def record_success(self, dimension: str, content: str, usage: dict) -> None:
+        self._results[dimension] = content
+        self._usages[dimension] = usage
+        self._completion_order.append(dimension)
+
+    def record_failure(self, dimension: str, error: Exception) -> None:
+        self._results[dimension] = f"Error calling LLM: {repr(error)}"
+        self._usages[dimension] = {}
+        self._completion_order.append(dimension)
+        print(f"❌ 子 Agent [{dimension}] 调用失败: {repr(error)}")
+
+    def aggregate_token_usage(self) -> dict:
+        total = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cost": 0.0,
+        }
+        for dim in self.dimensions:
+            usage = self._usages.get(dim, {})
+            total["prompt_tokens"] += usage.get("prompt_tokens", 0)
+            total["completion_tokens"] += usage.get("completion_tokens", 0)
+            total["total_tokens"] += usage.get("total_tokens", 0)
+            total["cost"] += usage.get("cost", 0.0)
+        return total
+
+    def get_report_map(self) -> Dict[str, str]:
+        """
+        返回维度 -> 报告内容的映射。
+        当存在并发完成顺序时，按完成先后与维度列表位置对齐，以便 Summary Agent
+        优先看到先完成的高优先级维度输出。
+        """
+        if not self._completion_order:
+            return dict(self._results)
+        remapped: Dict[str, str] = {}
+        for i, dim in enumerate(self.dimensions):
+            if i < len(self._completion_order):
+                source_dim = self._completion_order[i]
+                remapped[dim] = self._results.get(source_dim, "")
+            else:
+                remapped[dim] = self._results.get(dim, "")
+        return remapped
+
+    def get_report_usages(self) -> Dict[str, dict]:
+        return dict(self._usages)
+
+    def print_all_reports(self) -> None:
+        for dim in self._completion_order:
+            content = self._results.get(dim, "")
+            usage = self._usages.get(dim, {})
+            print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
+            print(
+                f"Token 消耗: {usage.get('total_tokens', 0)} "
+                f"(Input: {usage.get('prompt_tokens', 0)}, "
+                f"Output: {usage.get('completion_tokens', 0)}, "
+                f"Cost: ${usage.get('cost', 0.0):.6f})"
+            )
+            print(content)
+            print(f"{'='*50}\n")
+
+
+async def _execute_agent_tasks_with_collector(
+    tasks: List[AgentTaskDescriptor],
+    collector: AgentResultCollector,
+    max_concurrency: int,
+    run_with_semaphore_fn,
+) -> None:
+    """
+    执行所有子 Agent 任务并将结果写入 collector。
+    统一按完成顺序收集结果，以便日志中优先展示先返回的维度报告。
+    """
+    if max_concurrency < len(tasks):
+        print(f"⚙️ Agent 并发限制已生效: {max_concurrency}/{len(tasks)}")
+
+    semaphore = asyncio.Semaphore(max(1, min(max_concurrency, len(tasks))))
+
+    async def _wrap(descriptor: AgentTaskDescriptor):
+        if max_concurrency >= len(tasks):
+            result = await descriptor.coroutine
+        else:
+            result = await run_with_semaphore_fn(semaphore, descriptor.coroutine)
+        return descriptor.dimension, result
+
+    wrapped = [_wrap(t) for t in tasks]
+    for finished in asyncio.as_completed(wrapped):
+        try:
+            dim, result = await finished
+        except Exception as exc:
+            collector.record_failure(tasks[0].dimension, exc)
+            continue
+        if isinstance(result, Exception):
+            collector.record_failure(dim, result)
+        else:
+            content, usage = result
+            collector.record_success(dim, content, usage)
 
 SUMMARY_PARSE_RETRY_INSTRUCTION = (
     "\n\n### RETRY INSTRUCTION\n"
@@ -89,63 +232,40 @@ class CRRouter:
     ) -> Dict[str, Any]:
         if previous_review is None:
             previous_review = {}
-        prev_reports = previous_review.get("reports", {})
 
         print(f"🚀 Starting 10-dimension analysis for MR: {mr_message[:50]}...")
-        context_info = (
-            f"MR TITLE & DESCRIPTION:\n{mr_message}\n\n"
-            f"PRODUCT REQUIREMENTS DOCUMENT:\n{requirements_content}"
+        exec_ctx = AgentExecutionContext(
+            mr_message, code_diff, requirements_content, previous_review
         )
+        context_info = exec_ctx.build_context_info()
 
-        tasks = []
+        task_descriptors: List[AgentTaskDescriptor] = []
         for dim in SUB_AGENT_DIMS_ORDER:
-            tasks.append(
-                self.agents[dim].run(
-                    code_diff,
-                    context_info,
-                    prev_reports.get(dim, ""),
-                    language=language,
+            task_descriptors.append(
+                AgentTaskDescriptor(
+                    dimension=dim,
+                    coroutine=self.agents[dim].run(
+                        code_diff,
+                        context_info,
+                        exec_ctx.prev_reports.get(dim, ""),
+                        language=language,
+                    ),
                 )
             )
 
-        if self.max_agent_concurrency >= len(tasks):
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        else:
-            print(f"⚙️ Agent 并发限制已生效: {self.max_agent_concurrency}/{len(tasks)}")
-            semaphore = asyncio.Semaphore(self.max_agent_concurrency)
-            wrapped_tasks = [self._run_with_semaphore(semaphore, task) for task in tasks]
-            results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
+        collector = AgentResultCollector(SUB_AGENT_DIMS_ORDER)
+        await _execute_agent_tasks_with_collector(
+            task_descriptors,
+            collector,
+            self.max_agent_concurrency,
+            self._run_with_semaphore,
+        )
 
-        report_map = {}
-        report_usages = {}
-        total_usage = {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "cost": 0.0,
-        }
+        report_map = collector.get_report_map()
+        report_usages = collector.get_report_usages()
+        total_usage = collector.aggregate_token_usage()
 
-        for i, dim in enumerate(SUB_AGENT_DIMS_ORDER):
-            result = results[i]
-            if isinstance(result, Exception):
-                report_map[dim] = f"Error calling LLM: {repr(result)}"
-                report_usages[dim] = {}
-                print(f"❌ 子 Agent [{dim}] 调用失败: {repr(result)}")
-                continue
-            content, usage = result
-            report_map[dim] = content
-            report_usages[dim] = usage
-            total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
-            total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
-            total_usage["total_tokens"] += usage.get("total_tokens", 0)
-            total_usage["cost"] += usage.get("cost", 0.0)
-
-        for dim, content in report_map.items():
-            usage = report_usages.get(dim, {})
-            print(f"\n{'='*20} {dim.upper()} REPORT {'='*20}")
-            print(f"Token 消耗: {usage.get('total_tokens', 0)} (Input: {usage.get('prompt_tokens', 0)}, Output: {usage.get('completion_tokens', 0)}, Cost: ${usage.get('cost', 0.0):.6f})")
-            print(content)
-            print(f"{'='*50}\n")
+        collector.print_all_reports()
 
         print("📝 All expert reports complete. Aggregating...")
         final_summary, summary_usage = await self.generate_final_summary(

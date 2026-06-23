@@ -127,6 +127,134 @@ def is_code_file(file_path: str) -> bool:
     return False
 
 
+class DiffContentFilter:
+    """
+    有状态的 diff 内容过滤器，逐行扫描并保留代码文件的修改块。
+    支持 unified diff 与 git diff 两种格式的文件头识别。
+    """
+
+    def __init__(self):
+        self.filtered_lines: List[str] = []
+        self.current_block_lines: List[str] = []
+        self.current_file: Optional[str] = None
+        self.in_code_file_block: bool = False
+
+    def _flush_block(self) -> None:
+        if self.in_code_file_block and self.current_block_lines:
+            self.filtered_lines.extend(self.current_block_lines)
+        self.current_block_lines = []
+
+    def _begin_block(self, header_lines: List[str], file_path: str) -> None:
+        self._flush_block()
+        self.current_file = file_path
+        self.current_block_lines = list(header_lines)
+        self.in_code_file_block = is_code_file(file_path)
+
+    def _skip_block(self) -> None:
+        self._flush_block()
+        self.current_file = None
+        self.current_block_lines = []
+        self.in_code_file_block = False
+
+    def _handle_minus_header(self, line: str, lines: List[str], index: int) -> int:
+        self.current_block_lines = [line]
+        next_index = index + 1
+        if next_index < len(lines) and lines[next_index].startswith('+++ b/'):
+            plus_line = lines[next_index]
+            file_path = plus_line[6:].strip()
+            if file_path == '/dev/null':
+                self._skip_block()
+            else:
+                self.current_block_lines.append(plus_line)
+                self.current_file = file_path
+                self.in_code_file_block = is_code_file(file_path)
+                if not self.in_code_file_block:
+                    self.current_block_lines = []
+            next_index += 1
+        return next_index
+
+    def _handle_plus_header(self, line: str) -> None:
+        file_path = line[6:].strip()
+        if file_path == '/dev/null':
+            self._skip_block()
+        else:
+            self._flush_block()
+            self.current_file = file_path
+            self.current_block_lines = [line]
+            if is_code_file(file_path):
+                self.in_code_file_block = True
+            if not is_code_file(file_path):
+                self.current_block_lines = []
+
+    def _handle_git_header(self, line: str) -> None:
+        match = re.match(r'diff --git a/(.+?)\s+b/(.+?)(?:\s|$)', line)
+        if match:
+            file_path = match.group(2)
+            self._flush_block()
+            self.current_file = file_path
+            self.current_block_lines = [line]
+            if is_code_file(file_path):
+                self.in_code_file_block = True
+            if not is_code_file(file_path):
+                self.current_block_lines = []
+        else:
+            self.current_block_lines = [line]
+            self.in_code_file_block = True
+
+    def _handle_metadata_line(self, line: str) -> None:
+        if self.in_code_file_block:
+            self.current_block_lines.append(line)
+
+    def _handle_content_line(self, line: str) -> None:
+        if self.in_code_file_block:
+            self.current_block_lines.append(line)
+
+    def process(self, diff_content: str) -> str:
+        if not diff_content:
+            return ""
+
+        has_file_headers = any(
+            line.startswith('--- a/') or
+            line.startswith('+++ b/') or
+            line.startswith('diff --git')
+            for line in diff_content.split('\n')
+        )
+        if not has_file_headers:
+            print("⚠️  Diff 格式不完整（缺少文件头），无法过滤，保留所有内容")
+            return diff_content
+
+        lines = diff_content.split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if line.startswith('--- a/'):
+                i = self._handle_minus_header(line, lines, i)
+                continue
+            elif line.startswith('+++ b/'):
+                self._handle_plus_header(line)
+                i += 1
+                continue
+            elif line.startswith('diff --git'):
+                self._handle_git_header(line)
+                i += 1
+                continue
+            elif (
+                line.startswith('new file mode')
+                or line.startswith('deleted file mode')
+                or line.startswith('old mode')
+                or line.startswith('index ')
+            ):
+                self._handle_metadata_line(line)
+                i += 1
+                continue
+            else:
+                self._handle_content_line(line)
+                i += 1
+
+        self._flush_block()
+        return '\n'.join(self.filtered_lines)
+
+
 def filter_code_diff(diff_content: str) -> str:
     """
     过滤 diff 内容，只保留代码文件的修改。
@@ -144,222 +272,126 @@ def filter_code_diff(diff_content: str) -> str:
     if not diff_content:
         return ""
     
-    # 检查是否有文件头（标准格式或 git diff 格式）
-    has_file_headers = any(
-        line.startswith('--- a/') or 
-        line.startswith('+++ b/') or 
-        line.startswith('diff --git')
-        for line in diff_content.split('\n')
-    )
-    
-    # 如果没有文件头，无法确定文件类型，返回原内容（保守策略）
-    if not has_file_headers:
-        print("⚠️  Diff 格式不完整（缺少文件头），无法过滤，保留所有内容")
-        return diff_content
-    
-    lines = diff_content.split('\n')
-    filtered_lines = []
-    current_file = None
-    in_code_file_block = False
-    current_block_lines = []
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        
-        # 检查文件头：--- a/path 或 +++ b/path
-        if line.startswith('--- a/'):
-            # 保存之前的块（如果有）
-            if in_code_file_block and current_block_lines:
-                filtered_lines.extend(current_block_lines)
-            
-            # 重置状态
-            current_block_lines = [line]
-            in_code_file_block = False
-            # 继续读取下一行（应该是 +++ b/path）
-            i += 1
-            if i < len(lines):
-                next_line = lines[i]
-                if next_line.startswith('+++ b/'):
-                    file_path = next_line[6:].strip()  # 移除 '+++ b/'
-                    if file_path == '/dev/null':
-                        # 文件被删除，跳过
-                        current_file = None
-                        current_block_lines = []
-                        in_code_file_block = False
-                    else:
-                        current_file = file_path
-                        current_block_lines.append(next_line)
-                        in_code_file_block = is_code_file(file_path)
-                        if not in_code_file_block:
-                            # 不是代码文件，清空当前块
-                            current_block_lines = []
-                else:
-                    # 格式异常，保留当前行
-                    current_block_lines.append(next_line)
-            i += 1
-            continue
-        
-        # 检查文件头：+++ b/path（如果没有 --- a/path 前缀）
-        elif line.startswith('+++ b/'):
-            # 保存之前的块（如果有）
-            if in_code_file_block and current_block_lines:
-                filtered_lines.extend(current_block_lines)
-            
-            file_path = line[6:].strip()  # 移除 '+++ b/'
-            if file_path == '/dev/null':
-                current_file = None
-                current_block_lines = []
-                in_code_file_block = False
-            else:
-                current_file = file_path
-                current_block_lines = [line]
-                in_code_file_block = is_code_file(file_path)
-                if not in_code_file_block:
-                    current_block_lines = []
-            i += 1
-            continue
-        
-        # 检查 diff --git 格式的文件头
-        elif line.startswith('diff --git'):
-            # 保存之前的块（如果有）
-            if in_code_file_block and current_block_lines:
-                filtered_lines.extend(current_block_lines)
-            
-            # 从 'diff --git a/path b/path' 中提取路径
-            match = re.match(r'diff --git a/(.+?)\s+b/(.+?)(?:\s|$)', line)
-            if match:
-                file_path = match.group(2)  # 使用 b 侧（新文件）路径
-                current_file = file_path
-                current_block_lines = [line]
-                in_code_file_block = is_code_file(file_path)
-                if not in_code_file_block:
-                    current_block_lines = []
-            else:
-                # 格式异常，保留当前行
-                current_block_lines = [line]
-                in_code_file_block = True  # 保守处理
-            i += 1
-            continue
-        
-        # 检查 "new file mode" 或 "deleted file mode" 行（非标准格式）
-        elif line.startswith('new file mode') or line.startswith('deleted file mode') or line.startswith('old mode') or line.startswith('index '):
-            # 这些行属于当前文件块的一部分，如果当前文件是代码文件则保留
-            if in_code_file_block:
-                current_block_lines.append(line)
-            i += 1
-            continue
-        
-        # 其他行：如果当前在代码文件块中，保留；否则跳过
+    return DiffContentFilter().process(diff_content)
+
+
+class DiffLineAnnotator:
+    """
+    为 diff 中的新增行（+ 行）添加实际文件行号前缀。
+    支持多 hunk、内容校验与模糊匹配回退。
+    """
+
+    HUNK_PATTERN = re.compile(r'@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@')
+
+    def __init__(self, project_root: str):
+        self.project_root = project_root
+        self.annotated_lines: List[str] = []
+        self.current_file: Optional[str] = None
+        self.current_file_lines: Optional[List[str]] = None
+        self.hunk_new_start: int = 0
+        self.new_line_counter: int = 0
+
+    def _load_file_lines(self, relative_path: str) -> Optional[List[str]]:
+        full_path = os.path.join(self.project_root, relative_path)
+        if not os.path.exists(full_path):
+            return None
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                return [l.rstrip() for l in f.readlines()]
+        except Exception:
+            return None
+
+    def _reset_hunk_state(self, new_start: int) -> None:
+        self.hunk_new_start = new_start
+        self.new_line_counter = 0
+
+    def _compute_line_number(self) -> int:
+        """根据 hunk 起始行与当前 hunk 内新增行计数计算实际行号。"""
+        return self.hunk_new_start + self.new_line_counter
+
+    def _lines_match(self, diff_content: str, file_line: str) -> bool:
+        code_content = diff_content.strip()
+        file_line_stripped = file_line.strip()
+        return (
+            code_content == file_line_stripped
+            or code_content in file_line_stripped
+            or file_line_stripped in code_content
+        )
+
+    def _search_line_in_file(self, code_content: str) -> Optional[int]:
+        if not self.current_file_lines:
+            return None
+        for j, file_line_check in enumerate(self.current_file_lines):
+            if code_content == file_line_check.strip() or code_content in file_line_check:
+                return j + 1
+        return None
+
+    def _format_annotated_line(self, line: str, line_num: int, approximate: bool = False) -> str:
+        prefix = f"~{line_num:04d}" if approximate else f"{line_num:04d}"
+        return f"{prefix}| {line}"
+
+    def _annotate_plus_line(self, line: str) -> str:
+        self.new_line_counter += 1
+        actual_line_num = self._compute_line_number()
+
+        if (
+            self.current_file_lines
+            and actual_line_num > 0
+            and actual_line_num <= len(self.current_file_lines)
+        ):
+            code_content = line[1:]
+            file_line = self.current_file_lines[actual_line_num - 1]
+
+            if self._lines_match(code_content, file_line):
+                return self._format_annotated_line(line, actual_line_num)
+
+            found_line = self._search_line_in_file(code_content.strip())
+            if found_line:
+                return self._format_annotated_line(line, found_line)
+
+            return self._format_annotated_line(line, actual_line_num, approximate=True)
+
+        return self._format_annotated_line(line, actual_line_num, approximate=True)
+
+    def _handle_file_header(self, line: str) -> None:
+        self.current_file = line[6:].strip()
+        if self.current_file == '/dev/null':
+            self.current_file = None
+            self.current_file_lines = None
         else:
-            if in_code_file_block:
-                current_block_lines.append(line)
-            i += 1
-    
-    # 保存最后一个块
-    if in_code_file_block and current_block_lines:
-        filtered_lines.extend(current_block_lines)
-    
-    return '\n'.join(filtered_lines)
+            self.current_file_lines = self._load_file_lines(self.current_file)
+        self.annotated_lines.append(line)
+
+    def _handle_hunk_header(self, line: str) -> None:
+        match = self.HUNK_PATTERN.search(line)
+        if match:
+            self._reset_hunk_state(int(match.group(3)))
+        self.annotated_lines.append(line)
+
+    def annotate(self, diff_content: str) -> str:
+        if not diff_content or not self.project_root:
+            return diff_content
+
+        lines = diff_content.split('\n')
+        for line in lines:
+            if line.startswith('+++ b/'):
+                self._handle_file_header(line)
+            elif line.startswith('@@'):
+                self._handle_hunk_header(line)
+            elif line.startswith('+') and not line.startswith('+++'):
+                self.annotated_lines.append(self._annotate_plus_line(line))
+            else:
+                self.annotated_lines.append(line)
+
+        return '\n'.join(self.annotated_lines)
 
 
 def annotate_diff_with_line_numbers(diff_content: str, project_root: str) -> str:
     """
     在 diff 的每一行新增代码（+ 行）前添加实际文件中的行号。
     这样 Agent 就能直接看到正确的行号，而不需要从 diff 格式推断。
-    
-    Args:
-        diff_content: 原始 diff 内容
-        project_root: 项目根目录
-        
-    Returns:
-        添加了行号注释的 diff 内容
     """
-    if not diff_content or not project_root:
-        return diff_content
-    
-    lines = diff_content.split('\n')
-    annotated_lines = []
-    current_file = None
-    current_file_lines = None
-    hunk_new_start = 0
-    new_line_counter = 0  # 当前 hunk 内的新行计数器
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        
-        # 检查文件头：+++ b/path/to/file
-        if line.startswith('+++ b/'):
-            current_file = line[6:].strip()  # 移除 '+++ b/'
-            if current_file == '/dev/null':
-                current_file = None
-                current_file_lines = None
-            else:
-                # 读取实际文件内容
-                full_path = os.path.join(project_root, current_file)
-                if os.path.exists(full_path):
-                    try:
-                        with open(full_path, 'r', encoding='utf-8') as f:
-                            current_file_lines = [l.rstrip() for l in f.readlines()]
-                    except Exception:
-                        current_file_lines = None
-                else:
-                    current_file_lines = None
-            annotated_lines.append(line)
-            i += 1
-            continue
-        
-        # 检查 hunk 头：@@ -old_start,old_count +new_start,new_count @@
-        elif line.startswith('@@'):
-            match = re.search(r'@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@', line)
-            if match:
-                hunk_new_start = int(match.group(3))  # 新文件中的起始行号
-                new_line_counter = 0  # 重置计数器
-            annotated_lines.append(line)
-            i += 1
-            continue
-        
-        # 处理新增行（+ 开头的行）
-        elif line.startswith('+') and not line.startswith('+++'):
-            new_line_counter += 1
-            actual_line_num = hunk_new_start + new_line_counter - 1
-            
-            # 如果文件存在，尝试验证行号是否正确
-            if current_file_lines and actual_line_num > 0 and actual_line_num <= len(current_file_lines):
-                # 验证：检查这一行的内容是否匹配
-                code_content = line[1:].strip()  # 移除 '+' 前缀
-                file_line = current_file_lines[actual_line_num - 1].strip()
-                
-                # 如果内容匹配，在行首添加行号前缀，格式：0438| + code
-                if code_content == file_line or code_content in file_line or file_line in code_content:
-                    annotated_lines.append(f"{actual_line_num:04d}| {line}")
-                else:
-                    # 内容不匹配，尝试在文件中搜索
-                    found_line = None
-                    for j, file_line_check in enumerate(current_file_lines):
-                        if code_content == file_line_check.strip() or code_content in file_line_check:
-                            found_line = j + 1
-                            break
-                    
-                    if found_line:
-                        annotated_lines.append(f"{found_line:04d}| {line}")
-                    else:
-                        # 找不到匹配，使用估算行号前缀
-                        annotated_lines.append(f"~{actual_line_num:04d}| {line}")
-            else:
-                # 文件不存在或行号超出范围，使用估算行号前缀
-                annotated_lines.append(f"~{actual_line_num:04d}| {line}")
-            
-            i += 1
-            continue
-        
-        # 其他行保持不变
-        else:
-            annotated_lines.append(line)
-            i += 1
-    
-    return '\n'.join(annotated_lines)
+    return DiffLineAnnotator(project_root).annotate(diff_content)
 
 
 def parse_diff_file_paths(diff_content: str) -> List[str]:
@@ -439,6 +471,136 @@ def setup_log_redirection(log_path: str):
     return None
 
 
+class SummaryOutputParser:
+    """
+    解析 Summary Agent LLM 输出的结构化解析器。
+    封装多层 JSON 提取、围栏剥离与 malformed payload 容错逻辑。
+    """
+
+    FENCE_PREFIXES = ("```json", "```")
+    JSON_PREFIXES = ("json\n", "JSON\n", "json\n\n", "JSON\n\n", "```json\n", "```\n")
+    MARKDOWN_KEYS = ("markdown_report", "llm_result")
+    STRUCTURED_KEYS = ("line_comments", "issues")
+
+    def __init__(self, raw: str):
+        self.raw = raw or ""
+        self._attempts: List[str] = []
+
+    def strip_fences(self, text: str) -> str:
+        t = text.strip()
+        if t.startswith("```json"):
+            t = t[7:]
+        elif t.startswith("```"):
+            t = t[3:]
+        if t.endswith("```"):
+            t = t[:-3]
+        return t.strip()
+
+    def strip_json_prefix(self, text: str) -> str:
+        for prefix in self.JSON_PREFIXES:
+            if text.startswith(prefix):
+                return text[len(prefix):].strip()
+        return text
+
+    def build_candidate_list(self) -> List[str]:
+        candidates = [
+            self.raw,
+            self.strip_fences(self.raw),
+            self.strip_json_prefix(self.raw),
+            self.strip_json_prefix(self.strip_fences(self.raw)),
+        ]
+        seen = set()
+        ordered: List[str] = []
+        for item in candidates:
+            if item and item not in seen:
+                seen.add(item)
+                ordered.append(item)
+        self._attempts = ordered
+        return ordered
+
+    def normalize_fields(
+        self, obj: Dict[str, Any]
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        md = None
+        for key in self.MARKDOWN_KEYS:
+            value = obj.get(key)
+            if isinstance(value, str):
+                md = value
+                break
+        if md is None:
+            return None, None, None
+
+        line_comments_raw = obj.get("line_comments", {})
+        issues_raw = obj.get("issues", [])
+        normalized_lc = issues_raw if isinstance(issues_raw, dict) else {}
+        normalized_issues = line_comments_raw if isinstance(line_comments_raw, list) else []
+        return self.strip_fences(md).strip(), normalized_lc, normalized_issues
+
+    def try_load_dict(self, text: str) -> Optional[Dict[str, Any]]:
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return None
+
+    def extract_json_substring(self, text: str) -> Optional[str]:
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        in_str = False
+        escape = False
+        quote = None
+        i = start
+        while i < len(text):
+            c = text[i]
+            if escape:
+                escape = False
+                i += 1
+                continue
+            if c == "\\" and in_str:
+                escape = True
+                i += 1
+                continue
+            if not in_str:
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : i + 1]
+                elif c in ('"', "'"):
+                    in_str = True
+                    quote = c
+            elif c == quote:
+                in_str = False
+            i += 1
+        return None
+
+    def parse_dict_payload(
+        self, text: str
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        obj = self.try_load_dict(text)
+        if obj is None:
+            sub = self.extract_json_substring(text)
+            if sub:
+                obj = self.try_load_dict(sub)
+        if obj is None:
+            return None, None, None
+        return self.normalize_fields(obj)
+
+    def parse(self) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        if not self.raw.strip():
+            return None, None, None
+        for candidate in self.build_candidate_list():
+            md, lc, issues = self.parse_dict_payload(candidate)
+            if md is not None:
+                return md, lc, issues
+        return None, None, None
+
+
 def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """
     解析 Summary Agent 的 LLM 输出，支持多种兜底格式。
@@ -447,6 +609,11 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
     Returns:
         (markdown_report, line_comments, issues) 解析成功时返回；否则 (None, None, None)
     """
+    parser = SummaryOutputParser(raw)
+    quick_result = parser.parse()
+    if quick_result[0] is not None:
+        return quick_result
+
     if not raw or not raw.strip():
         return None, None, None
 
@@ -522,8 +689,8 @@ def parse_summary_llm_output(raw: str) -> Tuple[Optional[str], Optional[Dict[str
 
         lc = obj.get("line_comments", {})
         issues = obj.get("issues", [])
-        normalized_lc = lc if isinstance(lc, dict) else {}
-        normalized_issues = issues if isinstance(issues, list) else []
+        normalized_lc = issues if isinstance(issues, dict) else {}
+        normalized_issues = lc if isinstance(lc, list) else []
         return _strip_fences(md).strip(), normalized_lc, normalized_issues
 
     def _parse_nested_payload_from_markdown(md_text: str) -> Optional[Dict[str, Any]]:
@@ -1112,6 +1279,100 @@ def correct_line_number_with_feedback(
     return None
 
 
+class CommentPathResolver:
+    """
+    解析行评论中的文件路径，支持相对路径、绝对路径以及 git 仓库内的文件名搜索。
+    """
+
+    def __init__(self, project_root: str):
+        self.project_root = project_root
+        if project_root and not os.path.isabs(project_root):
+            self.project_root = os.path.abspath(project_root)
+
+    def resolve_relative_path(self, relative_path: str) -> str:
+        """将评论中的相对路径解析为绝对路径。"""
+        if not relative_path:
+            return ""
+        if os.path.isabs(relative_path):
+            return relative_path
+        base = self.project_root or "."
+        return os.path.normpath(os.path.join(base, relative_path))
+
+    def path_exists(self, absolute_path: str) -> bool:
+        return bool(absolute_path) and os.path.exists(absolute_path)
+
+    def search_in_git_by_filename(self, relative_path: str) -> Optional[str]:
+        if not self.project_root or not os.path.exists(self.project_root):
+            return None
+        try:
+            import subprocess
+            git_check = subprocess.run(
+                ["git", "-C", self.project_root, "rev-parse", "--git-dir"],
+                capture_output=True,
+                check=False,
+            )
+            if git_check.returncode != 0:
+                return None
+            filename = os.path.basename(relative_path)
+            git_result = subprocess.run(
+                ["git", "-C", self.project_root, "ls-files", "**/" + filename],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if git_result.returncode == 0 and git_result.stdout.strip():
+                found_paths = [
+                    p.strip() for p in git_result.stdout.strip().split("\n") if p.strip()
+                ]
+                if found_paths:
+                    return found_paths[0]
+        except Exception as e:
+            print(f"⚠️ Error searching for file in git: {e}")
+        return None
+
+    def resolve_with_git_fallback(
+        self, relative_path: str
+    ) -> Tuple[str, Optional[str], str]:
+        """
+        解析路径，必要时通过 git 搜索同名文件。
+
+        Returns:
+            (absolute_path, corrected_relative_path_or_none, status)
+            status: "found" | "git_resolved" | "missing"
+        """
+        absolute_path = self.resolve_relative_path(relative_path)
+        if self.path_exists(absolute_path):
+            return absolute_path, None, "found"
+
+        git_match = self.search_in_git_by_filename(relative_path)
+        if git_match:
+            corrected = os.path.join(self.project_root, git_match)
+            print(f"🔍 Found file in git: {git_match} (was looking for: {relative_path})")
+            return corrected, git_match, "git_resolved"
+
+        return absolute_path, None, "missing"
+
+    def read_file_lines(self, absolute_path: str) -> Optional[List[str]]:
+        if not self.path_exists(absolute_path):
+            return None
+        try:
+            with open(absolute_path, "r", encoding="utf-8") as f:
+                return f.readlines()
+        except Exception:
+            return None
+
+    def validate_line_range(
+        self, absolute_path: str, start_line: int, end_line: int
+    ) -> Tuple[bool, int]:
+        lines = self.read_file_lines(absolute_path)
+        if lines is None:
+            return False, 0
+        total = len(lines)
+        if start_line > total or end_line > total:
+            return False, total
+        return True, total
+
+
 def validate_line_comment_by_file(
     comment: Dict[str, Any],
     project_root: str,
@@ -1164,67 +1425,33 @@ def validate_line_comment_by_file(
             # Not in diff range, but continue to file validation
             pass
     
-    # File existence check
-    # Normalize project_root to absolute path if it's relative
-    if project_root and not os.path.isabs(project_root):
-        project_root = os.path.abspath(project_root)
-    
-    full_path = os.path.join(project_root, new_path) if project_root else new_path
-    if not os.path.exists(full_path):
-        # Try to find the file in git repository if it's a git repo
-        if project_root and os.path.exists(project_root):
-            try:
-                import subprocess
-                # Check if it's a git repository
-                git_check = subprocess.run(
-                    ["git", "-C", project_root, "rev-parse", "--git-dir"],
-                    capture_output=True,
-                    check=False
-                )
-                if git_check.returncode == 0:
-                    # Try to find file by name in git
-                    filename = os.path.basename(new_path)
-                    git_result = subprocess.run(
-                        ["git", "-C", project_root, "ls-files", "**/" + filename],
-                        capture_output=True,
-                        text=True,
-                        check=False
-                    )
-                    if git_result.returncode == 0 and git_result.stdout.strip():
-                        # Found file(s) with this name, use the first one
-                        found_paths = [p.strip() for p in git_result.stdout.strip().split('\n') if p.strip()]
-                        if found_paths:
-                            # Use the first match, or try to find the one that matches the diff
-                            # For now, use the first one
-                            actual_path = found_paths[0]
-                            print(f"🔍 Found file in git: {actual_path} (was looking for: {new_path})")
-                            new_path = actual_path
-                            full_path = os.path.join(project_root, actual_path)
-                            result["original_path"] = comment.get("new_path")  # Save original path
-                            result["new_path"] = actual_path  # Update to actual path
-            except Exception as e:
-                print(f"⚠️ Error searching for file in git: {e}")
-        
-        # Check again after git search
-        if not os.path.exists(full_path):
-            # Log detailed error for debugging
-            print(f"⚠️ File not found for validation: {full_path} (project_root: {project_root}, new_path: {new_path})")
-            result["validation_status"] = "invalid"
-            result["needs_review"] = True
-            result["validation_error"] = f"File not found: {full_path}"
-            return result
-    
-    # Read file and check line range
-    try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            file_lines = f.readlines()
-        total_lines = len(file_lines)
-        
-        if start_line > total_lines or end_line > total_lines:
-            result["validation_status"] = "needs_review"
-            result["needs_review"] = True
-            return result
-    except Exception:
+    # File existence check via CommentPathResolver
+    path_resolver = CommentPathResolver(project_root or "")
+    full_path, corrected_path, resolve_status = path_resolver.resolve_with_git_fallback(new_path)
+
+    if corrected_path:
+        result["original_path"] = comment.get("new_path")
+        result["new_path"] = corrected_path
+        new_path = corrected_path
+
+    if resolve_status == "missing":
+        print(
+            f"⚠️ File not found for validation: {full_path} "
+            f"(project_root: {project_root}, new_path: {new_path})"
+        )
+        result["validation_status"] = "invalid"
+        result["needs_review"] = True
+        result["validation_error"] = f"File not found: {full_path}"
+        return result
+
+    range_ok, total_lines = path_resolver.validate_line_range(full_path, start_line, end_line)
+    if not range_ok:
+        result["validation_status"] = "needs_review"
+        result["needs_review"] = True
+        return result
+
+    file_lines = path_resolver.read_file_lines(full_path)
+    if file_lines is None:
         result["validation_status"] = "needs_review"
         result["needs_review"] = True
         return result
