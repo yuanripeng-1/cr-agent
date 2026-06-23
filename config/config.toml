@@ -12,6 +12,7 @@ requirements_path = ""
 model = "anthropic/claude-sonnet-4-5"
 api_key = ""
 api_base = ""
+# use_litellm_gateway 为true，走litellm代理层转发
 use_litellm_gateway = true
 gateway_provider = "openai"
 

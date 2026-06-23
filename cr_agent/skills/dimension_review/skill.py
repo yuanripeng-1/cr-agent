@@ -17,6 +17,7 @@ from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError
 from cr_agent.core.finding_filter import filter_dimension_result, flatten_filtered_findings
 from cr_agent.core.types import QueryResult, TokenUsage
+from cr_agent.core.usage import usage_to_dict
 from cr_agent.skills.docs import load_skill_doc
 from cr_agent.skills.tool_trace import trace_tools
 from cr_agent.tools.provider import ToolSpec
@@ -421,7 +422,7 @@ def _success_artifact(
         "normalized_findings": normalized_findings,
         "warnings": warnings if isinstance(warnings, list) else [],
         "error": None,
-        "usage": _usage_dict(usage),
+        "usage": usage_to_dict(usage),
         "raw_yaml": raw_yaml,
         "artifact_path": str(artifact_path),
     }
@@ -436,7 +437,7 @@ def _failed_artifact(*, dimension: str, error: str, raw_yaml: str, artifact_path
         "findings": [],
         "warnings": [error],
         "error": error,
-        "usage": _usage_dict(TokenUsage()),
+        "usage": usage_to_dict(TokenUsage()),
         "raw_yaml": _truncate(raw_yaml),
         "artifact_path": str(artifact_path),
     }
@@ -497,15 +498,6 @@ def _build_manifest(
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _usage_dict(usage: TokenUsage) -> dict[str, int]:
-    return {
-        "input_tokens": usage.input_tokens,
-        "output_tokens": usage.output_tokens,
-        "cache_creation_tokens": usage.cache_creation_tokens,
-        "cache_read_tokens": usage.cache_read_tokens,
-    }
 
 
 def _normalize_findings(dimension: str, report: dict[str, Any]) -> list[dict[str, Any]]:

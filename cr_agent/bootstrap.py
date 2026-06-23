@@ -1,3 +1,15 @@
+"""
+bootstrap:一次审查运行的"装配层"。
+
+"bootstrap"(引导/装配)指在真正跑审查前,把运行所需的一切准备齐:
+加载并校验 agent_config.toml 与 context.json、确定平台、解析 git token、
+按需起本地 LiteLLM 网关、按平台选定工具 facade、构造主/子 agent runtime,
+最后聚合成一个不可变的 RuntimeContext 交给 orchestrator。
+
+RuntimeContext = 这次运行的"上下文快照":把上面装配出的配置、路径、平台、
+工具 facade、各 runtime、网关句柄等集中持有,后续流程只读取它,不再各自加载。
+"""
+
 from __future__ import annotations
 
 import os
@@ -110,6 +122,13 @@ def _resolve_path(base_dir: Path, raw_path: str) -> Path:
 
 
 def bootstrap_runtime(config_path: Path, platform_override: str | None) -> RuntimeContext:
+    """
+    执行装配并返回 RuntimeContext。
+
+    这里的 "runtime" 指承载一次审查运行所需依赖的执行环境:既包括 RuntimeContext
+    聚合的配置/路径/平台/工具,也包括其中的主/子 agent runtime(对模型调用的适配器)。
+    bootstrap_runtime 只负责把它们准备好,不发起任何模型调用。
+    """
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
@@ -179,6 +198,8 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
         timeout_s=config_data.git.timeout_s,
         allow_network=config_data.git.allow_network,
     )
+    # 启动期只取其副作用:打 EXTERNAL_TOOL_AVAILABLE/MISSING 日志,便于排查环境。
+    # 返回的状态 dict 供单测与诊断脚本消费,此处无需消费,故不接收返回值。
     check_external_tool_availability()
     _logger.info(
         "GIT_TOKEN_RESOLVED configured=%s source=%s hash=%s allow_network=%s",

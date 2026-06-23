@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
+from claude_agent_sdk import ResultMessage
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.main_agent import (
@@ -16,6 +16,19 @@ from cr_agent.core.main_agent import (
 from cr_agent.core.state import ReviewState
 from cr_agent.tools.provider import ToolSpec, ok_result
 from tests.fakes import FakeSkillScenario
+
+
+def _result_message(*, result: str, usage: dict | None) -> ResultMessage:
+    return ResultMessage(
+        subtype="success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=False,
+        num_turns=1,
+        session_id="sess",
+        result=result,
+        usage=usage,
+    )
 
 
 def _session(max_retries: int) -> MainAgentSession:
@@ -92,7 +105,7 @@ async def test_sdk_main_agent_uses_streaming_prompt_when_can_use_tool(monkeypatc
     async def fake_query(*, prompt, options):
         captured["prompt"] = prompt
         captured["options"] = options
-        yield SimpleNamespace(
+        yield _result_message(
             result="done",
             usage={
                 "input_tokens": 1,
@@ -153,7 +166,7 @@ async def test_sdk_main_agent_uses_string_prompt_without_can_use_tool(monkeypatc
     async def fake_query(*, prompt, options):
         captured["prompt"] = prompt
         captured["options"] = options
-        yield SimpleNamespace(result="done", usage={"input_tokens": 1, "output_tokens": 1})
+        yield _result_message(result="done", usage={"input_tokens": 1, "output_tokens": 1})
 
     monkeypatch.setattr("claude_agent_sdk.query", fake_query)
 

@@ -3,9 +3,9 @@
 
 ToolSpec 直接对齐 Claude Agent SDK `tool` 的约定:
 (name, description, input_schema, handler)。input_schema 使用 JSON Schema
-dict,以便 PR2/PR3 接入真实 Runtime 时无需重构 ToolSpec —— 见 spec_sdk.to_sdk_tool。
+dict,无需重构即可经 spec_sdk.to_sdk_tool 转成 SDK 工具。
 
-工具统一返回结构 {ok, data, warnings, error},供所有 PR 复用;SDK content-block
+工具统一返回结构 {ok, data, warnings, error};SDK content-block
 包装由映射层在调用边界完成,工具实现本身不感知 SDK。
 """
 
@@ -48,5 +48,5 @@ def error_result(error: str, warnings: list[str] | None = None) -> ToolResult:
 
 
 def not_implemented_result(tool_name: str, provider: str) -> ToolResult:
-    """PR1 占位:工具尚未接入真实能力时的统一降级返回。"""
+    """工具未在该 provider 接入真实能力时的统一降级返回。"""
     return error_result(f"{tool_name} not implemented in {provider} provider")

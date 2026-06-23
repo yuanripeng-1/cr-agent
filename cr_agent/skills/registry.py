@@ -1,3 +1,12 @@
+"""
+skill 注册表:把 4 个 skill 函数(collect_context / dimension_review /
+summarize_report / validate_json)聚合成一个可注入的 SkillRegistry。
+
+skill = 审查流程中的一个可复用阶段能力;主 agent 经 build_skill_tools 把其中
+前 3 个包装成可调用工具,validate_json 作为纯代码校验由 summarize 流程内部调用。
+单测可构造自定义 registry 注入 fake skill。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

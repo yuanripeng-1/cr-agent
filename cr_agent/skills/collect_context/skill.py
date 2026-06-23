@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from cr_agent.bootstrap import RuntimeContext
-from cr_agent.core.types import QueryResult, TokenUsage
+from cr_agent.core.types import QueryResult
+from cr_agent.core.usage import usage_to_dict
 from cr_agent.skills.docs import load_skill_doc
 from cr_agent.skills.tool_trace import trace_tools
 from cr_agent.tools.provider import ToolResult, ToolSpec
@@ -110,7 +111,7 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         "call_graph_context": _compact_context_entries(artifact["call_graph_context"]),
         "code_snippets": _compact_code_snippets(artifact["code_snippets"]),
         "warnings": warnings,
-        "usage": _usage_dict(result.usage),
+        "usage": usage_to_dict(result.usage),
     }
 
 
@@ -431,15 +432,6 @@ def _collect_warnings(evidence: list[dict[str, Any]], report: dict[str, Any]) ->
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _usage_dict(usage: TokenUsage) -> dict[str, int]:
-    return {
-        "input_tokens": usage.input_tokens,
-        "output_tokens": usage.output_tokens,
-        "cache_creation_tokens": usage.cache_creation_tokens,
-        "cache_read_tokens": usage.cache_read_tokens,
-    }
 
 
 def _local_diff_summary(diff_content: str) -> str:

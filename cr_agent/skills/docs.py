@@ -1,3 +1,7 @@
+"""
+加载每个 skill 目录下的 SKILL.md 作为该 skill 暴露给主 agent 的工具描述。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

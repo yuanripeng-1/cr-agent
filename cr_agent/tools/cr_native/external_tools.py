@@ -1,5 +1,5 @@
 """
-cr-native 外部工具 adapter(PR6)。
+cr-native 外部工具 adapter。
 
 本模块集中封装外部命令名与调用方式,skill 只感知平台无关工具名。
 所有外部工具缺失、失败、超时都返回统一降级结构 {ok, data, warnings, error},
@@ -142,8 +142,10 @@ def make_ast_grep_search(project_root: Path | None, limits: ToolLimits) -> ToolH
                 cmd += ["--lang", str(lang)]
             search_path = args.get("path")
             if search_path:
-                safe_resolve(project_root, str(search_path))
-                cmd.append(str(search_path))
+                # 用 safe_resolve 的返回值(已规范化、确认在 root 内)构建相对路径,
+                # 而非原始用户输入,避免路径遍历防护被绕过。
+                resolved = safe_resolve(project_root, str(search_path))
+                cmd.append(str(resolved.relative_to(project_root.resolve())))
             else:
                 cmd.append(".")
             result = await _run_external(

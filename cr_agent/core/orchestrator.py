@@ -1,3 +1,18 @@
+"""
+orchestrator:审查运行的"幕后编排者"。
+
+控制权归主 agent(它经 skill 工具自行规划 collect_context → dimension_review →
+summarize_report,并在 validate 失败后决定是否重调)。orchestrator 不写顺序业务链,
+只做四件支撑工作:
+1. 构建 skill 工具与 max_retries 兜底(can_use_tool);
+2. 启动主 agent 循环;
+3. 汇总主/子 agent 的 token usage;
+4. 组装 ReviewResult 并写盘(result.json / cr_result.md / run.log)。
+
+主 agent 异常且尚无任何 summary 产物时,退化到 _run_sequential_skill_fallback
+顺序跑同一套 skill,保证总能产出结构化结果。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -199,6 +214,10 @@ async def _run_sequential_skill_fallback(
             session.dimension_scores or [],
             prior_errors,
         )
+        # summary 子 agent 每次调用(含重试)都是真实计费,逐次累加其 usage。
+        usage = report.get("usage")
+        if isinstance(usage, dict):
+            session.add_usage(extract_usage({"usage": usage}))
         validation = await session.registry.validate_json(session.runtime_context, report)
         session.last_report = report
         session.last_validation = validation
@@ -236,10 +255,12 @@ def _build_review_result(
         status=status,
         llm_result=llm_result,
         log_path=str(runtime_context.result_dir / "run.log"),
+        # input_tokens 为缓存拆分后的"非缓存输入";真实输入量需叠加 cache_creation/read。
+        # cost 为各次模型调用 total_cost_usd 的累加(已含缓存读写折扣)。
         tokens_consume=OutputTokenUsage(
             input_tokens=state.tokens_consume.input_tokens,
             output_tokens=state.tokens_consume.output_tokens,
-            cost=0.0,
+            cost=state.tokens_consume.cost,
             cache_creation_tokens=state.tokens_consume.cache_creation_tokens,
             cache_read_tokens=state.tokens_consume.cache_read_tokens,
         ),
