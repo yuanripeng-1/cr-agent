@@ -1,3 +1,17 @@
+"""
+sdk_runtime:对模型调用的薄适配层。
+
+把"如何真正调用模型"封装在这里,与上层编排解耦:
+- SdkQueryClient:封装 Claude Agent SDK 的 query()(底层会拉起 claude CLI),
+  统一走 LiteLLM Anthropic-compatible Gateway;
+- ClaudeAgentRuntime:对外暴露 query_main / query_subagent /
+  query_subagent_structured 三种调用入口,并统一处理超时、错误分类、usage 提取;
+- QueryClient(Protocol):注入 client 的契约,单测可注入 fake 以脱离 SDK / 网络。
+
+structured output(litellm.acompletion + json_schema)是独立于 SDK 路径的旁路,
+失败时按 kind 抛 StructuredOutputError,不污染主 SDK 调用链。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,7 +19,7 @@ import json
 import time
 import uuid
 from collections import deque
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from cr_agent.core.errors import (
     RuntimeCallError,
@@ -110,6 +124,27 @@ def log_gateway_target(agent_name: str, env: dict[str, str], model: str) -> None
     )
 
 
+class QueryClient(Protocol):
+    """
+    ClaudeAgentRuntime 注入 client 的契约。
+
+    生产实现是 SdkQueryClient;单测注入仅实现这两个成员的 fake,从而无需
+    SDK / 网络即可验证消息解析与 usage 提取。把契约写成 Protocol(而非 Any),
+    让"query 是什么、需要哪些参数"在类型层面一目了然。
+    """
+
+    model: str
+
+    async def query(
+        self,
+        *,
+        agent_name: str,
+        prompt: str,
+        assembled_options: Any | None = ...,
+    ) -> dict[str, Any]:
+        ...
+
+
 class SdkQueryClient:
     """
     真实 Claude Agent SDK client 适配器,统一走 LiteLLM Anthropic-compatible Gateway。
@@ -143,9 +178,10 @@ class SdkQueryClient:
         return sdk_query
 
     def _build_options(self) -> Any:
+        # 惰性导入:与 _resolve_query_fn 同理,只在真正发起调用时才依赖可选 SDK。
         from claude_agent_sdk import ClaudeAgentOptions
 
-        # tools=[] 禁用内建工具:PR2 只做最小模型冒烟,不接任何真实工具。
+        # tools=[] 禁用内建工具:这条调用路径只发起纯模型调用,不接任何真实工具。
         stderr_capture = SdkStderrCapture()
         return ClaudeAgentOptions(
             model=self.model,
@@ -174,36 +210,32 @@ class SdkQueryClient:
         texts: list[str] = []
         final_text: str | None = None
         usage: dict[str, Any] | None = None
+        total_cost: float = 0.0
         is_error = False
         error_detail = ""
         stderr_tail = ""
 
+        from claude_agent_sdk import ResultMessage
+
         try:
             async for message in query_fn(prompt=prompt, options=options):
-                content = getattr(message, "content", None)
-                if content is not None:
-                    for block in content:
-                        block_text = getattr(block, "text", None)
-                        if isinstance(block_text, str):
-                            texts.append(block_text)
-                # ResultMessage 携带最终文本与 usage。
-                if hasattr(message, "usage") and getattr(message, "usage") is not None:
-                    usage = getattr(message, "usage")
-                if hasattr(message, "is_error"):
+                texts.extend(message_text_blocks(message))
+                current_usage = message_usage(message)
+                if current_usage is not None:
+                    usage = current_usage
+                # 只有 ResultMessage 携带最终文本与错误状态,作为本轮终态处理。
+                if isinstance(message, ResultMessage):
                     diagnostics = sdk_message_diagnostics(message)
                     _logger.info(
                         "MODEL_RESULT_MESSAGE agent=%s detail=%s",
                         agent_name,
                         diagnostics,
                     )
-                    is_error = bool(getattr(message, "is_error"))
-                    result_text = getattr(message, "result", None)
-                    if isinstance(result_text, str):
-                        final_text = result_text
-                    errors = getattr(message, "errors", None)
-                    if errors:
-                        error_detail = _format_result_message_error(diagnostics)
-                    elif diagnostics:
+                    is_error = bool(message.is_error)
+                    total_cost = float(message.total_cost_usd or 0.0)
+                    if isinstance(message.result, str):
+                        final_text = message.result
+                    if message.errors or diagnostics:
                         error_detail = _format_result_message_error(diagnostics)
         except Exception as exc:
             stderr_callback = getattr(options, "stderr", None)
@@ -229,10 +261,35 @@ class SdkQueryClient:
             raise error
 
         text = final_text if final_text else "".join(texts)
-        return {"text": text, "usage": usage}
+        # total_cost_usd 与 usage 平级返回;extract_usage 从顶层读取它填充 TokenUsage.cost。
+        return {"text": text, "usage": usage, "total_cost_usd": total_cost}
+
+
+def message_text_blocks(message: Any) -> list[str]:
+    """
+    提取 AssistantMessage.content 里所有 TextBlock 文本;其它消息类型返回 []。
+
+    message 是 SDK 的联合类型(Assistant/Result/System/User/...),不同变体属性不同,
+    故用 isinstance 收敛,避免对 content/text 做 getattr 魔法访问。
+    """
+    from claude_agent_sdk import AssistantMessage, TextBlock
+
+    if not isinstance(message, AssistantMessage):
+        return []
+    return [block.text for block in (message.content or []) if isinstance(block, TextBlock)]
+
+
+def message_usage(message: Any) -> Any | None:
+    """AssistantMessage / ResultMessage 上的 usage(其它类型或缺失返回 None)。"""
+    from claude_agent_sdk import AssistantMessage, ResultMessage
+
+    if isinstance(message, (AssistantMessage, ResultMessage)):
+        return message.usage
+    return None
 
 
 def sdk_message_diagnostics(message: Any) -> dict[str, Any]:
+    # 纯日志诊断:对固定字段做存在性探测,保留 getattr 以兼容不同消息变体。
     diagnostics: dict[str, Any] = {}
     for field in _RESULT_MESSAGE_FIELDS:
         if hasattr(message, field):
@@ -312,7 +369,9 @@ class ClaudeAgentRuntime:
     Claude Agent SDK, LiteLLM, or any external model service.
     """
 
-    def __init__(self, config: Any, client: Any | None = None) -> None:
+    # config 实为 AgentConfig,这里用 Any 保持与外部松耦合(避免循环依赖);
+    # client 收敛为 QueryClient 契约,取代原先的 Any。
+    def __init__(self, config: Any, client: QueryClient | None = None) -> None:
         self.config = config
         self._client = client
         # structured output 失败后禁用；同一次 review 的后续 summarize 改走 query_subagent。
@@ -674,10 +733,10 @@ class ClaudeAgentRuntime:
         prompt: str,
         assembled_options: Any | None,
     ) -> Any:
-        query = getattr(self._client, "query", None)
-        if query is None:
-            raise RuntimeCallError("Injected SDK client does not expose query()")
-        return await query(
+        # _query 已保证 self._client is not None;client 契约由 QueryClient 约束,
+        # 故直接调用 query(),无需 getattr 探测。
+        assert self._client is not None
+        return await self._client.query(
             agent_name=agent_name,
             prompt=prompt,
             assembled_options=assembled_options,

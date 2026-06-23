@@ -1,9 +1,9 @@
 """
 ToolSpec -> Claude Agent SDK tool 的映射层。
 
-预留这一层是为了让 PR2/PR3 接入真实 Runtime 时,直接把 ToolSpec 转成 SDK 的
-SdkMcpTool,而不必回头重构 ToolSpec。本模块只做纯数据/handler 包装,不创建任何
-SDK client、不发起任何网络或模型调用。SDK 仅在调用映射函数时惰性导入。
+这一层把 ToolSpec 直接转成 SDK 的 SdkMcpTool,使工具契约与 SDK 解耦。
+本模块只做纯数据/handler 包装,不创建任何 SDK client、不发起任何网络或模型调用。
+SDK 仅在调用映射函数时惰性导入。
 """
 
 from __future__ import annotations

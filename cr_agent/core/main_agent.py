@@ -1,20 +1,19 @@
 """
-主 agent agentic 控制流骨架(PR3)。
+main_agent:主 agent 的 agentic 控制流。
 
-控制流反转:不再用 Python 顺序链跑 skill,而是把 collect_context / dimension_review /
-summarize_report 包装成 SDK 可调用工具,由主 agent 规划阶段、并在 validate 失败后自行
-决定是否重调 summarize。Python orchestrator 退居幕后,只做 max_retries 兜底、usage 汇总、
-产物写盘。
+控制流反转:不用 Python 顺序链跑 skill,而是把 collect_context / dimension_review /
+summarize_report 包装成 SDK 可调用工具,由主 agent 自行规划阶段、并在 validate 失败后
+决定是否重调 summarize。orchestrator 退居幕后,只做 max_retries 兜底、usage 汇总、写盘。
 
-=== 重试归属契约(唯一、无二义 —— 后续 PR 不得改动状态机) ===
+=== 重试归属契约(唯一、无二义) ===
 - validate_json:纯代码、确定性、**不持有 attempt**、不走 agent、不拿工具。
 - 重调由主 agent 决策发起:summarize 工具返回 {valid, errors},主 agent 据此决定是否再调。
-- attempt 计数:每次 summarize 工具被调用时 state.attempt += 1(见 _summarize_handler)。
+- attempt 计数:每次 summarize 工具被调用时 state.attempt += 1(见 summarize_handler)。
 - max_retries 兜底(Python 强制终止):can_use_tool 在 summarize 调用前检查,
   允许的 summarize 总次数 = max_retries + 1;超出即 deny,主 agent 无法再重调。
 
-PR3 的 validate 仅做格式校验。将来(PR8)若要校验行号,只需给 validate_json 增加 diff 入参
-并改 _summarize_handler 这一个调用点 —— 不动上面的状态机。
+当前 validate 仅做格式校验;若要扩展为行号校验,只需给 validate_json 增加 diff 入参
+并改 summarize_handler 这一个调用点 —— 不动上面的状态机。
 """
 
 from __future__ import annotations
@@ -27,7 +26,12 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol
 
 from cr_agent.bootstrap import RuntimeContext
-from cr_agent.core.sdk_runtime import sdk_message_diagnostics
+from cr_agent.core.sdk_runtime import (
+    build_sdk_env,
+    message_text_blocks,
+    message_usage,
+    sdk_message_diagnostics,
+)
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage, ValidationResult
 from cr_agent.core.usage import accumulate_usage, accumulate_usage_from_dimension_artifacts, extract_usage
@@ -49,7 +53,7 @@ MAIN_AGENT_SYSTEM_PROMPT = (
     "不要编造结果；只依赖工具输出。当报告有效，或工具被告知不再允许使用时停止。"
 )
 
-# 空入参 schema:占位 skill 不需要主 agent 传参,handler 从 session 取状态。
+# 空入参 schema:skill 不需要主 agent 传参,handler 从 session 取共享状态。
 _EMPTY_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {},
@@ -74,7 +78,7 @@ class MainAgentSession:
 
 
 def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
-    """把 3 个占位 skill 包装成主 agent 可调用的 ToolSpec。"""
+    """把 3 个 skill 包装成主 agent 可调用的 ToolSpec。"""
 
     # 主 Agent 调 skill 时的回调函数
     async def collect_handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -228,7 +232,15 @@ class SdkMainAgentRuntime:
         timeout_s: float = 300,
         max_turns: int | None = None,
     ) -> MainAgentResult:
-        from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server, query
+        # 惰性导入 claude_agent_sdk:它是可选重依赖(底层会拉起 claude CLI),
+        # 只在真正发起主 agent 调用时才需要。这样单测注入 fake runtime 时,
+        # 无 SDK 安装的环境也能导入本模块并运行。
+        from claude_agent_sdk import (
+            ClaudeAgentOptions,
+            ResultMessage,
+            create_sdk_mcp_server,
+            query,
+        )
 
         from cr_agent.core.errors import RuntimeTimeoutError
         from cr_agent.core.sdk_runtime import (
@@ -269,6 +281,7 @@ class SdkMainAgentRuntime:
         texts: list[str] = []
         final_text: str | None = None
         usage: dict[str, Any] | None = None
+        total_cost: float = 0.0
         # 如果can_use_tool不为空，则使用_single_user_prompt包装user_prompt
         prompt = _single_user_prompt(user_prompt) if can_use_tool is not None else user_prompt
         request_id = uuid.uuid4().hex[:12]
@@ -290,23 +303,20 @@ class SdkMainAgentRuntime:
                         request_id,
                         type(message).__name__,
                     )
-                    content = getattr(message, "content", None)
-                    if content is not None:
-                        for block in content:
-                            block_text = getattr(block, "text", None)
-                            if isinstance(block_text, str):
-                                texts.append(block_text)
-                    if getattr(message, "usage", None) is not None:
-                        usage = getattr(message, "usage")
-                    if hasattr(message, "is_error"):
+                    texts.extend(message_text_blocks(message))
+                    current_usage = message_usage(message)
+                    if current_usage is not None:
+                        usage = current_usage
+                    # 只有 ResultMessage 携带最终文本与终态;以 isinstance 收敛联合类型分支。
+                    if isinstance(message, ResultMessage):
                         _logger.info(
                             "MODEL_RESULT_MESSAGE request_id=%s agent=main detail=%s",
                             request_id,
                             sdk_message_diagnostics(message),
                         )
-                    result_text = getattr(message, "result", None)
-                    if isinstance(result_text, str) and result_text:
-                        final_text = result_text
+                        total_cost = float(message.total_cost_usd or 0.0)
+                        if isinstance(message.result, str) and message.result:
+                            final_text = message.result
         except TimeoutError as exc:
             elapsed = time.monotonic() - start
             _logger.error(
@@ -323,7 +333,7 @@ class SdkMainAgentRuntime:
             ) from exc
 
         text = final_text if final_text else "".join(texts)
-        extracted = extract_usage({"usage": usage})
+        extracted = extract_usage({"usage": usage, "total_cost_usd": total_cost})
         elapsed = time.monotonic() - start
         _logger.info(
             "MODEL_CALL_END request_id=%s agent=main elapsed_s=%.1f input=%s output=%s "
@@ -340,7 +350,5 @@ class SdkMainAgentRuntime:
 
 def build_main_agent_runtime(config: Any) -> SdkMainAgentRuntime:
     """从 [llm] 读取 model/api_base/api_key,构造真实主 agent runtime。"""
-    from cr_agent.core.sdk_runtime import build_sdk_env
-
     llm = config.llm
     return SdkMainAgentRuntime(model=llm.model, env=build_sdk_env(llm))

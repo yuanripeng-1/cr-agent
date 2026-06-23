@@ -1,16 +1,16 @@
 """
-cr-native git 工具(PR5)。
+cr-native git 工具。
 
 实现最小**只读** git 工具(git_status / git_rev_parse),并把 git_fetch / git_checkout
 做成**受控接口**:默认不联网、不切分支。git/token/远程权限缺失一律降级,不让任务失败。
 
 === 分支不变量(与任务文档一致,这里在代码层落实) ===
 CRG 后台构建启动前,工作区必须已处于**待审查分支(即 source_branch)**;分支切换只能由
-上游或显式 git 步骤完成,**不得隐式切分支**。因此 git_checkout 在本 PR 默认拒绝执行,
-避免后台构建期间工作区被切走的竞态(见 PR7)。
+上游或显式 git 步骤完成,**不得隐式切分支**。因此 git_checkout 默认拒绝执行,
+避免后台构建期间工作区被切走的竞态。
 
 token 解析优先级:context.git_token > config.git.token > ""。
-日志只记 configured=true/false 或短 hash,绝不打印明文(并经 PR1 脱敏 Filter 兜底)。
+日志只记 configured=true/false 或短 hash,绝不打印明文(并经脱敏 Filter 兜底)。
 """
 
 from __future__ import annotations

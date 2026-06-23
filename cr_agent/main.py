@@ -59,7 +59,11 @@ def main() -> int:
         f"context={runtime.context_path} workspace={runtime.workspace_dir}"
     )
 
+    # --bootstrap-only:装配冒烟模式。只验证 bootstrap 是否成功(config/context/平台/
+    # 工具/网关/runtime 都装配妥当),不跑审查、不调模型,写一份 status="bootstrap_ready"
+    # 的占位产物后 exit 0。供 RUN.sh 调试与 CI 在不消耗模型额度的前提下做健康检查。
     if args.bootstrap_only:
+        # 若已有审查在进行(产物正在被写),不要用占位产物覆盖真实 result.json / cr_result.md。
         if review_in_progress(runtime.result_dir):
             print(
                 "[bootstrap] review in progress; skipping result.json / cr_result.md overwrite"

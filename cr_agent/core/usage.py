@@ -19,13 +19,15 @@ def accumulate_usage(total: TokenUsage, call: TokenUsage) -> TokenUsage:
             total.cache_creation_tokens + call.cache_creation_tokens
         ),
         cache_read_tokens=total.cache_read_tokens + call.cache_read_tokens,
+        cost=total.cost + call.cost,
     )
 
 
 def extract_usage(raw_response: Any) -> TokenUsage:
     usage = _usage_payload(raw_response)
+    cost = _extract_cost(raw_response, usage)
     if usage is None:
-        return TokenUsage()
+        return TokenUsage(cost=cost)
 
     return TokenUsage(
         input_tokens=_int_field(usage, "input_tokens"),
@@ -40,6 +42,7 @@ def extract_usage(raw_response: Any) -> TokenUsage:
             "cache_read_input_tokens",
             "cache_read_tokens",
         ),
+        cost=cost,
     )
 
 
@@ -49,6 +52,35 @@ def _usage_payload(raw_response: Any) -> Any | None:
     if isinstance(raw_response, Mapping):
         return raw_response.get("usage")
     return getattr(raw_response, "usage", None)
+
+
+def _extract_cost(raw_response: Any, usage: Any) -> float:
+    # 成本来源有二:SDK 路径把 total_cost_usd 放在 raw_response 顶层;
+    # 序列化的 usage 产物把 cost 内嵌在 usage 里。两处都查,取到即用。
+    for source, names in (
+        (raw_response, ("total_cost_usd", "cost")),
+        (usage, ("cost", "total_cost_usd")),
+    ):
+        value = _float_field(source, *names)
+        if value is not None:
+            return value
+    return 0.0
+
+
+def _float_field(payload: Any, *names: str) -> float | None:
+    if payload is None:
+        return None
+    for name in names:
+        if isinstance(payload, Mapping):
+            value = payload.get(name)
+        else:
+            value = getattr(payload, name, None)
+        if value is not None:
+            try:
+                return max(float(value), 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+    return None
 
 
 def _int_field(payload: Any, *names: str) -> int:

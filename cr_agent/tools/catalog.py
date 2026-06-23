@@ -5,7 +5,7 @@
 InfcodeToolProvider 都从同一份目录构建各自的 ToolSpec,只替换 handler。
 这样 "*" 展开的语义 “注册表全集 ∩ provider 可用集” 在两个平台下都可预期。
 
-PR1 不实现任何真实工具,handler 由各 provider 注入占位实现。
+本目录只声明工具契约(名/schema/描述),具体 handler 由各 provider 注入。
 """
 
 from __future__ import annotations

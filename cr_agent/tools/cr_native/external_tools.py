@@ -1,5 +1,5 @@
 """
-cr-native 外部工具 adapter(PR6)。
+cr-native 外部工具 adapter。
 
 本模块集中封装外部命令名与调用方式,skill 只感知平台无关工具名。
 所有外部工具缺失、失败、超时都返回统一降级结构 {ok, data, warnings, error},

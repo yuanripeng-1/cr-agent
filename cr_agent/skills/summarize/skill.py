@@ -181,12 +181,13 @@ def _strip_code_fence(text: str) -> str:
     return text
 
 
-def _usage_dict(usage: TokenUsage) -> dict[str, int]:
+def _usage_dict(usage: TokenUsage) -> dict[str, Any]:
     return {
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
         "cache_creation_tokens": usage.cache_creation_tokens,
         "cache_read_tokens": usage.cache_read_tokens,
+        "cost": usage.cost,
     }
 
 
