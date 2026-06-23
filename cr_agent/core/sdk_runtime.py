@@ -21,6 +21,7 @@ import uuid
 from collections import deque
 from typing import Any, Callable, Protocol
 
+from cr_agent.core.agent_config import AgentConfig
 from cr_agent.core.errors import (
     RuntimeCallError,
     RuntimeContextLimitError,
@@ -351,7 +352,7 @@ def structured_output_unsupported(exc: Exception) -> bool:
     return any(marker in message for marker in _UNSUPPORTED_STRUCTURED_MARKERS)
 
 
-def build_runtime(config: Any) -> "ClaudeAgentRuntime":
+def build_runtime(config: AgentConfig) -> "ClaudeAgentRuntime":
     """
     从 per-task agent_config.toml 的 [llm] 读取 model/api_base/api_key,
     构造走 LiteLLM 网关的真实 Runtime。
@@ -369,9 +370,10 @@ class ClaudeAgentRuntime:
     Claude Agent SDK, LiteLLM, or any external model service.
     """
 
-    # config 实为 AgentConfig,这里用 Any 保持与外部松耦合(避免循环依赖);
+    # config 标注为真实类型 AgentConfig:agent_config 不反向依赖本模块,无循环依赖之虞,
+    # 直接标注可让 self.config.llm 等访问获得静态校验与补全。
     # client 收敛为 QueryClient 契约,取代原先的 Any。
-    def __init__(self, config: Any, client: QueryClient | None = None) -> None:
+    def __init__(self, config: AgentConfig, client: QueryClient | None = None) -> None:
         self.config = config
         self._client = client
         # structured output 失败后禁用；同一次 review 的后续 summarize 改走 query_subagent。
