@@ -3,16 +3,136 @@
 set -euo pipefail
 
 ENV_NAME="cragent"
+CRG_ENV_NAME="crg"
 PYTHON_VERSION="3.11"
 
 usage() {
-  echo "用法: $0 [--env-name <name>] [--python-version <version>]"
+  echo "用法: $0 [--env-name <name>] [--crg-env-name <name>] [--python-version <version>]"
+}
+
+has_command_group() {
+  shift 2
+
+  for cmd in "$@"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      return 0
+    fi
+    if conda run -n "$ENV_NAME" "$cmd" --version >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_command_group() {
+  local label="$1"
+  local install_hint="$2"
+  shift 2
+
+  if has_command_group "$label" "$install_hint" "$@"; then
+    echo "检测到 $label"
+  else
+    echo "警告: 未检测到 $label（候选命令: $*）。$install_hint"
+  fi
+}
+
+install_system_package() {
+  local label="$1"
+  local brew_pkg="$2"
+  local apt_pkg="$3"
+  local conda_pkg="$4"
+
+  echo "尝试安装 $label..."
+  if command -v brew >/dev/null 2>&1; then
+    brew install "$brew_pkg"
+    return $?
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y "$apt_pkg"
+    return $?
+  fi
+  if command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y "$apt_pkg"
+    return $?
+  fi
+  if command -v yum >/dev/null 2>&1; then
+    sudo yum install -y "$apt_pkg"
+    return $?
+  fi
+  if command -v apk >/dev/null 2>&1; then
+    sudo apk add --no-cache "$apt_pkg"
+    return $?
+  fi
+  if [[ -n "$conda_pkg" ]]; then
+    conda install -n "$ENV_NAME" -c conda-forge "$conda_pkg" -y
+    return $?
+  fi
+  return 1
+}
+
+ensure_system_tool() {
+  local label="$1"
+  local install_hint="$2"
+  local brew_pkg="$3"
+  local apt_pkg="$4"
+  local conda_pkg="$5"
+  shift 5
+
+  if has_command_group "$label" "$install_hint" "$@"; then
+    echo "检测到 $label"
+    return 0
+  fi
+
+  if ! install_system_package "$label" "$brew_pkg" "$apt_pkg" "$conda_pkg"; then
+    echo "警告: $label 自动安装失败。$install_hint"
+  fi
+  check_command_group "$label" "$install_hint" "$@"
+}
+
+ensure_pip_tool() {
+  local label="$1"
+  local install_hint="$2"
+  local pip_pkg="$3"
+  shift 3
+
+  if has_command_group "$label" "$install_hint" "$@"; then
+    echo "检测到 $label"
+    return 0
+  fi
+
+  echo "尝试安装 $label..."
+  if ! conda run -n "$ENV_NAME" python -m pip install "$pip_pkg"; then
+    echo "警告: $label 自动安装失败。$install_hint"
+  fi
+  check_command_group "$label" "$install_hint" "$@"
+}
+
+create_tool_wrapper() {
+  local wrapper_path="$1"
+  local target_bin="$2"
+
+  if [[ -z "$target_bin" || ! -x "$target_bin" ]]; then
+    echo "警告: 无法创建 wrapper，目标命令不可执行: $target_bin"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$wrapper_path")"
+  cat > "$wrapper_path" <<EOF
+#!/usr/bin/env bash
+exec "$target_bin" "\$@"
+EOF
+  chmod +x "$wrapper_path"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env-name)
       ENV_NAME="$2"
+      shift 2
+      ;;
+    --crg-env-name)
+      CRG_ENV_NAME="$2"
       shift 2
       ;;
     --python-version)
@@ -52,13 +172,29 @@ conda create -n "$ENV_NAME" python="$PYTHON_VERSION" -y
 conda run -n "$ENV_NAME" pip install --upgrade pip
 conda run -n "$ENV_NAME" pip install -r "$REQ_FILE"
 
-if command -v npm >/dev/null 2>&1; then
-  echo "检测到 npm，安装 claude-code-router 到当前目录..."
-  mkdir -p "$SCRIPT_DIR/bin"
-  if ! npm install --prefix "$SCRIPT_DIR/bin" @musistudio/claude-code-router; then
-    echo "警告: claude-code-router 安装失败，请检查 npm 网络或包名。后续如需代理能力请手动安装。"
-  fi
+if conda env list | awk -v env="$CRG_ENV_NAME" '$1 == env {found=1} END {exit !found}'; then
+  conda env remove -n "$CRG_ENV_NAME" -y
 fi
+
+conda create -n "$CRG_ENV_NAME" python="$PYTHON_VERSION" -y
+conda run -n "$CRG_ENV_NAME" pip install --upgrade pip
+conda run -n "$CRG_ENV_NAME" pip install code-review-graph
+
+echo "检查外部工具..."
+ensure_system_tool "git" "请安装 git；缺失时 git 工具会降级。" git git git git
+ensure_system_tool "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep ripgrep ripgrep ripgrep rg
+ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep "" ast-grep ast-grep sg
+ensure_pip_tool "Semble" "请安装 semble；缺失时 semble_search 会降级。" semble semble
+
+TOOLS_BIN_DIR="$SCRIPT_DIR/.tools/bin"
+SEMBLE_BIN="$(conda run -n "$ENV_NAME" python -c 'import shutil; print(shutil.which("semble") or "")')"
+CRG_BIN="$(conda run -n "$CRG_ENV_NAME" python -c 'import shutil; print(shutil.which("code-review-graph") or "")')"
+create_tool_wrapper "$TOOLS_BIN_DIR/semble" "$SEMBLE_BIN"
+create_tool_wrapper "$TOOLS_BIN_DIR/code-review-graph" "$CRG_BIN"
+
+PATH="$TOOLS_BIN_DIR:$PATH"
+check_command_group "Semble wrapper" "请检查 $TOOLS_BIN_DIR/semble。" semble
+check_command_group "code-review-graph wrapper" "请检查 $TOOLS_BIN_DIR/code-review-graph。" code-review-graph
 
 echo "安装完成。"
 echo "运行方式:"

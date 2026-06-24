@@ -40,6 +40,65 @@ class LlmConfig(BaseModel):
     api_key: str = ""
     api_base: str = ""
     platform: Platform | None = None
+    # 是否在本机起 LiteLLM proxy 做 Anthropic<->OpenAI 协议转换。
+    # 默认关:沿用直连(仅适用于原生支持 Anthropic /v1/messages 的网关)。
+    # 开启后,bootstrap 会把 api_base/api_key 改写为本地 proxy。
+    use_litellm_gateway: bool = False
+    # LiteLLM 路由前缀(上游协议)。OpenAI 兼容厂商用 "openai"。
+    gateway_provider: str = "openai"
+    # 本地 proxy 端口;留空自动取空闲端口。
+    gateway_port: int | None = None
+    # 隔离的 claude CLI 配置目录;由 bootstrap 在启动网关后注入,
+    # 经 build_sdk_env 落到 CLAUDE_CONFIG_DIR,使 CLI 不读宿主 ~/.claude/settings.json。
+    claude_config_dir: str = ""
+    # summary agent 结构化输出调用（litellm.acompletion）的最大 output token 数。
+    # 不设置时 LiteLLM 对 OpenAI-compatible 请求默认 8192，容易截断大型汇总报告。
+    # 建议设为上游实际支持的最大值，Claude Sonnet 4.6 标准上限为 16000。
+    summary_max_output_tokens: int = 16000
+
+
+class GitConfig(BaseModel):
+    # git 配置全部可选,缺省时只读本地 git 仍可用、远程默认关闭。
+    model_config = ConfigDict(extra="allow")
+
+    # 全局兜底 token;per-task context.git_token 优先级更高。日志必须脱敏。
+    token: str = ""
+    # git 命令超时(秒)。
+    timeout_s: float = 30.0
+    # 是否允许联网(git_fetch 等);默认关闭,避免引入不可控远程成本。
+    allow_network: bool = False
+
+
+class CrgConfig(BaseModel):
+    # CRG 默认关闭,避免首次接入时引入后台构建成本。
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = False
+    base_dir: str = ".crg"
+    # 兼容旧配置。code-review-graph 2.x 真实 CLI 基于 project_root --repo 构建,
+    # 不再读取 target_root。
+    target_root: str = ""
+    max_retry: int = 3
+    retry_interval_s: float = 1.0
+    timeout_s: float = 60.0
+    # 调用链工具(crg_callers/callees/affected_flows/get_flow)所用的 crg 环境 python。
+    # 留空则自动从 code-review-graph 命令位置推断;也可用环境变量 CRG_PYTHON 覆盖。
+    python_path: str = ""
+
+
+class ToolsConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    crg: CrgConfig = Field(default_factory=CrgConfig)
+
+
+class TimeoutsConfig(BaseModel):
+    # 各子 agent 的单次模型调用超时(秒)。summary 输入/输出最大,默认与其它一致 300s。
+    model_config = ConfigDict(extra="allow")
+
+    context_s: float = 300.0
+    dimension_s: float = 300.0
+    summary_s: float = 300.0
 
 
 class AgentConfig(BaseModel):
@@ -54,6 +113,9 @@ class AgentConfig(BaseModel):
     context: ContextConfig
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     llm: LlmConfig
+    git: GitConfig = Field(default_factory=GitConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     platform: Platform | None = None
 
     def configured_platform(self) -> Platform | None:
