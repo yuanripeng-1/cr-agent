@@ -94,9 +94,8 @@ def test_explicit_unknown_tool_is_dropped() -> None:
 
 @pytest.mark.asyncio
 async def test_placeholder_handlers_return_not_implemented() -> None:
-    # crg_build_or_update 仍留给 PR7;infcode stub 仍统一占位。
+    # infcode stub 仍统一占位。
     cases = [
-        (CrNativeToolProvider(), "crg_build_or_update"),
         (InfcodeToolProvider(), "crg_query"),
     ]
     for provider, tool_name in cases:
@@ -105,6 +104,15 @@ async def test_placeholder_handlers_return_not_implemented() -> None:
         assert result["ok"] is False
         assert provider.name() in result["error"]
         assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_crg_build_or_update_degrades_without_lifecycle() -> None:
+    provider = CrNativeToolProvider()
+    spec = next(s for s in provider.list_tools() if s.name == "crg_build_or_update")
+    result = await spec.handler({})
+    assert result["ok"] is False
+    assert "crg_build_or_update" in result["error"]
 
 
 @pytest.mark.asyncio

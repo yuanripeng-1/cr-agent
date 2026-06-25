@@ -33,6 +33,10 @@ max_retry = 3
 retry_interval_s = 1.0
 timeout_s = 60
 
+[tools.semble]
+# semble_search 冷启动加载 Model2Vec/建索引较慢,默认 120s。
+timeout_s = 120
+
 # 各子 agent 单次模型调用超时(秒)。summary 输入/输出最大,默认 300s。
 [timeouts]
 context_s = 300

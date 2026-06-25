@@ -26,6 +26,9 @@
       "retry_interval_s": "crg_query 每次 ready 检查之间的等待秒数。",
       "timeout_s": "单条 CRG build/update/query 命令超时时间。",
       "python_path": "调用链工具(crg_callers/callees/affected_flows/get_flow)所用 crg 环境 python 路径。留空自动从 code-review-graph 命令推断,也可用环境变量 CRG_PYTHON 覆盖。"
+    },
+    "semble": {
+      "timeout_s": "semble_search 单次调用超时(秒)。冷启动加载 Model2Vec 较慢,默认 120。"
     }
   }
 }

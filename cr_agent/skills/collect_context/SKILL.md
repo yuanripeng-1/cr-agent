@@ -34,6 +34,7 @@ context subagent 只能使用 `ToolFacade.tools_for("context")` 提供的工具�
   1. `crg_affected_flows {base?, limit?}`：本次变更影响了哪些执行流；
   2. 对 1-2 个关键符号各调用一次 `crg_callers` 或 `crg_callees`（**仅一层**，带 `limit`）。关键符号＝diff 中新增/修改的入口或被跨层调用的函数，`target` 用 `path::funcName` 形式（形如 `<相对路径>::<函数名>`，按本次 diff 的实际符号填写，不要照抄示例）。
   另可按需：`crg_query {query=<base_sha>}` 看变更摘要（非调用链）、`crg_get_flow {flow_name|flow_id, limit?}` 看完整业务路径。**只查一层、用 `limit` 收窄**，避免一次拉取过多节点把上下文撑爆。
+- **CRG 构建时机**：review 启动时 CRG 已在后台 build/update；优先用 `crg_status` 与 `crg_affected_flows` 等查询工具。仅当 `crg_status.ready=false` 且确需图数据时，才调用 `crg_build_or_update {}` 并等待完成。
 - **来源纯洁性**：`call_graph_context` 只能填 `crg_*` 工具返回的摘要；`semantic_context` 只能填 `semble_search` 命中并经相关性闸门保留的内容。**禁止**用 diff 推断后手写调用链、或把 `read_file`/`grep_text` 结果塞进这两个字段冒充。若 CRG/Semble 不可用或失败，写入 `warnings` 并把对应字段留空（不得伪造）。
 - **返回前自检**：输出 JSON 前必须自检——(a) 若触发了 Semble/CRG 条件却未调用对应工具，必须先补调再输出；(b) `call_graph_context`/`semantic_context` 是否仅含合法来源；(c) 最终输出是否为纯 JSON。
 - 工具失败必须记录为 warnings，不能中断评审。

@@ -1,5 +1,5 @@
 """
-cr-native 本地文件工具实现(PR4)。
+cr-native 本地文件工具实现。
 
 实现 read_file / read_file_range / glob_files / grep_text 四个工具的 handler 工厂。
 约束:
@@ -17,8 +17,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from cr_agent.tools.provider import ToolHandler, ToolResult, error_result, ok_result
 from cr_agent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from cr_agent.core.agent_config import AgentConfig
 
 _logger = get_logger("cr_agent.tools.cr_native")
 
@@ -27,6 +32,8 @@ _logger = get_logger("cr_agent.tools.cr_native")
 class ToolLimits:
     # 单次工具调用的超时(秒)。
     timeout_s: float = 30.0
+    # semble_search 专用超时(秒);冷启动加载模型较慢。
+    semble_timeout_s: float = 120.0
     # read_file 最大读取字节,超出截断并 warning。
     max_file_bytes: int = 1_000_000
     # grep 输出最大字节,超出截断并 warning。
@@ -278,3 +285,7 @@ def make_grep_text(project_root: Path | None, limits: ToolLimits) -> ToolHandler
         return await _guard(work(), tool_name="grep_text", timeout_s=limits.timeout_s)
 
     return handler
+
+
+def tool_limits_from_config(config: AgentConfig) -> ToolLimits:
+    return ToolLimits(semble_timeout_s=config.tools.semble.timeout_s)

@@ -154,3 +154,19 @@ async def test_crg_query_uses_detect_changes_cli(project: Path, monkeypatch) -> 
     assert calls == [
         ("code-review-graph", "detect-changes", "--repo", str(project.resolve()), "--base", "HEAD~1")
     ]
+
+
+@pytest.mark.asyncio
+async def test_semble_search_uses_semble_timeout(project: Path, monkeypatch) -> None:
+    timeouts: list[float] = []
+    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: "semble")
+
+    async def _fake_run_external(*args, **kwargs):
+        timeouts.append(kwargs["timeout_s"])
+        return external_tools.ok_result({"stdout": "match\n", "lines": ["match"]})
+
+    monkeypatch.setattr(external_tools, "_run_external", _fake_run_external)
+    limits = ToolLimits(timeout_s=30.0, semble_timeout_s=120.0)
+    result = await make_semble_search(project, limits)({"query": "auth flow"})
+    assert result["ok"] is True
+    assert timeouts == [120.0]

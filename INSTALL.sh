@@ -250,6 +250,15 @@ check_command_group "ast-grep wrapper" "请检查 $TOOLS_BIN_DIR/ast-grep。" as
 check_command_group "Semble wrapper" "请检查 $TOOLS_BIN_DIR/semble。" semble
 check_command_group "code-review-graph wrapper" "请检查 $TOOLS_BIN_DIR/code-review-graph。" code-review-graph
 
+if [ -n "$SEMBLE_BIN" ]; then
+  echo "Pre-warming semble model..."
+  if timeout 180 "$TOOLS_BIN_DIR/semble" search "warmup" --top-k 1 >/dev/null 2>&1; then
+    echo "semble warmup ok"
+  else
+    echo "semble warmup skipped (offline or slow)"
+  fi
+fi
+
 echo "安装完成。"
 echo "运行方式:"
 echo "  conda activate $ENV_NAME"

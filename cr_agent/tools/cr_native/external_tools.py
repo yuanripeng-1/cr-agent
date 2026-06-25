@@ -190,7 +190,7 @@ def make_semble_search(project_root: Path | None, limits: ToolLimits) -> ToolHan
             result = await _run_external(
                 cmd,
                 cwd=project_root.resolve(),
-                timeout_s=limits.timeout_s,
+                timeout_s=limits.semble_timeout_s,
                 max_bytes=limits.max_grep_bytes,
                 tool_name="semble_search",
             )
@@ -198,7 +198,18 @@ def make_semble_search(project_root: Path | None, limits: ToolLimits) -> ToolHan
                 result["data"] = {"query": query, "matches": result["data"]["lines"]}
             return result
 
-        return await _guard(work(), tool_name="semble_search", timeout_s=limits.timeout_s)
+        return await _guard(work(), tool_name="semble_search", timeout_s=limits.semble_timeout_s)
+
+    return handler
+
+
+def make_crg_build_or_update(
+    project_root: Path | None, limits: ToolLimits, crg_lifecycle: "CrgLifecycle | None" = None
+) -> ToolHandler:
+    async def handler(args: dict) -> ToolResult:
+        if crg_lifecycle is None:
+            return _crg_graph_unavailable("crg_build_or_update")
+        return await crg_lifecycle.build_or_update()
 
     return handler
 

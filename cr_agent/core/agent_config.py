@@ -69,6 +69,13 @@ class GitConfig(BaseModel):
     allow_network: bool = False
 
 
+class SembleConfig(BaseModel):
+    # semble_search 冷启动(加载 Model2Vec/建索引)较慢,默认 120s。
+    model_config = ConfigDict(extra="allow")
+
+    timeout_s: float = 120.0
+
+
 class CrgConfig(BaseModel):
     # CRG 默认关闭,避免首次接入时引入后台构建成本。
     model_config = ConfigDict(extra="allow")
@@ -90,6 +97,7 @@ class ToolsConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     crg: CrgConfig = Field(default_factory=CrgConfig)
+    semble: SembleConfig = Field(default_factory=SembleConfig)
 
 
 class TimeoutsConfig(BaseModel):

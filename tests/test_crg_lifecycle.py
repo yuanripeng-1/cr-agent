@@ -355,3 +355,56 @@ async def test_crg_never_calls_git_checkout(roots, monkeypatch) -> None:
 
     flat = " ".join(" ".join(call) for call in calls)
     assert "checkout" not in flat
+
+
+@pytest.mark.asyncio
+async def test_build_or_update_disabled_returns_error(roots) -> None:
+    life = _lifecycle(roots, enabled=False)
+    result = await life.build_or_update()
+    assert result["ok"] is False
+    assert "disabled" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_build_or_update_when_ready_is_idempotent(roots, monkeypatch) -> None:
+    _patch_crg(monkeypatch, [])
+    life = _lifecycle(roots)
+    life.ready = True
+
+    result = await life.build_or_update()
+
+    assert result["ok"] is True
+    assert result["data"]["already_ready"] is True
+
+
+@pytest.mark.asyncio
+async def test_build_or_update_waits_for_background_task(roots, monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    _patch_crg(monkeypatch, calls)
+    life = _lifecycle(roots)
+    life.start_background()
+
+    result = await life.build_or_update()
+
+    assert result["ok"] is True
+    assert life.ready is True
+    assert any(call[1] == "build" for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_build_or_update_starts_build_when_not_started(roots, monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def _proc_factory(*args):
+        if args[1] == "status":
+            return _FakeProc(stdout=b"Nodes: 0\nEdges: 0\nFiles: 0\nLast updated: never\n")
+        return _FakeProc()
+
+    _patch_crg(monkeypatch, calls, _proc_factory)
+    life = _lifecycle(roots)
+
+    result = await life.build_or_update()
+
+    assert result["ok"] is True
+    assert life.ready is True
+    assert [call[1] for call in calls] == ["status", "build"]
