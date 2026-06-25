@@ -50,6 +50,16 @@ check_command_group() {
   fi
 }
 
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    return 127
+  fi
+}
+
 install_system_package() {
   local label="$1"
   local brew_pkg="$2"
@@ -62,20 +72,20 @@ install_system_package() {
     return $?
   fi
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo apt-get install -y "$apt_pkg"
+    run_privileged apt-get update
+    run_privileged apt-get install -y "$apt_pkg"
     return $?
   fi
   if command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y "$apt_pkg"
+    run_privileged dnf install -y "$apt_pkg"
     return $?
   fi
   if command -v yum >/dev/null 2>&1; then
-    sudo yum install -y "$apt_pkg"
+    run_privileged yum install -y "$apt_pkg"
     return $?
   fi
   if command -v apk >/dev/null 2>&1; then
-    sudo apk add --no-cache "$apt_pkg"
+    run_privileged apk add --no-cache "$apt_pkg"
     return $?
   fi
   if [[ -n "$conda_pkg" ]]; then
@@ -83,6 +93,16 @@ install_system_package() {
     return $?
   fi
   return 1
+}
+
+install_ast_grep_fallback() {
+  if has_command_group "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep; then
+    return 0
+  fi
+  if command -v curl >/dev/null 2>&1; then
+    echo "尝试通过官方脚本安装 ast-grep..."
+    curl -fsSL https://ast-grep.github.io/install-script.sh | sh -s -- -y || true
+  fi
 }
 
 ensure_system_tool() {
@@ -210,8 +230,14 @@ conda run -n "$CRG_ENV_NAME" python -m pip install code-review-graph
 
 echo "检查外部工具..."
 ensure_system_tool "git" "请安装 git；缺失时 git 工具会降级。" git git git git git
-ensure_system_tool "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep ripgrep ripgrep ripgrep rg
-ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep "" ast-grep ast-grep sg
+ensure_system_tool "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep ripgrep ripgrep ripgrep ripgrep rg
+if ! has_command_group "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep rg; then
+  echo "错误: ripgrep 安装失败，grep_text 无法使用。"
+  exit 1
+fi
+ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep "" ast-grep ast-grep
+install_ast_grep_fallback
+check_command_group "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep
 ensure_pip_tool "Semble" "请安装 semble；缺失时 semble_search 会降级。" semble semble
 
 TOOLS_BIN_DIR="$SCRIPT_DIR/.tools/bin"
