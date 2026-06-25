@@ -68,41 +68,40 @@ install_system_package() {
 
   echo "尝试安装 $label..."
   if command -v brew >/dev/null 2>&1; then
-    brew install "$brew_pkg"
-    return $?
-  fi
-  if command -v apt-get >/dev/null 2>&1; then
+    if brew install "$brew_pkg"; then
+      return 0
+    fi
+  elif command -v apt-get >/dev/null 2>&1; then
     run_privileged apt-get update
-    run_privileged apt-get install -y "$apt_pkg"
-    return $?
+    if run_privileged apt-get install -y "$apt_pkg"; then
+      return 0
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    if run_privileged dnf install -y "$apt_pkg"; then
+      return 0
+    fi
+  elif command -v yum >/dev/null 2>&1; then
+    if run_privileged yum install -y "$apt_pkg"; then
+      return 0
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    if run_privileged apk add --no-cache "$apt_pkg"; then
+      return 0
+    fi
   fi
-  if command -v dnf >/dev/null 2>&1; then
-    run_privileged dnf install -y "$apt_pkg"
-    return $?
-  fi
-  if command -v yum >/dev/null 2>&1; then
-    run_privileged yum install -y "$apt_pkg"
-    return $?
-  fi
-  if command -v apk >/dev/null 2>&1; then
-    run_privileged apk add --no-cache "$apt_pkg"
-    return $?
-  fi
+
   if [[ -n "$conda_pkg" ]]; then
+    echo "尝试通过 conda-forge 安装 $label..."
     conda install -n "$ENV_NAME" -c conda-forge "$conda_pkg" -y
     return $?
   fi
   return 1
 }
 
-install_ast_grep_fallback() {
-  if has_command_group "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep; then
-    return 0
-  fi
-  if command -v curl >/dev/null 2>&1; then
-    echo "尝试通过官方脚本安装 ast-grep..."
-    curl -fsSL https://ast-grep.github.io/install-script.sh | sh -s -- -y || true
-  fi
+resolve_tool_bin() {
+  local env_name="$1"
+  local cmd="$2"
+  conda run -n "$env_name" python -c "import shutil; print(shutil.which('${cmd}') or '')"
 }
 
 ensure_system_tool() {
@@ -235,18 +234,19 @@ if ! has_command_group "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会
   echo "错误: ripgrep 安装失败，grep_text 无法使用。"
   exit 1
 fi
-ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep "" ast-grep ast-grep
-install_ast_grep_fallback
-check_command_group "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep
+ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep ast-grep ast-grep
 ensure_pip_tool "Semble" "请安装 semble；缺失时 semble_search 会降级。" semble semble
 
 TOOLS_BIN_DIR="$SCRIPT_DIR/.tools/bin"
-SEMBLE_BIN="$(conda run -n "$ENV_NAME" python -c 'import shutil; print(shutil.which("semble") or "")')"
-CRG_BIN="$(conda run -n "$CRG_ENV_NAME" python -c 'import shutil; print(shutil.which("code-review-graph") or "")')"
+AST_GREP_BIN="$(resolve_tool_bin "$ENV_NAME" ast-grep)"
+SEMBLE_BIN="$(resolve_tool_bin "$ENV_NAME" semble)"
+CRG_BIN="$(resolve_tool_bin "$CRG_ENV_NAME" code-review-graph)"
+create_tool_wrapper "$TOOLS_BIN_DIR/ast-grep" "$AST_GREP_BIN"
 create_tool_wrapper "$TOOLS_BIN_DIR/semble" "$SEMBLE_BIN"
 create_tool_wrapper "$TOOLS_BIN_DIR/code-review-graph" "$CRG_BIN"
 
 PATH="$TOOLS_BIN_DIR:$PATH"
+check_command_group "ast-grep wrapper" "请检查 $TOOLS_BIN_DIR/ast-grep。" ast-grep
 check_command_group "Semble wrapper" "请检查 $TOOLS_BIN_DIR/semble。" semble
 check_command_group "code-review-graph wrapper" "请检查 $TOOLS_BIN_DIR/code-review-graph。" code-review-graph
 

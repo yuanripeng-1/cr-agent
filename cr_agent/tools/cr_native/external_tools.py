@@ -34,7 +34,7 @@ class ExternalTool:
 EXTERNAL_TOOLS: tuple[ExternalTool, ...] = (
     ExternalTool("git", ("git",), required=True),
     ExternalTool("rg", ("rg",), required=True),
-    ExternalTool("ast-grep", ("ast-grep", "sg")),
+    ExternalTool("ast-grep", ("ast-grep",)),
     ExternalTool("semble", ("semble",)),
     ExternalTool("code-review-graph", ("code-review-graph",)),
 )
@@ -127,7 +127,7 @@ def make_ast_grep_search(project_root: Path | None, limits: ToolLimits) -> ToolH
             return guard
 
         async def work() -> ToolResult:
-            candidates = ("ast-grep", "sg")
+            candidates = ("ast-grep",)
             command = resolve_command(candidates)
             if command is None:
                 return _missing_result("ast_grep_search", candidates)
