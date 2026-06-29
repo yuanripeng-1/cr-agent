@@ -3,7 +3,12 @@
 import json
 import sys
 from pathlib import Path
-
+"""
+指定输出路径
+python3 /Users/yuanripeng/UnDone/code-review/cr-agent-18-fix/tests/render-result-json.py \
+  /Users/yuanripeng/UnDone/code-review/cr-agent-18-fix/workspaces/49-3d646d13/tmp/summary_report.json \
+  /Users/yuanripeng/UnDone/code-review/cr-agent-18-fix/workspaces/49-3d646d13/tmp/review-preview.md
+"""
 
 def render_line_comments(line_comments: dict) -> str:
     comments = (line_comments or {}).get("comments") or []

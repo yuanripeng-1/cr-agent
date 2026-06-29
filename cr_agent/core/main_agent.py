@@ -32,7 +32,11 @@ from cr_agent.core.sdk_runtime import (
     message_usage,
     sdk_message_diagnostics,
 )
-from cr_agent.core.state import ReviewState
+from cr_agent.core.review_timing import (
+    record_context_skill_s,
+    record_main_s,
+    record_summary_skill_s,
+)
 from cr_agent.core.types import TokenUsage, ValidationResult
 from cr_agent.core.usage import (
     accumulate_usage,
@@ -89,14 +93,17 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
     async def collect_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("MAIN_AGENT_SKILL_CALL skill=collect_context")
         _logger.info("SKILL_START skill=collect_context")
+        skill_start = time.monotonic()
         result = await session.registry.collect_context(session.runtime_context)
+        elapsed = time.monotonic() - skill_start
+        record_context_skill_s(elapsed)
         usage = result.get("usage")
         if isinstance(usage, TokenUsage):
             session.add_usage(usage)
         elif isinstance(usage, dict):
             session.add_usage(extract_usage({"usage": usage}))
         session.collected_context = result
-        _logger.info("SKILL_END skill=collect_context")
+        _logger.info("SKILL_END skill=collect_context elapsed_s=%.2f", elapsed)
         return ok_result(
             {
                 "task_id": result.get("task_id", ""),
@@ -109,16 +116,18 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
     async def dimension_handler(args: dict[str, Any]) -> dict[str, Any]:
         _logger.info("MAIN_AGENT_SKILL_CALL skill=dimension_review")
         _logger.info("SKILL_START skill=dimension_review")
+        skill_start = time.monotonic()
         result = await session.registry.dimension_review(
             session.runtime_context,
             session.collected_context or {},
         )
+        elapsed = time.monotonic() - skill_start
         accumulate_usage_from_dimension_artifacts(
             session.runtime_context.result_dir / "dimensions",
             add_usage=session.add_usage,
         )
         session.dimension_scores = result
-        _logger.info("SKILL_END skill=dimension_review")
+        _logger.info("SKILL_END skill=dimension_review elapsed_s=%.2f", elapsed)
         return ok_result({"findings": len(result)})
 
     async def summarize_handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -129,6 +138,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
         prior_errors = (
             session.last_validation.errors if session.last_validation is not None else None
         )
+        skill_start = time.monotonic()
         report = await session.registry.summarize_report(
             session.runtime_context,
             session.collected_context or {},
@@ -141,12 +151,15 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
             session.add_usage(extract_usage({"usage": usage}))
         # validate_json 是纯代码校验,不持有 attempt;结果回给主 agent 决策重调。
         validation = await session.registry.validate_json(session.runtime_context, report)
+        elapsed = time.monotonic() - skill_start
+        record_summary_skill_s(elapsed)
         session.last_report = report
         session.last_validation = validation
         _logger.info(
-            "SKILL_END skill=summarize_report valid=%s errors=%s",
+            "SKILL_END skill=summarize_report valid=%s errors=%s elapsed_s=%.2f",
             validation.valid,
             len(validation.errors),
+            elapsed,
         )
         return ok_result({"valid": validation.valid, "errors": validation.errors})
 
@@ -340,6 +353,7 @@ class SdkMainAgentRuntime:
         text = final_text if final_text else "".join(texts)
         extracted = extract_usage({"usage": usage, "total_cost_usd": total_cost})
         elapsed = time.monotonic() - start
+        record_main_s(elapsed)
         _logger.info(
             "MODEL_CALL_END request_id=%s agent=main elapsed_s=%.1f input=%s output=%s "
             "cache_creation=%s cache_read=%s",
