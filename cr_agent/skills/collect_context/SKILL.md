@@ -21,7 +21,8 @@ context subagent 只能使用 `ToolFacade.tools_for("context")` 提供的工具�
 ## 执行契约
 - 先理解原始 diff。
 - 提取变更文件和新增行范围。
-- 需要具体证据时使用 `read_file` 和 `read_file_range`。
+- 需要具体证据时，默认先用 `grep_text` 定位符号或关键词，再用 `read_file_range` 读取最小必要片段。
+- `read_file` 只能作为例外使用：文件很小、无法预判行号、或必须理解文件级结构时才可调用。禁止为了方便读取整文件；读取内容必须服务于 `semantic_context`、`call_graph_context` 或 `code_snippets`。
 - 有助于定位引用时使用 `grep_text`。
 - 接口实现反查：当 diff 新增代码调用 repository/storage/cache 接口方法，且该返回值进入对外状态字段、决策分支或错误映射时，必须用 `read_file_range` 读取该接口方法的具体实现（SQL 条件、adapter 空值语义、缓存写入方的 value 与 TTL）。仅读取接口签名不算完成。反查到的实现位于 diff 之外，只能作为下游维度的推理证据；收集时必须同时保留其**对应 diff 调用点的位置**，供维度据此锚定 finding。
 - 既有契约对照：当新增聚合/门禁/状态接口、或在 README/API 文档相邻行出现既有同名或等价接口时，必须用 `grep_text` 定位并读取既有接口的 handler/service 实现作为契约对照物（同样保留对应 diff 调用点位置）。
@@ -49,10 +50,10 @@ context subagent 必须严格返回 JSON：最终回复第一个非空字符必�
 - `warnings`
 
 ## Artifact
-skill 写入 `collected_context.json`。产物必须包含原始 diff 引用、变更文件、工具证据、语义上下文、调用图上下文、代码片段和 warnings。
+skill 写入 `collected_context.json`。产物必须包含原始 diff 引用、变更文件、语义上下文、调用图上下文、代码片段和 warnings。默认只写瘦身后的 `tool_evidence_summary`；仅当 `[debug].full_tool_evidence=true` 时写完整 `tool_evidence`。
 
 ## skill.py 返回
-skill handler 返回下游 agent 使用的紧凑结构化上下文。不要返回 `tool_evidence`；`tool_evidence` 只保留在 `collected_context.json` 中用于审计和 debug。
+skill handler 返回下游 agent 使用的紧凑结构化上下文。不要返回 `tool_evidence`；工具证据只保留在 `collected_context.json` 中用于审计和 debug，默认以 `tool_evidence_summary` 形式保存。
 
 返回字段：
 - `task_id`

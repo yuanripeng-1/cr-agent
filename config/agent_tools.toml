@@ -6,7 +6,7 @@ tools = []
 tools = ["*"]
 
 [agents.dimension]
-tools = ["read_file", "read_file_range", "grep_text"]
+tools = ["read_file_range", "grep_text"]
 
 [agents.summary]
 tools = []

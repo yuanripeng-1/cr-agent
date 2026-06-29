@@ -21,6 +21,12 @@
 
 **报告发现的问题，并根据规则文件为每个问题分配 score（0-100）。**
 
+## 输出长度与置信度约束（CRITICAL）
+- 默认最多输出 3 个 high-confidence findings；若没有明确、可定位、高置信问题，输出空列表，不写长篇分析。
+- critical / security / data-loss / merge-blocking 级别问题可以超过 3 个，但每个问题必须有明确 diff 内锚点。
+- 每个 finding 的 analysis / evidence / suggestion / code_suggestion 使用短段落，只写根因、证据和可执行修复。
+- 禁止输出审查过程、低置信猜测、重复问题和泛泛建议。
+
 ## 输出 Schema（YAML）
 review:
   score: <int> # 可读性得分（0-100）

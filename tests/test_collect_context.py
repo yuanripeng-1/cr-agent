@@ -9,6 +9,7 @@ import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
 from cr_agent.core.types import QueryResult, TokenUsage
+from cr_agent.core.agent_config import DebugConfig
 from cr_agent.skills.collect_context.skill import (
     _compact_changed_files,
     _parse_context_text,
@@ -139,7 +140,9 @@ async def test_collect_context_writes_stable_artifact_with_provenance(agent_conf
     assert "available_tools" not in prompt
     artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
     assert artifact["raw_diff"]["source"] == "context.json.diff_content"
-    assert artifact["tool_evidence"][0]["tool_name"] == "grep_text"
+    assert "tool_evidence" not in artifact
+    assert artifact["tool_evidence_summary"][0]["tool_name"] == "grep_text"
+    assert "data" not in artifact["tool_evidence_summary"][0]
     assert artifact["semantic_context"][0]["source"] == "semble_search"
     assert artifact["call_graph_context"][0]["source"] == "crg_query"
     assert artifact["code_snippets"][0]["path"] == "app.py"
@@ -203,8 +206,28 @@ async def test_collect_context_allows_subagent_to_skip_crg(agent_config_path: Pa
 
     assert result["summary"] == "Collected dashboard context."
     assert artifact["call_graph_context"] == []
-    called_tools = [entry["tool_name"] for entry in artifact["tool_evidence"]]
+    called_tools = [entry["tool_name"] for entry in artifact["tool_evidence_summary"]]
     assert "crg_query" not in called_tools
+
+
+@pytest.mark.asyncio
+async def test_collect_context_can_write_full_tool_evidence(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    runtime_context = replace(
+        runtime_context,
+        config=runtime_context.config.model_copy(
+            update={"debug": DebugConfig(full_tool_evidence=True)}
+        ),
+        tool_facade=_FakeFacade(_tools()),
+        context_runtime=_ContextRuntime(),
+    )
+
+    result = await collect_context(runtime_context)
+    artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+
+    assert "tool_evidence" in artifact
+    assert "data" in artifact["tool_evidence"][0]
+    assert "tool_evidence_summary" not in artifact
 
 
 @pytest.mark.asyncio
@@ -237,6 +260,7 @@ async def test_collect_context_writes_local_fallback_when_subagent_fails(agent_c
     assert "context subagent 失败" in result["summary"]
     artifact = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
     assert artifact["changed_files"]
+    assert artifact["diff_excerpt"]
     assert "context subagent 失败: context sdk failed" in artifact["warnings"]
 
 

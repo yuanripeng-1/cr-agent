@@ -20,7 +20,7 @@ from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.core.usage import usage_to_dict
 from cr_agent.skills.docs import load_skill_doc
 from cr_agent.skills.tool_trace import trace_tools
-from cr_agent.tools.provider import ToolSpec
+from cr_agent.tools.provider import ToolResult, ToolSpec, error_result
 from cr_agent.tools.spec_sdk import to_sdk_tool
 from cr_agent.utils.logging import get_logger
 
@@ -29,6 +29,7 @@ _logger = get_logger("cr_agent.skills.dimension_review")
 _DIMENSIONS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "dimensions.toml"
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompt"
 _RULES_DIR = _PROMPT_DIR / "rules"
+_DIMENSION_TOOL_CONTENT_BUDGET_BYTES = 20 * 1024
 
 
 async def dimension_review(
@@ -41,6 +42,11 @@ async def dimension_review(
     维度列表由 config/dimensions.toml 按 platform 确定。单个维度失败写入失败产物后继续;
     只有全部维度失败才抛错,让上层按既有兜底写 result.json/run.log。
     """
+    if collected_context.get("status") == "failed":
+        raise RuntimeCallError(
+            "dimension_review skipped because collect_context failed: "
+            f"{collected_context.get('error') or 'unknown'}"
+        )
     selection = _load_dimensions(runtime_context.platform)
     artifact_dir = runtime_context.result_dir / "dimensions"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -137,7 +143,11 @@ async def _run_single_dimension(
         prompt_text = prompt_path.read_text(encoding="utf-8")
         rule_text = rule_path.read_text(encoding="utf-8") if rule_path.exists() else ""
         # 每个维度单独包一层 tracing,日志里能区分是哪个维度发起的工具调用。
-        traced_tools = trace_tools(tools, agent_name=f"dimension:{dimension}")
+        budgeted_tools = _wrap_dimension_tool_budget(
+            tools,
+            budget_bytes=_DIMENSION_TOOL_CONTENT_BUDGET_BYTES,
+        )
+        traced_tools = trace_tools(budgeted_tools, agent_name=f"dimension:{dimension}")
         prompt = _build_prompt(
             runtime_context,
             collected_context,
@@ -358,6 +368,74 @@ def _isolate_yaml(text: str) -> str:
             if stripped == f"{anchor}:" or stripped.startswith(f"{anchor}:"):
                 return "\n".join(lines[index:]).strip()
     return text
+
+
+def _wrap_dimension_tool_budget(
+    tools: list[ToolSpec],
+    *,
+    budget_bytes: int,
+) -> list[ToolSpec]:
+    remaining = {"bytes": budget_bytes}
+    wrapped: list[ToolSpec] = []
+    for tool in tools:
+        original_handler = tool.handler
+
+        async def budgeted_handler(
+            args: dict[str, Any],
+            *,
+            _tool: ToolSpec = tool,
+            _handler=original_handler,
+        ) -> ToolResult:
+            result: ToolResult = await _handler(args)
+            data = result.get("data")
+            if not result.get("ok") or not isinstance(data, dict) or "content" not in data:
+                return result
+
+            content = "" if data.get("content") is None else str(data.get("content"))
+            if remaining["bytes"] <= 0:
+                return error_result(
+                    "dimension tool content budget exhausted",
+                    [
+                        "dimension tool content budget exhausted "
+                        f"({budget_bytes} bytes per dimension)"
+                    ],
+                )
+
+            content_bytes = len(content.encode("utf-8"))
+            if content_bytes <= remaining["bytes"]:
+                remaining["bytes"] -= content_bytes
+                return result
+
+            allowed = remaining["bytes"]
+            remaining["bytes"] = 0
+            warnings = list(result.get("warnings") or [])
+            warnings.append(
+                "dimension tool content budget truncated result to remaining "
+                f"{allowed} bytes (budget={budget_bytes} bytes per dimension)"
+            )
+            if allowed <= 0:
+                return error_result("dimension tool content budget exhausted", warnings)
+
+            truncated = content.encode("utf-8")[:allowed].decode("utf-8", errors="ignore")
+            new_data = dict(data)
+            new_data["content"] = truncated
+            new_data["content_budget_truncated"] = True
+            return {
+                "ok": True,
+                "data": new_data,
+                "warnings": warnings,
+                "error": result.get("error"),
+            }
+
+        wrapped.append(
+            ToolSpec(
+                name=tool.name,
+                description=tool.description,
+                input_schema=tool.input_schema,
+                handler=budgeted_handler,
+            )
+        )
+    return wrapped
 
 
 def _minimal_yaml_load(text: str) -> dict[str, Any]:

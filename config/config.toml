@@ -37,6 +37,11 @@ timeout_s = 60
 # semble_search 冷启动加载 Model2Vec/建索引较慢,默认 120s。
 timeout_s = 120
 
+[debug]
+# false: collected_context.json 默认只写 tool_evidence_summary,不落完整 data.content。
+# true: 保留完整 tool_evidence,便于排查工具原始返回。
+full_tool_evidence = false
+
 # 各子 agent 单次模型调用超时(秒)。summary 输入/输出最大,默认 300s。
 [timeouts]
 context_s = 300

@@ -26,6 +26,9 @@
 - 不要输出任何解释性文字
 - 不要使用 Markdown 代码围栏包裹最终答案
 - `status`、`log_path`、`tokens_consume` 等运行时字段由 Python 补充，你不要输出
+- **数量对齐硬约束**：`line_comments.comments` 的数量必须等于所有 `issues[*].locations` 的数量总和。
+- 每个 `issue.locations` 元素都必须生成一条且仅一条 `line_comments.comments`；一个 issue 有多个 locations 时必须生成多条 comments，不能只生成一条代表性评论。
+- 输出 JSON 前必须自检：先数 `issues[*].locations` 总数，再数 `line_comments.comments` 总数；两者不相等时必须先修正再输出。
 
 **JSON 骨架示例：**
 
@@ -135,6 +138,8 @@
 
 - `len(line_comments.comments) == sum(len(issue["locations"]))`
 - 每条 `locations` 对应恰好一条 comment，禁止合并
+- 去重只能合并 `issues` 项，不能合并或省略对应 location 的 comments。
+- 如果一个 issue 的 `locations` 有 N 个元素，必须生成 N 条 comments，且每条 comment 的 `new_path/start_line/end_line` 与对应 location 的 `path/start_line/end_line` 一一对应。
 
 **`body` 固定模板：**
 
@@ -188,7 +193,7 @@
 2. 按规则去重、累加 `count`、合并 `locations`、排序
 3. 将结果填入 `llm_result`、`line_comments`、`issues`
 
-若收到 `validation_errors`，只修复 JSON 结构或字段对齐问题，不改动评审结论范围。
+若收到 `validation_errors`，只修复 JSON 结构或字段对齐问题，不改动评审结论范围。若错误包含 `count must equal total issues.locations count`，只补齐或调整 `line_comments.comments` 与 `issues.locations` 一一对齐，不新增、不删除、不改写 issue 结论。
 
 ---
 

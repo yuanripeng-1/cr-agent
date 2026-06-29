@@ -22,6 +22,39 @@ def usage_to_dict(usage: TokenUsage) -> dict[str, Any]:
     }
 
 
+def usage_breakdown_entry(
+    *,
+    stage: str,
+    usage: TokenUsage,
+    skill: str | None = None,
+    agent: str | None = None,
+    dimension: str | None = None,
+    attempt: int | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    artifact_path: str | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "stage": stage,
+        "usage": usage_to_dict(usage),
+    }
+    if skill:
+        entry["skill"] = skill
+    if agent:
+        entry["agent"] = agent
+    if dimension:
+        entry["dimension"] = dimension
+    if attempt is not None:
+        entry["attempt"] = attempt
+    if source:
+        entry["source"] = source
+    if status:
+        entry["status"] = status
+    if artifact_path:
+        entry["artifact_path"] = artifact_path
+    return entry
+
+
 def coerce_cost(value: Any) -> float:
     """把 total_cost_usd 安全转 float:None 或不可转换类型一律回退 0.0(只记 warning)。"""
     if value is None:
@@ -123,6 +156,7 @@ def accumulate_usage_from_dimension_artifacts(
     dimensions_dir: Path,
     *,
     add_usage: Any,
+    add_breakdown: Any | None = None,
 ) -> None:
     if not dimensions_dir.is_dir():
         return
@@ -143,5 +177,18 @@ def accumulate_usage_from_dimension_artifacts(
         # 维度产物经 json.loads 得到 dict,usage 永远是 dict(不会是 TokenUsage 实例)。
         usage = payload.get("usage")
         if isinstance(usage, dict):
-            add_usage(extract_usage({"usage": usage}))
-
+            extracted = extract_usage({"usage": usage})
+            add_usage(extracted)
+            if add_breakdown is not None:
+                add_breakdown(
+                    usage_breakdown_entry(
+                        stage="dimension_review",
+                        skill="dimension_review",
+                        agent="dimension",
+                        dimension=str(payload.get("dimension") or path.stem),
+                        status=str(payload.get("status") or ""),
+                        source="dimension_artifact",
+                        artifact_path=str(path),
+                        usage=extracted,
+                    )
+                )
