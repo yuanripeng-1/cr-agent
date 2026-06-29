@@ -134,7 +134,15 @@ async def run_review(
             # 保证失败产物写真实已累计 token,不写假 0。
             partial = getattr(exc, "usage", None)
             if partial is not None:
-                partial_usage = extract_usage({"usage": partial})
+                try:
+                    partial_usage = extract_usage({"usage": partial})
+                except Exception as usage_exc:
+                    _logger.warning(
+                        "USAGE_EXTRACT_FAILED source=main_agent_exception error=%s original_error=%s",
+                        usage_exc,
+                        exc,
+                    )
+                    partial_usage = TokenUsage()
                 state.tokens_consume = accumulate_usage(
                     state.tokens_consume,
                     partial_usage,

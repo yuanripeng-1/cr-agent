@@ -148,7 +148,7 @@ def build_skill_tools(session: MainAgentSession) -> list[ToolSpec]:
             session.state.errors.append(error)
             _logger.warning("SKILL_SKIP skill=dimension_review reason=%s", error)
             return ok_result({"findings": 0, "skipped": True, "error": error})
-            skill_start = time.monotonic()
+        skill_start = time.monotonic()
         result = await session.registry.dimension_review(
             session.runtime_context,
             session.collected_context or {},

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
+from cr_agent.core.errors import RuntimeCallError
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import load_review_result
 from cr_agent.core.types import QueryResult, TokenUsage
@@ -317,6 +318,24 @@ async def test_dimension_tool_content_budget_is_independent_per_dimension() -> N
     assert any("content budget" in w for w in first_truncated["warnings"])
     assert second_ok["ok"] is True
     assert len(second_ok["data"]["content"]) == 8
+
+
+@pytest.mark.asyncio
+async def test_dimension_review_rejects_failed_collected_context(agent_config_path: Path) -> None:
+    dimension_runtime = _DimensionRuntime()
+    runtime_context = _runtime_context(
+        agent_config_path,
+        platform="gitlab",
+        dimension_runtime=dimension_runtime,
+    )
+
+    with pytest.raises(RuntimeCallError, match="collect_context failed: test"):
+        await dimension_review(
+            runtime_context,
+            {"status": "failed", "error": "test"},
+        )
+
+    assert dimension_runtime.calls == []
 
 
 @pytest.mark.asyncio

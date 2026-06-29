@@ -72,7 +72,18 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
     except Exception as exc:
         _logger.warning("DEGRADED reason=CONTEXT_SUBAGENT_FAILED error=%s", exc)
         result = QueryResult(text="")
-        report = _build_fallback_report(runtime_context, str(exc))
+        try:
+            report = _build_fallback_report(runtime_context, str(exc))
+        except Exception as fallback_exc:
+            _logger.warning(
+                "DEGRADED reason=CONTEXT_FALLBACK_FAILED original_error=%s fallback_error=%s",
+                exc,
+                fallback_exc,
+            )
+            report = _fatal_fallback_report(
+                original_error=str(exc),
+                fallback_error=str(fallback_exc),
+            )
         if report.get("fatal"):
             artifact = _base_artifact(
                 runtime_context=runtime_context,
@@ -563,6 +574,22 @@ def _build_fallback_report(runtime_context: RuntimeContext, reason: str) -> dict
     return report
 
 
+def _fatal_fallback_report(*, original_error: str, fallback_error: str) -> dict[str, Any]:
+    warning = (
+        "context subagent 失败，且 fallback context 构造失败: "
+        f"original={original_error}; fallback={fallback_error}"
+    )
+    return {
+        "summary": "context subagent 失败，且 fallback context 构造失败；停止后续维度审查。",
+        "diff_summary": "",
+        "warnings": [warning],
+        "fatal": True,
+        "error": warning,
+        "_diff_content": "",
+        "_diff_source": "fallback_failed",
+    }
+
+
 def _fallback_diff_content(runtime_context: RuntimeContext) -> tuple[str, str, list[str]]:
     review_input = runtime_context.review_input
     if review_input.diff_content:
@@ -570,13 +597,22 @@ def _fallback_diff_content(runtime_context: RuntimeContext) -> tuple[str, str, l
 
     warnings: list[str] = []
     if review_input.diff_file_path:
-        diff_path = Path(review_input.diff_file_path)
-        try:
-            if diff_path.is_file():
-                return diff_path.read_text(encoding="utf-8"), str(diff_path), warnings
-            warnings.append(f"diff_file_path not found: {diff_path}")
-        except OSError as exc:
-            warnings.append(f"diff_file_path unreadable: {diff_path}: {exc}")
+        diff_path = _safe_workspace_path(
+            runtime_context.workspace_dir,
+            review_input.diff_file_path,
+        )
+        if diff_path is None:
+            warnings.append(
+                "diff_file_path rejected: path escapes workspace_dir: "
+                f"{review_input.diff_file_path}"
+            )
+        else:
+            try:
+                if diff_path.is_file():
+                    return diff_path.read_text(encoding="utf-8"), str(diff_path), warnings
+                warnings.append(f"diff_file_path not found: {diff_path}")
+            except OSError as exc:
+                warnings.append(f"diff_file_path unreadable: {diff_path}: {exc}")
 
     workspace_diff = runtime_context.workspace_dir / "changes.diff"
     try:
@@ -586,6 +622,18 @@ def _fallback_diff_content(runtime_context: RuntimeContext) -> tuple[str, str, l
     except OSError as exc:
         warnings.append(f"workspace changes.diff unreadable: {workspace_diff}: {exc}")
     return "", "missing", warnings
+
+
+def _safe_workspace_path(workspace_dir: Path, raw_path: str) -> Path | None:
+    try:
+        root = workspace_dir.resolve()
+        raw = Path(raw_path)
+        candidate = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+    except OSError:
+        return None
+    if candidate == root or candidate.is_relative_to(root):
+        return candidate
+    return None
 
 
 def _changed_line_snippets(diff_content: str) -> list[dict[str, Any]]:
