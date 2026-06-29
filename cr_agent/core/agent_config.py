@@ -51,10 +51,9 @@ class LlmConfig(BaseModel):
     # 隔离的 claude CLI 配置目录;由 bootstrap 在启动网关后注入,
     # 经 build_sdk_env 落到 CLAUDE_CONFIG_DIR,使 CLI 不读宿主 ~/.claude/settings.json。
     claude_config_dir: str = ""
-    # summary agent 结构化输出调用（litellm.acompletion）的最大 output token 数。
-    # 不设置时 LiteLLM 对 OpenAI-compatible 请求默认 8192，容易截断大型汇总报告。
-    # 建议设为上游实际支持的最大值，Claude Sonnet 4.6 标准上限为 16000。
-    summary_max_output_tokens: int = 16000
+    # summary agent 是否走 LiteLLM structured output（response_format json_schema）。
+    # 默认开启；对不支持 json_schema 的 OpenAI 兼容模型可设为 false，改走 SDK。
+    summary_structured_output: bool = True
 
 
 class GitConfig(BaseModel):

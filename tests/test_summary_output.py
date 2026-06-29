@@ -25,7 +25,7 @@ from cr_agent.core.summary_output import (
     validate_summary_output,
 )
 from cr_agent.core.types import QueryResult
-from cr_agent.skills.summarize.skill import summarize_report
+from cr_agent.skills.summarize.skill import invoke_summary_agent, summarize_report
 from cr_agent.skills.validate_json.skill import validate_json
 
 
@@ -602,3 +602,69 @@ class TestSummarizeUsesStructuredOutput:
         assert runtime.plain_calls == 0
         assert first["structured_output_error_kind"] == "timeout"
         assert second["llm_result"] == "# structured retry"
+
+    @pytest.mark.asyncio
+    async def test_uses_query_subagent_when_structured_output_disabled_in_config(
+        self, agent_config_path: Path, tmp_path: Path
+    ) -> None:
+        """[llm].summary_structured_output=false 时应走 query_subagent，不调 structured。"""
+        runtime = _StructuredRuntime(
+            '{"llm_result": "# sdk", "line_comments": {"comments": []}, "issues": []}'
+        )
+        base_ctx = bootstrap_runtime(agent_config_path, platform_override=None)
+        config = base_ctx.config.model_copy(
+            update={
+                "llm": base_ctx.config.llm.model_copy(
+                    update={"summary_structured_output": False}
+                )
+            }
+        )
+        ctx = replace(
+            base_ctx,
+            summary_runtime=runtime,
+            config=config,
+            result_dir=tmp_path,
+        )
+
+        report = await summarize_report(ctx, {"task_id": "task-1"}, [], None)
+
+        assert len(runtime.structured_calls) == 0
+        assert len(runtime.fallback_calls) == 1
+        assert report["llm_result"] == "# sdk"
+
+
+class TestInvokeSummaryAgent:
+    @pytest.mark.asyncio
+    async def test_writes_to_custom_output_paths(
+        self, agent_config_path: Path, tmp_path: Path
+    ) -> None:
+        runtime = _StructuredRuntime(
+            '{"llm_result": "# custom", "line_comments": {"comments": []}, "issues": []}'
+        )
+        base_ctx = bootstrap_runtime(agent_config_path, platform_override=None)
+        config = base_ctx.config.model_copy(
+            update={
+                "llm": base_ctx.config.llm.model_copy(
+                    update={"summary_structured_output": False}
+                )
+            }
+        )
+        custom_txt = tmp_path / "out" / "report.txt"
+        custom_json = tmp_path / "out" / "report.json"
+        ctx = replace(
+            base_ctx,
+            summary_runtime=runtime,
+            config=config,
+            result_dir=tmp_path,
+        )
+
+        report = await invoke_summary_agent(
+            ctx,
+            "test prompt",
+            summary_report_txt_path=custom_txt,
+            summary_report_json_path=custom_json,
+        )
+
+        assert report["llm_result"] == "# custom"
+        assert custom_txt.read_text(encoding="utf-8").startswith("{")
+        assert custom_json.exists()

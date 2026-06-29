@@ -13,7 +13,8 @@
     "model": "本次 review 使用的模型标识。",
     "api_key": "模型代理鉴权信息。",
     "api_base": "Anthropic 兼容代理地址。",
-    "platform": "兼容历史配置的平台字段。推荐后续迁移到根级 platform。"
+    "platform": "兼容历史配置的平台字段。推荐后续迁移到根级 platform。",
+    "summary_structured_output": "summary agent 是否走 LiteLLM structured output。false 时改走 Claude Agent SDK。"
   },
   "platform": "推荐的平台配置位置,用于选择工具集和审查维度。命令行 --platform 优先级更高。"
   ,
