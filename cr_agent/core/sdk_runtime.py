@@ -490,9 +490,6 @@ class ClaudeAgentRuntime:
                         "type": "json_schema",
                         "json_schema": response_schema,
                     },
-                    # Claude Sonnet 4 系列最大输出 token 数为 64000；
-                    # 不从 config 读取，避免在 agent_config.toml 引入额外字段。
-                    max_tokens=64000,
                 ),
                 timeout=timeout_s,
             )

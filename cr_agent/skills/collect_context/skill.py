@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import hashlib
+import time
 from pathlib import Path
 from typing import Any
 
 from cr_agent.bootstrap import RuntimeContext
+from cr_agent.core.review_timing import record_context_agent_s
 from cr_agent.core.types import QueryResult
 from cr_agent.core.usage import usage_to_dict
 from cr_agent.skills.docs import load_skill_doc
@@ -56,12 +58,16 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
 
     try:
         # Context 子 Agent 启动
+        agent_start = time.monotonic()
         result = await runtime.query_subagent(
             "context",
             prompt,
             assembled_options=options,
             timeout_s=runtime_context.config.timeouts.context_s,
         )
+        agent_elapsed = time.monotonic() - agent_start
+        record_context_agent_s(agent_elapsed)
+        _logger.info("AGENT_TIMING agent=context elapsed_s=%.2f", agent_elapsed)
         degraded_warning = ""
     except Exception as exc:
         _logger.warning("DEGRADED reason=CONTEXT_SUBAGENT_FAILED error=%s", exc)

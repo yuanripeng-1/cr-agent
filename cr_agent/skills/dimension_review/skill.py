@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when dependency is a
 from cr_agent.bootstrap import RuntimeContext
 from cr_agent.core.errors import RuntimeCallError
 from cr_agent.core.finding_filter import filter_dimension_result, flatten_filtered_findings
+from cr_agent.core.review_timing import record_dimension_agent_s, record_dimension_skill_s
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.core.usage import usage_to_dict
 from cr_agent.skills.docs import load_skill_doc
@@ -47,6 +49,8 @@ async def dimension_review(
             "dimension_review skipped because collect_context failed: "
             f"{collected_context.get('error') or 'unknown'}"
         )
+    
+    skill_start = time.monotonic()
     selection = _load_dimensions(runtime_context.platform)
     artifact_dir = runtime_context.result_dir / "dimensions"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -63,6 +67,7 @@ async def dimension_review(
 
     async def run_limited(dimension: str) -> dict[str, Any]:
         async with semaphore:
+            dim_start = time.monotonic()
             _logger.info("DIMENSION_START dimension=%s", dimension)
             result = await _run_single_dimension(
                 runtime_context=runtime_context,
@@ -71,10 +76,18 @@ async def dimension_review(
                 tools=tools,
                 artifact_dir=artifact_dir,
             )
+            dim_elapsed = time.monotonic() - dim_start
+            record_dimension_agent_s(dimension, dim_elapsed)
             _logger.info(
-                "DIMENSION_END dimension=%s status=%s",
+                "AGENT_TIMING agent=dimension dimension=%s elapsed_s=%.2f",
+                dimension,
+                dim_elapsed,
+            )
+            _logger.info(
+                "DIMENSION_END dimension=%s status=%s elapsed_s=%.2f",
                 dimension,
                 result["status"],
+                dim_elapsed,
             )
             return result
 
@@ -116,6 +129,9 @@ async def dimension_review(
             f"manifest={artifact_dir / 'manifest.json'}; "
             f"errors={errors}"
         )
+    skill_elapsed = time.monotonic() - skill_start
+    record_dimension_skill_s(skill_elapsed)
+    _logger.info("SKILL_TIMING skill=dimension_review elapsed_s=%.2f", skill_elapsed)
     return successful_findings
 
 
