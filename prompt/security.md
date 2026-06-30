@@ -32,6 +32,12 @@
 
 **输出语言约束（CRITICAL）**：`category`、`description`、`requirement_reference` 必须使用开发者可读的简体中文问题类型描述；禁止输出 OWASP/CWE 等编号或代号（如 `A01`、`A03:2021`、`CWE-89`、`OWASP Top 10` 等）。如需表达漏洞类别，直接用中文名称（如「SQL 注入」「越权访问」「敏感数据泄露」），不得附带编号。
 
+## 输出长度与置信度约束（CRITICAL）
+- 默认最多输出 3 个 high-confidence findings；若没有明确、可定位、高置信问题，输出空列表，不写长篇分析。
+- critical / security / data-loss / merge-blocking 级别问题可以超过 3 个，但每个问题必须有明确 diff 内锚点。
+- 每个 finding 的 analysis / evidence / suggestion / code_suggestion 使用短段落，只写根因、证据和可执行修复。
+- 禁止输出审查过程、低置信猜测、重复问题和泛泛建议。
+
 ## 输出 Schema（YAML）
 review:
   score: <int> # 安全态势（0-100）

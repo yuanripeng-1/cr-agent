@@ -24,13 +24,22 @@ def project(tmp_path: Path) -> Path:
     return root
 
 
-def test_resolve_command_uses_first_available(monkeypatch) -> None:
+def test_resolve_command_uses_ast_grep(monkeypatch) -> None:
     monkeypatch.setattr(
         external_tools.shutil,
         "which",
-        lambda command: f"/bin/{command}" if command == "sg" else None,
+        lambda command: "/bin/ast-grep" if command == "ast-grep" else None,
     )
-    assert resolve_command(("ast-grep", "sg")) == "sg"
+    assert resolve_command(("ast-grep",)) == "ast-grep"
+
+
+def test_resolve_command_ignores_sg(monkeypatch) -> None:
+    monkeypatch.setattr(
+        external_tools.shutil,
+        "which",
+        lambda command: "/usr/bin/sg" if command == "sg" else None,
+    )
+    assert resolve_command(("ast-grep",)) is None
 
 
 def test_check_external_tool_availability_reports_missing(monkeypatch) -> None:
@@ -97,7 +106,7 @@ class _FakeProc:
 @pytest.mark.asyncio
 async def test_ast_grep_search_uses_adapter_command(project: Path, monkeypatch) -> None:
     calls: list[tuple[str, ...]] = []
-    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: "sg")
+    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: "ast-grep")
 
     async def _fake_exec(*args, **kwargs):
         calls.append(tuple(args))
@@ -109,7 +118,7 @@ async def test_ast_grep_search_uses_adapter_command(project: Path, monkeypatch) 
     )
     assert result["ok"] is True
     assert result["data"]["matches"] == ["app.py:1:def handler"]
-    assert calls[0][:4] == ("sg", "run", "--pattern", "def $F()")
+    assert calls[0][:4] == ("ast-grep", "run", "--pattern", "def $F()")
 
 
 @pytest.mark.asyncio
@@ -145,3 +154,19 @@ async def test_crg_query_uses_detect_changes_cli(project: Path, monkeypatch) -> 
     assert calls == [
         ("code-review-graph", "detect-changes", "--repo", str(project.resolve()), "--base", "HEAD~1")
     ]
+
+
+@pytest.mark.asyncio
+async def test_semble_search_uses_semble_timeout(project: Path, monkeypatch) -> None:
+    timeouts: list[float] = []
+    monkeypatch.setattr(external_tools, "resolve_command", lambda candidates: "semble")
+
+    async def _fake_run_external(*args, **kwargs):
+        timeouts.append(kwargs["timeout_s"])
+        return external_tools.ok_result({"stdout": "match\n", "lines": ["match"]})
+
+    monkeypatch.setattr(external_tools, "_run_external", _fake_run_external)
+    limits = ToolLimits(timeout_s=30.0, semble_timeout_s=120.0)
+    result = await make_semble_search(project, limits)({"query": "auth flow"})
+    assert result["ok"] is True
+    assert timeouts == [120.0]

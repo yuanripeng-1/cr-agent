@@ -15,6 +15,8 @@ summarize_report,并在 validate 失败后决定是否重调)。orchestrator 不
 
 from __future__ import annotations
 
+import json
+import time
 from typing import Any
 
 from cr_agent.bootstrap import RuntimeContext
@@ -35,9 +37,21 @@ from cr_agent.core.review_output import (
     ReviewResult,
     TokenUsage as OutputTokenUsage,
 )
+from cr_agent.core.review_timing import (
+    log_review_timing,
+    record_context_skill_s,
+    record_summary_skill_s,
+    start_review_timing,
+)
 from cr_agent.core.state import ReviewState
 from cr_agent.core.types import TokenUsage
-from cr_agent.core.usage import accumulate_usage, accumulate_usage_from_dimension_artifacts, extract_usage
+from cr_agent.core.usage import (
+    accumulate_usage,
+    accumulate_usage_from_dimension_artifacts,
+    extract_usage,
+    usage_breakdown_entry,
+    usage_to_dict,
+)
 from cr_agent.skills.registry import SkillRegistry, build_default_skill_registry
 from cr_agent.utils.logging import get_logger
 
@@ -79,6 +93,8 @@ async def run_review(
 
     runtime_context.crg_lifecycle.start_background()
     append_run_log(runtime_context.result_dir, "review started")
+    review_timing = start_review_timing()
+    _logger.info("REVIEW_TIMING_START")
     try:
         # 把 3 个 skill 变成带 handler 的 ToolSpec 列表
         skill_tools = build_skill_tools(session)
@@ -100,18 +116,45 @@ async def run_review(
                 timeout_s=planning_timeout_s,
                 max_turns=_MAIN_AGENT_MAX_TURNS,
             )
+            main_usage = getattr(main_result, "usage", TokenUsage())
             state.tokens_consume = accumulate_usage(
                 state.tokens_consume,
-                getattr(main_result, "usage", TokenUsage()),
+                main_usage,
+            )
+            state.token_usage_breakdown.append(
+                usage_breakdown_entry(
+                    stage="main_agent",
+                    agent="main",
+                    source="main_agent_runtime",
+                    usage=main_usage,
+                )
             )
         except Exception as exc:
             # 模型计费后才报错时,异常可能带回已消费 usage;累计后再抛,
             # 保证失败产物写真实已累计 token,不写假 0。
             partial = getattr(exc, "usage", None)
             if partial is not None:
+                try:
+                    partial_usage = extract_usage({"usage": partial})
+                except Exception as usage_exc:
+                    _logger.warning(
+                        "USAGE_EXTRACT_FAILED source=main_agent_exception error=%s original_error=%s",
+                        usage_exc,
+                        exc,
+                    )
+                    partial_usage = TokenUsage()
                 state.tokens_consume = accumulate_usage(
                     state.tokens_consume,
-                    extract_usage({"usage": partial}),
+                    partial_usage,
+                )
+                state.token_usage_breakdown.append(
+                    usage_breakdown_entry(
+                        stage="main_agent",
+                        agent="main",
+                        source="main_agent_exception",
+                        status="error",
+                        usage=partial_usage,
+                    )
                 )
             if session.last_report is None:
                 _logger.warning(
@@ -151,6 +194,10 @@ async def run_review(
         )
         append_run_log(runtime_context.result_dir, f"review error: {exc}")
 
+    timing_summary = log_review_timing(review_timing)
+    append_run_log(runtime_context.result_dir, timing_summary)
+
+    write_token_usage_breakdown(runtime_context, state)
     write_result_json(runtime_context.result_dir, result)
     write_result_markdown(runtime_context.result_dir, result.llm_result)
     append_run_log(runtime_context.result_dir, f"review finished status={result.status}")
@@ -172,16 +219,37 @@ async def _run_sequential_skill_fallback(
     if session.collected_context is None:
         _logger.info("MAIN_AGENT_SKILL_CALL skill=collect_context source=fallback")
         _logger.info("SKILL_START skill=collect_context source=fallback")
+        skill_start = time.monotonic()
         collected = await session.registry.collect_context(session.runtime_context)
+        record_context_skill_s(time.monotonic() - skill_start)
         _accumulate_result_usage(session, collected)
+        _record_result_usage(
+            session,
+            collected,
+            stage="collect_context",
+            skill="collect_context",
+            agent="context",
+            artifact_path=str(collected.get("artifact_path", "")),
+        )
         session.collected_context = collected
-        _logger.info("SKILL_END skill=collect_context source=fallback")
+        _logger.info(
+            "SKILL_END skill=collect_context source=fallback elapsed_s=%.2f",
+            time.monotonic() - skill_start,
+        )
     else:
         _logger.info("FALLBACK_SKIP_SKILL skill=collect_context reason=already_completed")
 
     if session.dimension_scores is None:
         _logger.info("MAIN_AGENT_SKILL_CALL skill=dimension_review source=fallback")
         _logger.info("SKILL_START skill=dimension_review source=fallback")
+        if session.collected_context and session.collected_context.get("status") == "failed":
+            error = str(session.collected_context.get("error") or "collect_context failed")
+            session.state.errors.append(error)
+            session.dimension_scores = []
+            _logger.warning("SKILL_SKIP skill=dimension_review source=fallback reason=%s", error)
+            return
+            
+        skill_start = time.monotonic()
         scores = await session.registry.dimension_review(
             session.runtime_context,
             session.collected_context or {},
@@ -189,9 +257,13 @@ async def _run_sequential_skill_fallback(
         accumulate_usage_from_dimension_artifacts(
             session.runtime_context.result_dir / "dimensions",
             add_usage=session.add_usage,
+            add_breakdown=session.add_usage_breakdown,
         )
         session.dimension_scores = scores
-        _logger.info("SKILL_END skill=dimension_review source=fallback")
+        _logger.info(
+            "SKILL_END skill=dimension_review source=fallback elapsed_s=%.2f",
+            time.monotonic() - skill_start,
+        )
     else:
         _logger.info("FALLBACK_SKIP_SKILL skill=dimension_review reason=already_completed")
 
@@ -208,6 +280,7 @@ async def _run_sequential_skill_fallback(
             "SKILL_START skill=summarize_report source=fallback attempt=%s",
             session.state.attempt,
         )
+        skill_start = time.monotonic()
         report = await session.registry.summarize_report(
             session.runtime_context,
             session.collected_context or {},
@@ -217,14 +290,28 @@ async def _run_sequential_skill_fallback(
         # summary 子 agent 每次调用(含重试)都是真实计费,逐次累加其 usage。
         usage = report.get("usage")
         if isinstance(usage, dict):
-            session.add_usage(extract_usage({"usage": usage}))
+            extracted = extract_usage({"usage": usage})
+            session.add_usage(extracted)
+            session.add_usage_breakdown(
+                usage_breakdown_entry(
+                    stage="summarize_report",
+                    skill="summarize_report",
+                    agent="summary",
+                    attempt=session.state.attempt,
+                    source="skill_result",
+                    artifact_path=str(session.runtime_context.result_dir / "summary_report.json"),
+                    usage=extracted,
+                )
+            )
         validation = await session.registry.validate_json(session.runtime_context, report)
+        record_summary_skill_s(time.monotonic() - skill_start)
         session.last_report = report
         session.last_validation = validation
         _logger.info(
-            "SKILL_END skill=summarize_report source=fallback valid=%s errors=%s",
+            "SKILL_END skill=summarize_report source=fallback valid=%s errors=%s elapsed_s=%.2f",
             validation.valid,
             len(validation.errors),
+            time.monotonic() - skill_start,
         )
         if validation.valid:
             break
@@ -241,6 +328,51 @@ def _accumulate_result_usage(session: MainAgentSession, result: dict[str, Any]) 
         session.add_usage(usage)
     elif isinstance(usage, dict):
         session.add_usage(extract_usage({"usage": usage}))
+
+
+def _record_result_usage(
+    session: MainAgentSession,
+    result: dict[str, Any],
+    *,
+    stage: str,
+    skill: str | None = None,
+    agent: str | None = None,
+    artifact_path: str | None = None,
+) -> None:
+    usage = result.get("usage")
+    if isinstance(usage, TokenUsage):
+        extracted = usage
+    elif isinstance(usage, dict):
+        extracted = extract_usage({"usage": usage})
+    else:
+        return
+    session.add_usage_breakdown(
+        usage_breakdown_entry(
+            stage=stage,
+            skill=skill,
+            agent=agent,
+            source="skill_result",
+            artifact_path=artifact_path,
+            usage=extracted,
+        )
+    )
+
+
+def write_token_usage_breakdown(
+    runtime_context: RuntimeContext,
+    state: ReviewState,
+) -> None:
+    payload = {
+        "task_id": runtime_context.review_input.task_id,
+        "platform": runtime_context.platform,
+        "status": state.status,
+        "attempts": state.attempt,
+        "total": usage_to_dict(state.tokens_consume),
+        "entries": state.token_usage_breakdown,
+    }
+    path = runtime_context.result_dir / "token_usage_breakdown.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    append_run_log(runtime_context.result_dir, f"token usage breakdown written: {path}")
 
 
 def _build_review_result(

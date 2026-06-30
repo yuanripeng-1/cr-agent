@@ -1,19 +1,24 @@
 [defaults]
-concurrency = 5
+concurrency = 10
 
 [profiles.gitlab]
 dimensions = [
   "business",
   "security",
   "performance",
-  "dependency",
   "testing",
   "error_handling",
   "consistency",
-  "readability",
-  "maintainability",
-  "documentation",
+
+
+#  "dependency",
+#  "readability",
+#  "maintainability",
+#  "documentation",
 ]
+
+
+
 
 [profiles.infcode]
 dimensions = []

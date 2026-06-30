@@ -16,7 +16,7 @@ from cr_agent.tools.spec_sdk import to_sdk_tool
 _AGENT_TOOLS = {
     "main": [],
     "context": ["*"],
-    "dimension": ["read_file", "read_file_range", "grep_text"],
+    "dimension": ["read_file_range", "grep_text"],
     "summary": [],
 }
 
@@ -47,7 +47,8 @@ def test_star_expansion_equals_registry_intersect_provider_gitlab() -> None:
 def test_dimension_agent_gets_read_and_search_tools_only() -> None:
     facade = ToolFacade(provider=CrNativeToolProvider(), agent_tools=_AGENT_TOOLS)
     names = [spec.name for spec in facade.tools_for("dimension")]
-    assert names == ["read_file", "read_file_range", "grep_text"]
+    assert names == ["read_file_range", "grep_text"]
+    assert "read_file" not in names
     assert "semble_search" not in names
     assert "crg_query" not in names
 
@@ -55,7 +56,7 @@ def test_dimension_agent_gets_read_and_search_tools_only() -> None:
 def test_dimension_agent_allowlist_intersects_infcode_provider() -> None:
     facade = ToolFacade(provider=InfcodeToolProvider(), agent_tools=_AGENT_TOOLS)
     names = [spec.name for spec in facade.tools_for("dimension")]
-    assert names == ["read_file", "read_file_range", "grep_text"]
+    assert names == ["read_file_range", "grep_text"]
 
 
 def test_star_intersection_drops_names_provider_lacks() -> None:
@@ -94,9 +95,8 @@ def test_explicit_unknown_tool_is_dropped() -> None:
 
 @pytest.mark.asyncio
 async def test_placeholder_handlers_return_not_implemented() -> None:
-    # crg_build_or_update 仍留给 PR7;infcode stub 仍统一占位。
+    # infcode stub 仍统一占位。
     cases = [
-        (CrNativeToolProvider(), "crg_build_or_update"),
         (InfcodeToolProvider(), "crg_query"),
     ]
     for provider, tool_name in cases:
@@ -105,6 +105,15 @@ async def test_placeholder_handlers_return_not_implemented() -> None:
         assert result["ok"] is False
         assert provider.name() in result["error"]
         assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_crg_build_or_update_degrades_without_lifecycle() -> None:
+    provider = CrNativeToolProvider()
+    spec = next(s for s in provider.list_tools() if s.name == "crg_build_or_update")
+    result = await spec.handler({})
+    assert result["ok"] is False
+    assert "crg_build_or_update" in result["error"]
 
 
 @pytest.mark.asyncio

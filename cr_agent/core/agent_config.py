@@ -51,10 +51,9 @@ class LlmConfig(BaseModel):
     # 隔离的 claude CLI 配置目录;由 bootstrap 在启动网关后注入,
     # 经 build_sdk_env 落到 CLAUDE_CONFIG_DIR,使 CLI 不读宿主 ~/.claude/settings.json。
     claude_config_dir: str = ""
-    # summary agent 结构化输出调用（litellm.acompletion）的最大 output token 数。
-    # 不设置时 LiteLLM 对 OpenAI-compatible 请求默认 8192，容易截断大型汇总报告。
-    # 建议设为上游实际支持的最大值，Claude Sonnet 4.6 标准上限为 16000。
-    summary_max_output_tokens: int = 16000
+    # summary agent 是否走 LiteLLM structured output（response_format json_schema）。
+    # 默认开启；对不支持 json_schema 的 OpenAI 兼容模型可设为 false，改走 SDK。
+    summary_structured_output: bool = True
 
 
 class GitConfig(BaseModel):
@@ -67,6 +66,13 @@ class GitConfig(BaseModel):
     timeout_s: float = 30.0
     # 是否允许联网(git_fetch 等);默认关闭,避免引入不可控远程成本。
     allow_network: bool = False
+
+
+class SembleConfig(BaseModel):
+    # semble_search 冷启动(加载 Model2Vec/建索引)较慢,默认 120s。
+    model_config = ConfigDict(extra="allow")
+
+    timeout_s: float = 120.0
 
 
 class CrgConfig(BaseModel):
@@ -90,6 +96,14 @@ class ToolsConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     crg: CrgConfig = Field(default_factory=CrgConfig)
+    semble: SembleConfig = Field(default_factory=SembleConfig)
+
+
+class DebugConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    # 默认不把完整工具返回内容写进 artifact,避免产物膨胀和后续误喂模型。
+    full_tool_evidence: bool = False
 
 
 class TimeoutsConfig(BaseModel):
@@ -115,6 +129,7 @@ class AgentConfig(BaseModel):
     llm: LlmConfig
     git: GitConfig = Field(default_factory=GitConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    debug: DebugConfig = Field(default_factory=DebugConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     platform: Platform | None = None
 

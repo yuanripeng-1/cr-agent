@@ -211,6 +211,53 @@ class CrgLifecycle:
         }
         return ok_result(data, list(self.warnings))
 
+    async def build_or_update(self) -> ToolResult:
+        """供 crg_build_or_update 工具调用；与 start_background 幂等。"""
+        if not self.config.enabled:
+            warning = "crg_build_or_update skipped: CRG disabled"
+            self._log("CRG_BUILD_SKIP reason=disabled")
+            return error_result(warning, warnings=[warning])
+        if self.disabled_reason:
+            warning = f"crg_build_or_update skipped: {self.disabled_reason}"
+            self._log(f"CRG_BUILD_SKIP reason={self.disabled_reason}")
+            return error_result(warning, warnings=list(self.warnings))
+        if self.command is None:
+            warning = "CRG_DISABLED reason=command_missing"
+            return error_result(warning, warnings=[warning])
+        project_root = Path(self.review_input.project_root)
+        if not project_root.is_dir():
+            warning = f"CRG_DISABLED reason=project_root_missing path={project_root}"
+            return error_result(warning, warnings=[warning])
+
+        if self.ready:
+            status = self.status()
+            data = dict(status["data"] or {})
+            data["already_ready"] = True
+            return ok_result(data, list(self.warnings))
+
+        if self.task is not None and not self.task.done():
+            await self.task
+        elif not self.started:
+            self.started = True
+            self._log("CRG_BUILD_START")
+            await self._build_or_update(project_root)
+        elif self.task is not None:
+            await self.task
+
+        if self.ready:
+            assert self.paths is not None
+            return ok_result(
+                {
+                    "ready": True,
+                    "data_dir": str(self.paths.data_dir),
+                    "warnings": list(self.warnings),
+                },
+                list(self.warnings),
+            )
+
+        warning = self.disabled_reason or "crg build_or_update failed"
+        return error_result(warning, warnings=list(self.warnings))
+
     async def _build_or_update(self, project_root: Path) -> None:
         assert self.paths is not None
         try:

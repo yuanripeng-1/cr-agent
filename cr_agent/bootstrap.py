@@ -28,6 +28,7 @@ from cr_agent.core.review_input import ReviewInput, load_review_input
 from cr_agent.core.sdk_runtime import build_runtime, build_sdk_env
 from cr_agent.tools.cr_native.crg_lifecycle import CrgLifecycle, build_crg_lifecycle
 from cr_agent.tools.cr_native.external_tools import check_external_tool_availability
+from cr_agent.tools.cr_native.fs_tools import tool_limits_from_config
 from cr_agent.tools.cr_native.git_tools import GitSettings, resolve_git_token, short_token_hash
 from cr_agent.tools.facade import ToolFacade, build_tool_facade_for_platform
 from cr_agent.utils.logging import get_logger, install_run_log_handler
@@ -228,6 +229,7 @@ def bootstrap_runtime(config_path: Path, platform_override: str | None) -> Runti
     tool_facade = build_tool_facade_for_platform(
         final_platform,
         project_root=Path(context_data.project_root),
+        limits=tool_limits_from_config(config_data),
         git_settings=git_settings,
         crg_lifecycle=crg_lifecycle,
     )

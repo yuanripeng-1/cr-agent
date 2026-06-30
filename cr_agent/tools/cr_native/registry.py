@@ -22,6 +22,7 @@ from cr_agent.tools.cr_native.fs_tools import (
 from cr_agent.tools.cr_native.external_tools import (
     make_ast_grep_search,
     make_crg_affected_flows,
+    make_crg_build_or_update,
     make_crg_callees,
     make_crg_callers,
     make_crg_get_flow,
@@ -83,6 +84,8 @@ class CrNativeToolProvider:
             return make_semble_search(root, limits)
         if tool_name == "crg_status":
             return make_crg_status(root, limits, crg)
+        if tool_name == "crg_build_or_update":
+            return make_crg_build_or_update(root, limits, crg)
         if tool_name == "crg_query":
             return make_crg_query(root, limits, crg)
         if tool_name == "crg_callers":
