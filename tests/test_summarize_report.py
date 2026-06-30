@@ -45,6 +45,10 @@ async def test_summarize_report_calls_summary_subagent_without_tools(agent_confi
     assert "汇总提示词" in prompt
     assert "汇总评级规则" in prompt
     assert "最终要输出的内容" in prompt
+    assert "line_comments.comments" in prompt
+    assert "sum(len(issue[\"locations\"]))" in prompt
+    assert "每个 `issue.locations` 元素都必须生成一条且仅一条" in prompt
+    assert "输出 JSON 前必须自检" in prompt
 
 
 @pytest.mark.asyncio

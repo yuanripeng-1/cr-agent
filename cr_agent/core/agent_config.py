@@ -99,6 +99,13 @@ class ToolsConfig(BaseModel):
     semble: SembleConfig = Field(default_factory=SembleConfig)
 
 
+class DebugConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    # 默认不把完整工具返回内容写进 artifact,避免产物膨胀和后续误喂模型。
+    full_tool_evidence: bool = False
+
+
 class TimeoutsConfig(BaseModel):
     # 各子 agent 的单次模型调用超时(秒)。summary 输入/输出最大,默认与其它一致 300s。
     model_config = ConfigDict(extra="allow")
@@ -122,6 +129,7 @@ class AgentConfig(BaseModel):
     llm: LlmConfig
     git: GitConfig = Field(default_factory=GitConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    debug: DebugConfig = Field(default_factory=DebugConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     platform: Platform | None = None
 

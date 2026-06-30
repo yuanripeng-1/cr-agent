@@ -49,6 +49,38 @@ async def test_read_file_range_ok(project: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_file_range_truncates_lines(project: Path) -> None:
+    many = project / "many.txt"
+    many.write_text("\n".join(f"line{i}" for i in range(1, 151)), encoding="utf-8")
+
+    result = await make_read_file_range(
+        project,
+        ToolLimits(read_file_range_max_lines=10),
+    )({"path": "many.txt", "start_line": 1, "end_line": 50})
+
+    assert result["ok"] is True
+    assert result["data"]["end_line"] == 10
+    assert result["data"]["requested_end_line"] == 50
+    assert len(result["data"]["content"].splitlines()) == 10
+    assert any("line range truncated" in w for w in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_read_file_range_truncates_content_bytes(project: Path) -> None:
+    big = project / "wide.txt"
+    big.write_text("A" * 5000, encoding="utf-8")
+
+    result = await make_read_file_range(
+        project,
+        ToolLimits(read_file_range_max_content_bytes=100),
+    )({"path": "wide.txt", "start_line": 1, "end_line": 1})
+
+    assert result["ok"] is True
+    assert len(result["data"]["content"].encode("utf-8")) == 100
+    assert any("content truncated" in w for w in result["warnings"])
+
+
+@pytest.mark.asyncio
 async def test_glob_files_ok(project: Path) -> None:
     result = await make_glob_files(project, ToolLimits())({"pattern": "**/*.txt"})
     assert result["ok"] is True

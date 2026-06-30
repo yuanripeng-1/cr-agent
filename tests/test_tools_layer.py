@@ -16,7 +16,7 @@ from cr_agent.tools.spec_sdk import to_sdk_tool
 _AGENT_TOOLS = {
     "main": [],
     "context": ["*"],
-    "dimension": ["read_file", "read_file_range", "grep_text"],
+    "dimension": ["read_file_range", "grep_text"],
     "summary": [],
 }
 
@@ -47,7 +47,8 @@ def test_star_expansion_equals_registry_intersect_provider_gitlab() -> None:
 def test_dimension_agent_gets_read_and_search_tools_only() -> None:
     facade = ToolFacade(provider=CrNativeToolProvider(), agent_tools=_AGENT_TOOLS)
     names = [spec.name for spec in facade.tools_for("dimension")]
-    assert names == ["read_file", "read_file_range", "grep_text"]
+    assert names == ["read_file_range", "grep_text"]
+    assert "read_file" not in names
     assert "semble_search" not in names
     assert "crg_query" not in names
 
@@ -55,7 +56,7 @@ def test_dimension_agent_gets_read_and_search_tools_only() -> None:
 def test_dimension_agent_allowlist_intersects_infcode_provider() -> None:
     facade = ToolFacade(provider=InfcodeToolProvider(), agent_tools=_AGENT_TOOLS)
     names = [spec.name for spec in facade.tools_for("dimension")]
-    assert names == ["read_file", "read_file_range", "grep_text"]
+    assert names == ["read_file_range", "grep_text"]
 
 
 def test_star_intersection_drops_names_provider_lacks() -> None:

@@ -31,5 +31,8 @@
     "semble": {
       "timeout_s": "semble_search 单次调用超时(秒)。冷启动加载 Model2Vec 较慢,默认 120。"
     }
+  },
+  "debug": {
+    "full_tool_evidence": "是否在 collected_context.json 中保留完整 tool_evidence.data。默认 false，仅输出瘦身 tool_evidence_summary。"
   }
 }

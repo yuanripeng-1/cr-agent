@@ -9,13 +9,19 @@ from typing import Any
 import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
+from cr_agent.core.errors import RuntimeCallError
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import load_review_result
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.skills.dimension_review import skill as dimension_skill
-from cr_agent.skills.dimension_review.skill import _bounded_int, _normalize_findings, dimension_review
+from cr_agent.skills.dimension_review.skill import (
+    _bounded_int,
+    _normalize_findings,
+    _wrap_dimension_tool_budget,
+    dimension_review,
+)
 from cr_agent.skills.registry import SkillRegistry
-from cr_agent.tools.provider import ToolSpec
+from cr_agent.tools.provider import ToolSpec, ok_result
 from tests.fakes import ScriptedMainAgentRuntime
 
 
@@ -124,6 +130,10 @@ def _write_dimensions_config(path: Path, *, dimensions: list[str], concurrency: 
     )
 
 
+def _real_gitlab_dimensions() -> list[str]:
+    return dimension_skill._load_dimensions("gitlab").dimensions
+
+
 def test_normalize_findings_preserves_source_lines_above_100() -> None:
     report = {
         "score": 72,
@@ -177,26 +187,15 @@ async def test_dimension_review_gitlab_runs_all_dimensions_in_config_order(agent
 
     scores = await dimension_review(runtime_context, {"task_id": "task-1"})
 
-    expected = [
-        "business",
-        "security",
-        "performance",
-        "dependency",
-        "testing",
-        "error_handling",
-        "consistency",
-        "readability",
-        "maintainability",
-        "documentation",
-    ]
-    assert [call["agent_name"] for call in dimension_runtime.calls] == ["dimension"] * 10
+    expected = _real_gitlab_dimensions()
+    assert [call["agent_name"] for call in dimension_runtime.calls] == ["dimension"] * len(expected)
     assert scores == []
 
     artifact_dir = runtime_context.result_dir / "dimensions"
     manifest = _load_json(artifact_dir / "manifest.json")
     assert manifest["status"] == "success"
-    assert manifest["total"] == 10
-    assert manifest["succeeded"] == 10
+    assert manifest["total"] == len(expected)
+    assert manifest["succeeded"] == len(expected)
     assert manifest["failed"] == 0
     assert [entry["dimension"] for entry in manifest["dimensions"]] == expected
     for dimension in expected:
@@ -250,6 +249,8 @@ async def test_dimension_review_respects_configured_concurrency_limit(
     assert "维度评分规则" in prompt
     assert "只返回有效 YAML" in prompt
     assert "path` 必须是相对 `project_root`" in prompt
+    assert "默认每个维度最多输出 3 个 high-confidence findings" in prompt
+    assert "不提供 `read_file`" in prompt
     assert "available_tools" not in prompt
 
 
@@ -288,6 +289,87 @@ async def test_dimension_review_prompt_uses_compact_context_without_tool_evidenc
     assert "semantic hit" in prompt
     assert "def f(): pass" in prompt
     assert "tool_evidence" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_dimension_tool_content_budget_is_independent_per_dimension() -> None:
+    async def handler(args):
+        return ok_result({"path": "a.py", "content": "x" * 8})
+
+    tools = [
+        ToolSpec(
+            name="read_file_range",
+            description="fake",
+            input_schema={"type": "object"},
+            handler=handler,
+        )
+    ]
+    first = _wrap_dimension_tool_budget(tools, budget_bytes=10)[0]
+    second = _wrap_dimension_tool_budget(tools, budget_bytes=10)[0]
+
+    first_ok = await first.handler({})
+    first_truncated = await first.handler({})
+    second_ok = await second.handler({})
+
+    assert first_ok["ok"] is True
+    assert len(first_ok["data"]["content"]) == 8
+    assert first_truncated["ok"] is True
+    assert len(first_truncated["data"]["content"]) == 2
+    assert any("content budget" in w for w in first_truncated["warnings"])
+    assert second_ok["ok"] is True
+    assert len(second_ok["data"]["content"]) == 8
+
+
+@pytest.mark.asyncio
+async def test_dimension_review_rejects_failed_collected_context(agent_config_path: Path) -> None:
+    dimension_runtime = _DimensionRuntime()
+    runtime_context = _runtime_context(
+        agent_config_path,
+        platform="gitlab",
+        dimension_runtime=dimension_runtime,
+    )
+
+    with pytest.raises(RuntimeCallError, match="collect_context failed: test"):
+        await dimension_review(
+            runtime_context,
+            {"status": "failed", "error": "test"},
+        )
+
+    assert dimension_runtime.calls == []
+
+
+@pytest.mark.asyncio
+async def test_dimension_content_budget_does_not_block_non_content_tools() -> None:
+    async def content_handler(args):
+        return ok_result({"path": "a.py", "content": "x" * 10})
+
+    async def grep_handler(args):
+        return ok_result({"pattern": "needle", "matches": ["a.py:1:needle"]})
+
+    tools = [
+        ToolSpec(
+            name="read_file_range",
+            description="fake range",
+            input_schema={"type": "object"},
+            handler=content_handler,
+        ),
+        ToolSpec(
+            name="grep_text",
+            description="fake grep",
+            input_schema={"type": "object"},
+            handler=grep_handler,
+        ),
+    ]
+    wrapped = {tool.name: tool for tool in _wrap_dimension_tool_budget(tools, budget_bytes=5)}
+
+    truncated = await wrapped["read_file_range"].handler({})
+    grep = await wrapped["grep_text"].handler({})
+
+    assert truncated["ok"] is True
+    assert len(truncated["data"]["content"]) == 5
+    assert any("content budget" in warning for warning in truncated["warnings"])
+    assert grep["ok"] is True
+    assert grep["data"]["matches"] == ["a.py:1:needle"]
 
 
 @pytest.mark.asyncio
@@ -364,7 +446,8 @@ async def test_dimension_failure_degrades_without_failing_whole_task(
     artifact_dir = runtime_context.result_dir / "dimensions"
     manifest = _load_json(artifact_dir / "manifest.json")
     assert manifest["status"] == "degraded"
-    assert manifest["succeeded"] == 8
+    expected_total = len(_real_gitlab_dimensions())
+    assert manifest["succeeded"] == expected_total - 2
     assert manifest["failed"] == 2
     assert _load_json(artifact_dir / "security.json")["status"] == "failed"
     performance_artifact = _load_json(artifact_dir / "performance.json")
@@ -414,20 +497,7 @@ async def test_dimension_manifest_stays_consistent_when_concurrent_tasks_finish_
 async def test_dimension_manifest_status_failed_when_all_dimensions_fail(
     agent_config_path: Path,
 ) -> None:
-    dimension_runtime = _DimensionRuntime(
-        fail={
-            "business",
-            "security",
-            "performance",
-            "dependency",
-            "testing",
-            "error_handling",
-            "consistency",
-            "readability",
-            "maintainability",
-            "documentation",
-        }
-    )
+    dimension_runtime = _DimensionRuntime(fail=set(_real_gitlab_dimensions()))
     runtime_context = _runtime_context(
         agent_config_path,
         platform="gitlab",
@@ -440,7 +510,7 @@ async def test_dimension_manifest_status_failed_when_all_dimensions_fail(
     manifest = _load_json(runtime_context.result_dir / "dimensions" / "manifest.json")
     assert manifest["status"] == "failed"
     assert manifest["succeeded"] == 0
-    assert manifest["failed"] == 10
+    assert manifest["failed"] == len(_real_gitlab_dimensions())
 
 
 class _EmptyContextRuntime:

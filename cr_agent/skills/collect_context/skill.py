@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ _MAX_CONTEXT_ENTRIES = 8
 _MAX_CONTEXT_TEXT = 1200
 _MAX_SNIPPETS = 12
 _MAX_SNIPPET_TEXT = 1600
+_MAX_EVIDENCE_EXCERPT = 500
+_FALLBACK_FULL_DIFF_BYTES = 30 * 1024
+_FALLBACK_SNIPPET_LINES = 6
 
 
 async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
@@ -67,44 +71,54 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         degraded_warning = ""
     except Exception as exc:
         _logger.warning("DEGRADED reason=CONTEXT_SUBAGENT_FAILED error=%s", exc)
-        result = QueryResult(
-            text=json.dumps(
-                {
-                    "summary": "context subagent 失败；使用本地上下文降级结果。",
-                    "diff_summary": _local_diff_summary(review_input.diff_content),
-                    "warnings": [f"context subagent 失败: {exc}"],
-                },
-                ensure_ascii=False,
+        result = QueryResult(text="")
+        try:
+            report = _build_fallback_report(runtime_context, str(exc))
+        except Exception as fallback_exc:
+            _logger.warning(
+                "DEGRADED reason=CONTEXT_FALLBACK_FAILED original_error=%s fallback_error=%s",
+                exc,
+                fallback_exc,
             )
-        )
+            report = _fatal_fallback_report(
+                original_error=str(exc),
+                fallback_error=str(fallback_exc),
+            )
+        if report.get("fatal"):
+            artifact = _base_artifact(
+                runtime_context=runtime_context,
+                report=report,
+                evidence=evidence,
+                warnings=report.get("warnings") or [],
+            )
+            _write_json(artifact_path, artifact)
+            _logger.info("ARTIFACT_WRITE path=%s", artifact_path)
+            return {
+                "task_id": review_input.task_id,
+                "artifact_path": str(artifact_path),
+                "summary": report.get("summary", ""),
+                "diff_summary": report.get("diff_summary", ""),
+                "changed_files": [],
+                "semantic_context": [],
+                "call_graph_context": [],
+                "code_snippets": [],
+                "warnings": report.get("warnings") or [],
+                "status": "failed",
+                "error": report.get("error") or "context fallback failed",
+                "usage": usage_to_dict(result.usage),
+            }
         degraded_warning = f"context subagent 失败: {exc}"
-    report = _parse_context_text(result.text)
+    else:
+        report = _parse_context_text(result.text)
     warnings = _collect_warnings(evidence, report)
     if degraded_warning and degraded_warning not in warnings:
         warnings.append(degraded_warning)
-    artifact = {
-        "task_id": review_input.task_id,
-        "title": review_input.title,
-        "description": review_input.description,
-        "commit_messages": review_input.commit_messages,
-        "requirements_doc": review_input.requirements_doc,
-        "previous_report": review_input.previous_report,
-        "project_root": review_input.project_root,
-        "platform": runtime_context.platform,
-        "raw_diff": {
-            "source": "context.json.diff_content",
-            "content": review_input.diff_content,
-            "diff_file_path": review_input.diff_file_path,
-        },
-        "changed_files": changed_file_payload(review_input.diff_content),
-        "diff_summary": report.get("diff_summary", ""),
-        "summary": report.get("summary", ""),
-        "tool_evidence": evidence,
-        "semantic_context": _section(report, "semantic_context", "semble_search", evidence),
-        "call_graph_context": _section(report, "call_graph_context", "crg_", evidence),
-        "code_snippets": _code_snippets(report, evidence),
-        "warnings": warnings,
-    }
+    artifact = _base_artifact(
+        runtime_context=runtime_context,
+        report=report,
+        evidence=evidence,
+        warnings=warnings,
+    )
     _write_json(artifact_path, artifact)
     _logger.info("ARTIFACT_WRITE path=%s", artifact_path)
     return {
@@ -119,6 +133,53 @@ async def collect_context(runtime_context: RuntimeContext) -> dict[str, Any]:
         "warnings": warnings,
         "usage": usage_to_dict(result.usage),
     }
+
+
+def _base_artifact(
+    *,
+    runtime_context: RuntimeContext,
+    report: dict[str, Any],
+    evidence: list[dict[str, Any]],
+    warnings: list[str],
+) -> dict[str, Any]:
+    review_input = runtime_context.review_input
+    diff_content = str(report.get("_diff_content") or review_input.diff_content)
+    artifact = {
+        "task_id": review_input.task_id,
+        "title": review_input.title,
+        "description": review_input.description,
+        "commit_messages": review_input.commit_messages,
+        "requirements_doc": review_input.requirements_doc,
+        "previous_report": review_input.previous_report,
+        "project_root": review_input.project_root,
+        "platform": runtime_context.platform,
+        "raw_diff": {
+            "source": report.get("_diff_source") or "context.json.diff_content",
+            "content": diff_content,
+            "diff_file_path": review_input.diff_file_path,
+        },
+        "changed_files": changed_file_payload(diff_content),
+        "diff_summary": report.get("diff_summary", ""),
+        "summary": report.get("summary", ""),
+        "semantic_context": _section(report, "semantic_context", "semble_search", evidence),
+        "call_graph_context": _section(report, "call_graph_context", "crg_", evidence),
+        "code_snippets": _code_snippets(report, evidence),
+        "warnings": warnings,
+    }
+    if runtime_context.config.debug.full_tool_evidence:
+        artifact["tool_evidence"] = evidence
+    else:
+        artifact["tool_evidence_summary"] = [
+            _evidence_summary(entry) for entry in evidence
+        ]
+    if "diff_excerpt" in report:
+        artifact["diff_excerpt"] = report["diff_excerpt"]
+    if "changed_line_snippets" in report:
+        artifact["changed_line_snippets"] = report["changed_line_snippets"]
+    if report.get("fatal"):
+        artifact["status"] = "failed"
+        artifact["error"] = report.get("error")
+    return artifact
 
 
 def _build_context_options(runtime_context: RuntimeContext, tools: list[ToolSpec]) -> Any:
@@ -244,6 +305,31 @@ def _evidence_entry(tool_name: str, args: dict[str, Any], result: ToolResult) ->
         "summary": _summarize_tool_result(result),
         "data": result.get("data"),
     }
+
+
+def _evidence_summary(entry: dict[str, Any]) -> dict[str, Any]:
+    data = entry.get("data") if isinstance(entry.get("data"), dict) else {}
+    content = data.get("content") if isinstance(data, dict) else None
+    content_text = "" if content is None else str(content)
+    summary: dict[str, Any] = {
+        "tool_name": entry.get("tool_name"),
+        "input": entry.get("input"),
+        "ok": entry.get("ok"),
+        "summary": entry.get("summary"),
+        "warnings": entry.get("warnings") or [],
+        "error": entry.get("error"),
+    }
+    for key in ("path", "start_line", "end_line"):
+        value = data.get(key)
+        if value not in (None, "", []):
+            summary[key] = value
+    if content_text:
+        summary["content_bytes"] = len(content_text.encode("utf-8"))
+        summary["content_sha256"] = hashlib.sha256(
+            content_text.encode("utf-8")
+        ).hexdigest()
+        summary["excerpt"] = _limit_text(content_text, _MAX_EVIDENCE_EXCERPT)
+    return summary
 
 
 def _summarize_tool_result(result: ToolResult) -> str:
@@ -438,6 +524,166 @@ def _collect_warnings(evidence: list[dict[str, Any]], report: dict[str, Any]) ->
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _build_fallback_report(runtime_context: RuntimeContext, reason: str) -> dict[str, Any]:
+    diff_content, source, diff_warnings = _fallback_diff_content(runtime_context)
+    warnings = [f"context subagent 失败: {reason}", *diff_warnings]
+    if not diff_content:
+        missing = "diff missing: review_input.diff_content、diff_file_path、workspace changes.diff 均为空或不可读"
+        warnings.append(missing)
+        return {
+            "summary": "context subagent 失败，且无法读取 diff；停止后续维度审查。",
+            "diff_summary": "",
+            "warnings": warnings,
+            "fatal": True,
+            "error": missing,
+            "_diff_content": "",
+            "_diff_source": source,
+        }
+
+    changed_files = changed_file_payload(diff_content)
+    diff_summary = _local_diff_summary(diff_content)
+    if not changed_files or not diff_summary:
+        error = "fallback context failed: unable to generate changed_files or diff_summary"
+        warnings.append(error)
+        return {
+            "summary": "context subagent 失败，且无法生成有效 diff 摘要；停止后续维度审查。",
+            "diff_summary": diff_summary,
+            "warnings": warnings,
+            "fatal": True,
+            "error": error,
+            "_diff_content": diff_content,
+            "_diff_source": source,
+        }
+
+    report: dict[str, Any] = {
+        "summary": "context subagent 失败；使用本地 compact fallback context。",
+        "diff_summary": diff_summary,
+        "semantic_context": [],
+        "call_graph_context": [],
+        "code_snippets": [],
+        "warnings": warnings,
+        "_diff_content": diff_content,
+        "_diff_source": source,
+    }
+    if len(diff_content.encode("utf-8")) <= _FALLBACK_FULL_DIFF_BYTES:
+        report["diff_excerpt"] = diff_content
+    else:
+        report["changed_line_snippets"] = _changed_line_snippets(diff_content)
+    return report
+
+
+def _fatal_fallback_report(*, original_error: str, fallback_error: str) -> dict[str, Any]:
+    warning = (
+        "context subagent 失败，且 fallback context 构造失败: "
+        f"original={original_error}; fallback={fallback_error}"
+    )
+    return {
+        "summary": "context subagent 失败，且 fallback context 构造失败；停止后续维度审查。",
+        "diff_summary": "",
+        "warnings": [warning],
+        "fatal": True,
+        "error": warning,
+        "_diff_content": "",
+        "_diff_source": "fallback_failed",
+    }
+
+
+def _fallback_diff_content(runtime_context: RuntimeContext) -> tuple[str, str, list[str]]:
+    review_input = runtime_context.review_input
+    if review_input.diff_content:
+        return review_input.diff_content, "context.json.diff_content", []
+
+    warnings: list[str] = []
+    if review_input.diff_file_path:
+        diff_path = _safe_workspace_path(
+            runtime_context.workspace_dir,
+            review_input.diff_file_path,
+        )
+        if diff_path is None:
+            warnings.append(
+                "diff_file_path rejected: path escapes workspace_dir: "
+                f"{review_input.diff_file_path}"
+            )
+        else:
+            try:
+                if diff_path.is_file():
+                    return diff_path.read_text(encoding="utf-8"), str(diff_path), warnings
+                warnings.append(f"diff_file_path not found: {diff_path}")
+            except OSError as exc:
+                warnings.append(f"diff_file_path unreadable: {diff_path}: {exc}")
+
+    workspace_diff = runtime_context.workspace_dir / "changes.diff"
+    try:
+        if workspace_diff.is_file():
+            return workspace_diff.read_text(encoding="utf-8"), str(workspace_diff), warnings
+        warnings.append(f"workspace changes.diff not found: {workspace_diff}")
+    except OSError as exc:
+        warnings.append(f"workspace changes.diff unreadable: {workspace_diff}: {exc}")
+    return "", "missing", warnings
+
+
+def _safe_workspace_path(workspace_dir: Path, raw_path: str) -> Path | None:
+    try:
+        root = workspace_dir.resolve()
+        raw = Path(raw_path)
+        candidate = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+    except OSError:
+        return None
+    if candidate == root or candidate.is_relative_to(root):
+        return candidate
+    return None
+
+
+def _changed_line_snippets(diff_content: str) -> list[dict[str, Any]]:
+    snippets: list[dict[str, Any]] = []
+    current_file = ""
+    current_start = 0
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_start, current_lines
+        if current_file and current_lines:
+            snippets.append(
+                {
+                    "path": current_file,
+                    "start_line": current_start,
+                    "excerpt": "\n".join(current_lines[:_FALLBACK_SNIPPET_LINES]),
+                }
+            )
+        current_start = 0
+        current_lines = []
+
+    for line in diff_content.splitlines():
+        if line.startswith("diff --git "):
+            flush()
+            parts = line.split()
+            current_file = parts[3][2:] if len(parts) >= 4 and parts[3].startswith("b/") else ""
+            continue
+        if line.startswith("@@"):
+            flush()
+            current_start = _hunk_new_start(line)
+            continue
+        if line.startswith("+") and not line.startswith("+++"):
+            if len(current_lines) < _FALLBACK_SNIPPET_LINES:
+                current_lines.append(line)
+    flush()
+    return snippets[:_MAX_SNIPPETS]
+
+
+def _hunk_new_start(line: str) -> int:
+    marker = "+"
+    idx = line.find(marker)
+    if idx == -1:
+        return 0
+    number = []
+    for char in line[idx + 1:]:
+        if char.isdigit():
+            number.append(char)
+            continue
+        break
+    return int("".join(number)) if number else 0
 
 
 def _local_diff_summary(diff_content: str) -> str:

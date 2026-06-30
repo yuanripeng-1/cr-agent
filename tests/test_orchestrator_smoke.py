@@ -214,6 +214,19 @@ class _FailingMainRuntime:
         raise RuntimeError("main did not call tools")
 
 
+class _BadUsage:
+    @property
+    def input_tokens(self):
+        raise RuntimeError("bad usage payload")
+
+
+class _FailingMainRuntimeWithBadUsage:
+    async def run_review_loop(self, **kwargs):
+        exc = RuntimeError("main failed with bad usage")
+        exc.usage = _BadUsage()
+        raise exc
+
+
 class _CapturingMainRuntime(ScriptedMainAgentRuntime):
     def __init__(self) -> None:
         super().__init__()
@@ -240,6 +253,26 @@ async def test_run_review_recovers_with_sequential_skills_when_main_agent_fails(
     assert result.warnings == ["main agent fallback: main did not call tools"]
     log_text = (runtime_context.result_dir / "run.log").read_text(encoding="utf-8")
     assert "FALLBACK_SKILL_FLOW_START reason=main_agent_failed" in log_text
+
+
+@pytest.mark.asyncio
+async def test_main_agent_exception_bad_usage_does_not_mask_original_error(
+    agent_config_path: Path,
+) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override=None)
+    scenario = FakeSkillScenario()
+
+    result = await run_review(
+        runtime_context,
+        agent_runtime=_FailingMainRuntimeWithBadUsage(),
+        skill_registry=scenario.registry(),
+    )
+
+    assert result.status == "success"
+    assert result.warnings == ["main agent fallback: main failed with bad usage"]
+    log_text = (runtime_context.result_dir / "run.log").read_text(encoding="utf-8")
+    assert "USAGE_EXTRACT_FAILED source=main_agent_exception" in log_text
+    assert "main failed with bad usage" in log_text
 
 
 @pytest.mark.asyncio

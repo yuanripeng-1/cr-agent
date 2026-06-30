@@ -13,9 +13,9 @@
 - `prompt/rules/<dimension>Rule.md`
 
 ## 工具
-每个 dimension subagent 只能使用 `ToolFacade.tools_for("dimension")` 提供的工具。默认只提供 `read_file`、`read_file_range`、`grep_text`。
+每个 dimension subagent 只能使用 `ToolFacade.tools_for("dimension")` 提供的工具。默认只提供 `read_file_range`、`grep_text`，不提供 `read_file`。
 
-调用 `read_file`、`read_file_range`、`grep_text` 时，`path` 必须是相对 `project_root` 的路径，例如 `frontend/src/app/page.tsx`。不要带 `workspace/.../project_code` 前缀，也不要使用绝对路径。
+调用 `read_file_range`、`grep_text` 时，`path` 必须是相对 `project_root` 的路径，例如 `frontend/src/app/page.tsx`。不要带 `workspace/.../project_code` 前缀，也不要使用绝对路径。
 
 dimension subagent 不使用 Semble 或 CRG 工具；语义上下文和调用图上下文由 `collect_context` 提供。
 
@@ -32,6 +32,13 @@ dimension subagent 不使用 Semble 或 CRG 工具；语义上下文和调用图
 
 ## Subagent 输出
 dimension subagent 必须只返回有效 YAML。不要使用 Markdown 代码围栏，不要在 YAML 前后追加任何说明文字。
+
+## 输出约束
+- 默认每个维度最多输出 3 个 high-confidence findings。
+- 如果存在 critical / security / data-loss / merge-blocking 级别问题，可以超过 3 个，但每个问题必须有明确 diff 内锚点。
+- 没有明确、可定位、高置信问题时，输出空 findings，不要输出长篇分析。
+- 每个 finding 的 `analysis`、`evidence`、`suggestion` / `code_suggestion` 使用短段落；只写根因、证据和可执行修复，不写审查过程。
+- 禁止输出低置信、重复、泛泛建议；输出限制不是忽略关键问题，而是过滤不能可靠落到 diff 行的问题。
 
 ## 适配器职责
 `skill.py` 必须解析 YAML，保留 `raw_yaml`，规范化 findings，并写入 JSON 产物。

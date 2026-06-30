@@ -86,6 +86,7 @@ llm_result 字段须包含以下内容，禁止输出多余的内容（使用简
 - 不要输出 "分析请求"、"分析专家报告"、"最终 JSON 生成"、"继续生成" 等任何解释性文字
 - 不要使用 ```json、```markdown 或任何 Markdown 代码围栏包裹最终答案
 - 外层响应只能是一个 JSON 对象；`llm_result` 只是这个 JSON 对象里的字符串字段
+- `llm_result` 及 `line_comments[].body` 字段中的换行必须使用 JSON 字符串转义 `\n`，严禁使用等任何 HTML 标签代替换行**，比如标签 `<br/>`、`<br>`
 
 ```json
 {
@@ -202,3 +203,4 @@ llm_result 字段须包含以下内容，禁止输出多余的内容（使用简
 4. **文件路径**：确保 `new_path` 是相对路径，不包含前导斜杠（如 `internal/auth.go` 而不是 `/internal/auth.go`）。
 5. **报告中代码位置**：`markdown_report` 中的 `代码位置` 字段只写文件名（不含目录路径）和行号，例如 `UserService.java:45`。详细路径信息在 `line_comments` 的 `new_path` 中体现。
 6. **Blocker 判定规则**：不要把"已经按显式需求实现"的行为本身列为严重问题；只有"没实现需求""实现跑偏""实现引入未授权副作用""实现明显无法可靠达成显式需求"才可以成为 Critical 级别问题。
+7. **禁止输出 OWASP/CWE 编号**：最终报告（`llm_result`、`line_comments`、`issues.title`）中禁止出现 OWASP/CWE 等编号或代号（如 `A01`、`A03:2021`、`CWE-89`、`A04 Insecure Design`、`OWASP Top 10` 等）。专家报告若以此类编号命名问题，必须改写为开发者可读的简体中文标题（如 `A03:2021 - Injection (CWE-89)` → 「SQL 注入」，`A01:2021 - Broken Access Control` → 「越权访问 / 未鉴权数据暴露」）。改写只替换标题措辞，不改变问题定位与证据。

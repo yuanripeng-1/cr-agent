@@ -68,6 +68,7 @@ def test_agent_config_platform_fallback_and_context_strictness() -> None:
     assert config.tools.crg.enabled is False
     assert config.tools.crg.target_root == ""
     assert config.tools.semble.timeout_s == 120.0
+    assert config.debug.full_tool_evidence is False
 
     with pytest.raises(ValidationError):
         AgentConfig.model_validate(
@@ -89,6 +90,20 @@ def test_tool_limits_from_config_uses_semble_timeout() -> None:
     limits = tool_limits_from_config(config)
     assert limits.semble_timeout_s == 180.0
     assert limits.timeout_s == 30.0
+    assert limits.read_file_range_max_lines == 120
+    assert limits.read_file_range_max_content_bytes == 8192
+
+
+def test_agent_config_accepts_debug_full_tool_evidence() -> None:
+    config = AgentConfig.model_validate(
+        {
+            "context": {"json_path": "context.json"},
+            "llm": {"model": "test-model"},
+            "debug": {"full_tool_evidence": True},
+        }
+    )
+
+    assert config.debug.full_tool_evidence is True
 
 
 def test_review_output_validates_line_ranges() -> None:

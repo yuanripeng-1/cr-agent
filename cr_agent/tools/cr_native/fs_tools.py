@@ -36,6 +36,10 @@ class ToolLimits:
     semble_timeout_s: float = 120.0
     # read_file 最大读取字节,超出截断并 warning。
     max_file_bytes: int = 1_000_000
+    # read_file_range 单次最大返回行数。
+    read_file_range_max_lines: int = 120
+    # read_file_range 单次最大返回 content 字节。
+    read_file_range_max_content_bytes: int = 8 * 1024
     # grep 输出最大字节,超出截断并 warning。
     max_grep_bytes: int = 200_000
     # glob 返回的最大条目数。
@@ -94,6 +98,14 @@ def _read_text_blocking(path: Path, max_bytes: int) -> tuple[str, bool]:
     if truncated:
         data = data[:max_bytes]
     return data.decode("utf-8", errors="replace"), truncated
+
+
+def _truncate_text_bytes(text: str, max_bytes: int) -> tuple[str, bool]:
+    """按 UTF-8 字节截断文本,避免切坏多字节字符。"""
+    data = text.encode("utf-8")
+    if len(data) <= max_bytes:
+        return text, False
+    return data[:max_bytes].decode("utf-8", errors="ignore"), True
 
 
 async def _guard(coro, *, tool_name: str, timeout_s: float) -> ToolResult:
@@ -177,16 +189,35 @@ def make_read_file_range(project_root: Path | None, limits: ToolLimits) -> ToolH
             )
             lines = text.splitlines()
             # 行号 1-based,闭区间。
-            selected = lines[start_line - 1 : end_line]
+            requested_lines = end_line - start_line + 1
+            capped_end_line = end_line
             warnings = (
                 [f"file truncated to {limits.max_file_bytes} bytes"] if truncated else []
             )
+            if requested_lines > limits.read_file_range_max_lines:
+                capped_end_line = start_line + limits.read_file_range_max_lines - 1
+                warnings.append(
+                    "line range truncated to "
+                    f"{limits.read_file_range_max_lines} lines"
+                )
+            selected = lines[start_line - 1 : capped_end_line]
+            content = "\n".join(selected)
+            content, byte_truncated = _truncate_text_bytes(
+                content,
+                limits.read_file_range_max_content_bytes,
+            )
+            if byte_truncated:
+                warnings.append(
+                    "content truncated to "
+                    f"{limits.read_file_range_max_content_bytes} bytes"
+                )
             return ok_result(
                 {
                     "path": raw,
                     "start_line": start_line,
-                    "end_line": end_line,
-                    "content": "\n".join(selected),
+                    "end_line": capped_end_line,
+                    "requested_end_line": end_line,
+                    "content": content,
                 },
                 warnings,
             )
