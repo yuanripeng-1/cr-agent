@@ -86,6 +86,7 @@ llm_result 字段须包含以下内容，禁止输出多余的内容（使用简
 - 不要输出 "分析请求"、"分析专家报告"、"最终 JSON 生成"、"继续生成" 等任何解释性文字
 - 不要使用 ```json、```markdown 或任何 Markdown 代码围栏包裹最终答案
 - 外层响应只能是一个 JSON 对象；`llm_result` 只是这个 JSON 对象里的字符串字段
+- `llm_result` 及 `line_comments[].body` 字段中的换行必须使用 JSON 字符串转义 `\n`，严禁使用等任何 HTML 标签代替换行**，比如标签 `<br/>`、`<br>`
 
 ```json
 {
