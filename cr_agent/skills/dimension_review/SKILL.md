@@ -17,6 +17,8 @@
 
 调用 `read_file_range`、`grep_text` 时，`path` 必须是相对 `project_root` 的路径，例如 `frontend/src/app/page.tsx`。不要带 `workspace/.../project_code` 前缀，也不要使用绝对路径。
 
+工具 path 必须从 `collected_context.changed_files[].path/new_path`、`grep_text` 的 matches 或前一次工具结果中复制。不要凭记忆手写相似路径，不要改写目录名或包名；如果不确定路径，先用 `grep_text` 在确定存在的父目录或 changed_files 文件内定位。
+
 dimension subagent 不使用 Semble 或 CRG 工具；语义上下文和调用图上下文由 `collect_context` 提供。
 
 ## 执行契约
@@ -27,6 +29,7 @@ dimension subagent 不使用 Semble 或 CRG 工具；语义上下文和调用图
 - 输入中的 `collected_context` 是 compact 结构化上下文，不是要求 subagent 读取 `collected_context.json`。
 - 消费上下文时优先使用 `changed_files.added_ranges` 和 `diff_summary`，再结合 `code_snippets`、`semantic_context`、`call_graph_context`。
 - 工具用于少量补充证据或核实上下文。若新增代码依赖被调函数语义、共享状态读取端或既有契约，而 `collected_context` 未包含对应实现，必须用 `grep_text` / `read_file_range` 补齐该 callee 或读取端实现；仅在 `collected_context` 已明确提供该证据时才不重复检索。补查到的实现位于 diff 之外，只能作为 analysis/evidence，finding 仍须锚定到 diff 内调用点行。
+- 工具调用预算有限。每次调用前先判断是否会改变结论；不要为了写过程分析而读取代码。连续两次工具调用没有产生新的可定位证据时，停止检索并输出当前结论。
 - 每个维度写入 `dimensions/<dimension>.json`。
 - 所有维度结束后，skill 写入 `dimensions/manifest.json`。
 
@@ -38,6 +41,7 @@ dimension subagent 必须只返回有效 YAML。不要使用 Markdown 代码围�
 - 如果存在 critical / security / data-loss / merge-blocking 级别问题，可以超过 3 个，但每个问题必须有明确 diff 内锚点。
 - 没有明确、可定位、高置信问题时，输出空 findings，不要输出长篇分析。
 - 每个 finding 的 `analysis`、`evidence`、`suggestion` / `code_suggestion` 使用短段落；只写根因、证据和可执行修复，不写审查过程。
+- 不要输出“我检查了哪些文件/关键观察/审查过程”等叙述；这些内容会浪费 token 且不会被下游消费。
 - 禁止输出低置信、重复、泛泛建议；输出限制不是忽略关键问题，而是过滤不能可靠落到 diff 行的问题。
 
 ## 适配器职责

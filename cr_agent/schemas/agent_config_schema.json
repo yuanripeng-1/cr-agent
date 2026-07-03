@@ -30,6 +30,21 @@
     },
     "semble": {
       "timeout_s": "semble_search 单次调用超时(秒)。冷启动加载 Model2Vec 较慢,默认 120。"
+    },
+    "dimension": {
+      "small_content_budget_bytes": "小 MR 下每个 dimension 子 agent 可读取的累计工具 content 字节数。默认 20480。",
+      "medium_content_budget_bytes": "中型 MR 下每个 dimension 子 agent 可读取的累计工具 content 字节数。默认 81920。",
+      "large_content_budget_bytes": "大型 MR 下每个 dimension 子 agent 可读取的累计工具 content 字节数。默认 122880。",
+      "small_changed_lines": "按 changed_files 行数判定小 MR 的最大变更行数。默认 300。",
+      "large_changed_lines": "超过该 changed_files 行数判定为大型 MR。默认 1200。",
+      "small_diff_bytes": "changed_files 不可用时按 raw_diff 字节数判定小 MR 的阈值。默认 30720。",
+      "large_diff_bytes": "changed_files 不可用时按 raw_diff 字节数判定大型 MR 的阈值。默认 81920。",
+      "max_grep_calls": "每个 dimension 子 agent 最多允许调用 grep_text 的次数。默认 40。",
+      "max_read_file_range_calls": "每个 dimension 子 agent 最多允许调用 read_file_range 的次数。默认 40。",
+      "max_total_tool_calls": "每个 dimension 子 agent 最多允许调用工具的总次数。默认 80。",
+      "max_output_findings": "每个维度产物默认最多保留的 findings 数量。默认 3。",
+      "max_field_chars": "维度产物中长文本字段的最大字符数。默认 800。",
+      "dimension_max_read_file_range_calls": "按维度覆盖 read_file_range 调用次数上限,例如 error_handling=35。"
     }
   },
   "debug": {

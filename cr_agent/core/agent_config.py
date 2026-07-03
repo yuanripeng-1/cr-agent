@@ -75,6 +75,26 @@ class SembleConfig(BaseModel):
     timeout_s: float = 120.0
 
 
+class DimensionToolsConfig(BaseModel):
+    # dimension 子 agent 的工具预算。按 diff 规模选择累计 read_file_range content 预算;
+    # grep_text 不消耗 content 预算,但限制调用次数避免无界检索。
+    model_config = ConfigDict(extra="allow")
+
+    small_content_budget_bytes: int = 20 * 1024
+    medium_content_budget_bytes: int = 80 * 1024
+    large_content_budget_bytes: int = 120 * 1024
+    small_changed_lines: int = 300
+    large_changed_lines: int = 1200
+    small_diff_bytes: int = 30 * 1024
+    large_diff_bytes: int = 80 * 1024
+    max_grep_calls: int = 40
+    max_read_file_range_calls: int = 40
+    max_total_tool_calls: int = 80
+    max_output_findings: int = 3
+    max_field_chars: int = 800
+    dimension_max_read_file_range_calls: dict[str, int] = Field(default_factory=dict)
+
+
 class CrgConfig(BaseModel):
     # CRG 默认关闭,避免首次接入时引入后台构建成本。
     model_config = ConfigDict(extra="allow")
@@ -97,6 +117,7 @@ class ToolsConfig(BaseModel):
 
     crg: CrgConfig = Field(default_factory=CrgConfig)
     semble: SembleConfig = Field(default_factory=SembleConfig)
+    dimension: DimensionToolsConfig = Field(default_factory=DimensionToolsConfig)
 
 
 class DebugConfig(BaseModel):
@@ -140,4 +161,35 @@ class AgentConfig(BaseModel):
 
 
 def load_agent_config(config_path: Path) -> AgentConfig:
-    return AgentConfig.model_validate(toml.load(config_path))
+    data = toml.load(config_path)
+    default_data = _load_default_config()
+    _merge_dimension_tool_defaults(data, default_data)
+    return AgentConfig.model_validate(data)
+
+
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.toml"
+
+
+def _load_default_config() -> dict:
+    if not _DEFAULT_CONFIG_PATH.exists():
+        return {}
+    return toml.load(_DEFAULT_CONFIG_PATH)
+
+
+def _merge_dimension_tool_defaults(data: dict, default_data: dict) -> None:
+    default_dimension = (
+        default_data.get("tools", {}).get("dimension", {})
+        if isinstance(default_data.get("tools"), dict)
+        else {}
+    )
+    if not isinstance(default_dimension, dict) or not default_dimension:
+        return
+
+    tools = data.setdefault("tools", {})
+    if not isinstance(tools, dict):
+        return
+    dimension = tools.setdefault("dimension", {})
+    if not isinstance(dimension, dict):
+        return
+    for key, value in default_dimension.items():
+        dimension.setdefault(key, value)

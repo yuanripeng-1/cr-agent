@@ -35,7 +35,9 @@ CANONICAL_TOOLS: dict[str, tuple[str, JsonSchema]] = {
         _obj({"path": _STR}, ["path"]),
     ),
     "read_file_range": (
-        "Read a line range of a text file under project_root.",
+        "Read a line range of a text file under project_root. path must be a real relative "
+        "path copied from changed_files, grep_text matches, or a previous tool result; do not "
+        "invent or rewrite similar-looking paths.",
         _obj({"path": _STR, "start_line": _INT, "end_line": _INT}, ["path", "start_line", "end_line"]),
     ),
     "glob_files": (
@@ -43,7 +45,8 @@ CANONICAL_TOOLS: dict[str, tuple[str, JsonSchema]] = {
         _obj({"pattern": _STR, "root": _STR}, ["pattern"]),
     ),
     "grep_text": (
-        "Search file contents for a regex pattern.",
+        "Search file contents for a regex pattern. When path is provided, it must be a real "
+        "relative path or directory copied from changed_files or a previous tool result.",
         _obj({"pattern": _STR, "path": _STR, "glob": _STR}, ["pattern"]),
     ),
     "ast_grep_search": (

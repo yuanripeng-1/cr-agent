@@ -172,12 +172,14 @@ def accumulate_usage_from_dimension_artifacts(
                 exc,
             )
             continue
-        if not isinstance(payload, dict) or payload.get("status") != "success":
+        if not isinstance(payload, dict):
             continue
         # 维度产物经 json.loads 得到 dict,usage 永远是 dict(不会是 TokenUsage 实例)。
         usage = payload.get("usage")
         if isinstance(usage, dict):
             extracted = extract_usage({"usage": usage})
+            if extracted == TokenUsage():
+                continue
             add_usage(extracted)
             if add_breakdown is not None:
                 add_breakdown(

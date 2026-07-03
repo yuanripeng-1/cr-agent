@@ -9,6 +9,10 @@
 3. **快速且安全地失败**：尽早发现错误，并确保系统保持一致状态。
 
 ## 审查流程
+先只看 diff 新增/修改行附近的错误处理问题。优先使用 `collected_context.changed_files.added_ranges`、`diff_summary` 和 `code_snippets`；只有当新增代码出现 catch/try、IO/网络调用、fire-and-forget 异步调用、nil guard 候选、资源清理候选时，才用工具补读最小必要片段。
+
+禁止全项目追踪所有错误处理模式。补读的目标必须服务于 diff 内某个具体候选问题；如果补读两次后没有形成明确 diff 锚点，停止检索并输出空 findings 或已确认的 findings。
+
 1. **Catch 块审查**：查找 `catch (e) {}` 或泛化的 `except: pass`。这是 CRITICAL 缺陷。
 2. **恢复逻辑**：对于 IO/网络操作，是否有重试逻辑？是否有超时？
 3. **可观测性**：错误日志是否包含足够上下文（ID、状态）？是否使用项目标准日志库？
@@ -32,6 +36,7 @@
 - 默认最多输出 3 个 high-confidence findings；若没有明确、可定位、高置信问题，输出空列表，不写长篇分析。
 - critical / security / data-loss / merge-blocking 级别问题可以超过 3 个，但每个问题必须有明确 diff 内锚点。
 - 每个 finding 的 analysis / evidence / suggestion / code_suggestion 使用短段落，只写根因、证据和可执行修复。
+- 禁止输出审查过程、关键观察列表、已检查文件清单或长篇解释。
 - 禁止输出审查过程、低置信猜测、重复问题和泛泛建议。
 
 ## 输出 Schema（YAML）

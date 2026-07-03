@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from cr_agent.core.agent_config import AgentConfig
+from cr_agent.core import agent_config as agent_config_module
+from cr_agent.core.agent_config import AgentConfig, load_agent_config
 from cr_agent.tools.cr_native.fs_tools import ToolLimits, tool_limits_from_config
 from cr_agent.core.review_input import ReviewInput
 from cr_agent.core.review_output import IssueLocation, LineComment, ReviewResult
@@ -68,6 +69,14 @@ def test_agent_config_platform_fallback_and_context_strictness() -> None:
     assert config.tools.crg.enabled is False
     assert config.tools.crg.target_root == ""
     assert config.tools.semble.timeout_s == 120.0
+    assert config.tools.dimension.small_content_budget_bytes == 20 * 1024
+    assert config.tools.dimension.medium_content_budget_bytes == 80 * 1024
+    assert config.tools.dimension.large_content_budget_bytes == 120 * 1024
+    assert config.tools.dimension.max_grep_calls == 40
+    assert config.tools.dimension.max_read_file_range_calls == 40
+    assert config.tools.dimension.max_total_tool_calls == 80
+    assert config.tools.dimension.max_output_findings == 3
+    assert config.tools.dimension.max_field_chars == 800
     assert config.debug.full_tool_evidence is False
 
     with pytest.raises(ValidationError):
@@ -104,6 +113,57 @@ def test_agent_config_accepts_debug_full_tool_evidence() -> None:
     )
 
     assert config.debug.full_tool_evidence is True
+
+
+def test_agent_config_merges_dimension_tool_defaults_field_by_field(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    default_config = tmp_path / "config.toml"
+    default_config.write_text(
+        "\n".join(
+            [
+                "[context]",
+                'json_path = "default-context.json"',
+                "",
+                "[llm]",
+                'model = "default-model"',
+                "",
+                "[tools.dimension]",
+                "small_content_budget_bytes = 111",
+                "medium_content_budget_bytes = 222",
+                "large_content_budget_bytes = 333",
+                "max_grep_calls = 44",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[context]",
+                'json_path = "task-context.json"',
+                "",
+                "[llm]",
+                'model = "task-model"',
+                "",
+                "[tools.dimension]",
+                "max_grep_calls = 9",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(agent_config_module, "_DEFAULT_CONFIG_PATH", default_config)
+
+    config = load_agent_config(config_path)
+
+    assert config.context.json_path == "task-context.json"
+    assert config.llm.model == "task-model"
+    assert config.tools.dimension.small_content_budget_bytes == 111
+    assert config.tools.dimension.medium_content_budget_bytes == 222
+    assert config.tools.dimension.large_content_budget_bytes == 333
+    assert config.tools.dimension.max_grep_calls == 9
 
 
 def test_review_output_validates_line_ranges() -> None:

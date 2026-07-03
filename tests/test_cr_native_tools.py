@@ -49,6 +49,27 @@ async def test_read_file_range_ok(project: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_file_range_normalizes_reversed_lines(project: Path) -> None:
+    result = await make_read_file_range(project, ToolLimits())(
+        {"path": "a.py", "start_line": 3, "end_line": 2}
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["content"] == "line2\nneedle here"
+    assert any("normalized" in warning for warning in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_read_file_range_reports_start_beyond_file(project: Path) -> None:
+    result = await make_read_file_range(project, ToolLimits())(
+        {"path": "a.py", "start_line": 99, "end_line": 100}
+    )
+
+    assert result["ok"] is False
+    assert "exceeds file line count" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_read_file_range_truncates_lines(project: Path) -> None:
     many = project / "many.txt"
     many.write_text("\n".join(f"line{i}" for i in range(1, 151)), encoding="utf-8")
