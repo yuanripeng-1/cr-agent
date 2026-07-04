@@ -10,6 +10,12 @@ def test_load_real_agent_tools_config() -> None:
     assert config["dimension"] == ["read_file_range", "grep_text"]
     assert config["summary"] == []
     assert config["main"] == []
+    assert config["resolution"] == [
+        "read_file_range",
+        "grep_text",
+        "git_rev_parse",
+        "git_status",
+    ]
 
 
 def test_missing_config_returns_empty(tmp_path) -> None:

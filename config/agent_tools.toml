@@ -10,3 +10,6 @@ tools = ["read_file_range", "grep_text"]
 
 [agents.summary]
 tools = []
+
+[agents.resolution]
+tools = ["read_file_range", "grep_text", "git_rev_parse", "git_status"]
