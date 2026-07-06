@@ -150,7 +150,8 @@ def make_read_file(project_root: Path | None, limits: ToolLimits) -> ToolHandler
             if not target.is_file():
                 return error_result(
                     f"not a file: {raw} (resolved={target}); "
-                    "path 应为相对 project_root 的路径"
+                    "path 应为相对 project_root 的路径; "
+                    "请从 changed_files、grep_text matches 或已返回工具结果中复制真实 path,不要手写相似路径"
                 )
             text, truncated = await asyncio.to_thread(
                 _read_text_blocking, target, limits.max_file_bytes
@@ -177,23 +178,31 @@ def make_read_file_range(project_root: Path | None, limits: ToolLimits) -> ToolH
             if not target.is_file():
                 return error_result(
                     f"not a file: {raw} (resolved={target}); "
-                    "path 应为相对 project_root 的路径"
+                    "path 应为相对 project_root 的路径; "
+                    "请从 changed_files、grep_text matches 或已返回工具结果中复制真实 path,不要手写相似路径"
                 )
             start_line = int(args.get("start_line", 1))
             end_line = int(args.get("end_line", start_line))
-            if start_line < 1 or end_line < start_line:
-                return error_result("invalid line range")
-
             text, truncated = await asyncio.to_thread(
                 _read_text_blocking, target, limits.max_file_bytes
             )
+            warnings: list[str] = (
+                [f"file truncated to {limits.max_file_bytes} bytes"] if truncated else []
+            )
+            if start_line < 1:
+                return error_result("invalid line range")
+            if end_line < start_line:
+                start_line, end_line = end_line, start_line
+                warnings.append("line range normalized because end_line < start_line")
+
             lines = text.splitlines()
+            if start_line > len(lines):
+                return error_result(
+                    f"invalid line range: start_line {start_line} exceeds file line count {len(lines)}"
+                )
             # 行号 1-based,闭区间。
             requested_lines = end_line - start_line + 1
             capped_end_line = end_line
-            warnings = (
-                [f"file truncated to {limits.max_file_bytes} bytes"] if truncated else []
-            )
             if requested_lines > limits.read_file_range_max_lines:
                 capped_end_line = start_line + limits.read_file_range_max_lines - 1
                 warnings.append(

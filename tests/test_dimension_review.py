@@ -9,13 +9,15 @@ from typing import Any
 import pytest
 
 from cr_agent.bootstrap import bootstrap_runtime
-from cr_agent.core.errors import RuntimeCallError
+from cr_agent.core.errors import RuntimeCallError, RuntimeModelResultError
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import load_review_result
 from cr_agent.core.types import QueryResult, TokenUsage
 from cr_agent.skills.dimension_review import skill as dimension_skill
 from cr_agent.skills.dimension_review.skill import (
     _bounded_int,
+    _dimension_tool_budget_bytes,
+    _limit_output_findings,
     _normalize_findings,
     _wrap_dimension_tool_budget,
     dimension_review,
@@ -251,6 +253,9 @@ async def test_dimension_review_respects_configured_concurrency_limit(
     assert "path` 必须是相对 `project_root`" in prompt
     assert "默认每个维度最多输出 3 个 high-confidence findings" in prompt
     assert "不提供 `read_file`" in prompt
+    assert "一旦已有足够证据支持输出 findings 或空 findings，立即停止探索并输出 YAML" in prompt
+    assert "最多调用 read_file_range" in prompt
+    assert "接近上限时必须停止调用工具并输出当前 YAML" in prompt
     assert "available_tools" not in prompt
 
 
@@ -373,6 +378,140 @@ async def test_dimension_content_budget_does_not_block_non_content_tools() -> No
 
 
 @pytest.mark.asyncio
+async def test_dimension_grep_call_budget_is_limited() -> None:
+    async def grep_handler(args):
+        return ok_result({"pattern": "needle", "matches": ["a.py:1:needle"]})
+
+    tools = [
+        ToolSpec(
+            name="grep_text",
+            description="fake grep",
+            input_schema={"type": "object"},
+            handler=grep_handler,
+        )
+    ]
+    wrapped = _wrap_dimension_tool_budget(tools, budget_bytes=5, max_grep_calls=2)[0]
+
+    assert (await wrapped.handler({}))["ok"] is True
+    assert (await wrapped.handler({}))["ok"] is True
+    exhausted = await wrapped.handler({})
+
+    assert exhausted["ok"] is False
+    assert "grep_text call budget exhausted" in exhausted["error"]
+
+
+@pytest.mark.asyncio
+async def test_dimension_read_file_range_call_budget_is_limited() -> None:
+    async def read_handler(args):
+        return ok_result({"path": "a.py", "content": "x"})
+
+    tools = [
+        ToolSpec(
+            name="read_file_range",
+            description="fake read",
+            input_schema={"type": "object"},
+            handler=read_handler,
+        )
+    ]
+    wrapped = _wrap_dimension_tool_budget(
+        tools,
+        budget_bytes=100,
+        max_read_file_range_calls=1,
+    )[0]
+
+    assert (await wrapped.handler({}))["ok"] is True
+    exhausted = await wrapped.handler({})
+
+    assert exhausted["ok"] is False
+    assert "read_file_range call budget exhausted" in exhausted["error"]
+
+
+@pytest.mark.asyncio
+async def test_dimension_total_tool_call_budget_is_limited() -> None:
+    async def grep_handler(args):
+        return ok_result({"pattern": "needle", "matches": []})
+
+    tools = [
+        ToolSpec(
+            name="grep_text",
+            description="fake grep",
+            input_schema={"type": "object"},
+            handler=grep_handler,
+        )
+    ]
+    wrapped = _wrap_dimension_tool_budget(
+        tools,
+        budget_bytes=100,
+        max_grep_calls=10,
+        max_total_tool_calls=1,
+    )[0]
+
+    assert (await wrapped.handler({}))["ok"] is True
+    exhausted = await wrapped.handler({})
+
+    assert exhausted["ok"] is False
+    assert "total tool call budget exhausted" in exhausted["error"]
+
+
+def test_dimension_output_findings_are_limited_and_truncated() -> None:
+    findings = [
+        {"title": "low", "analysis": "x" * 1000, "score": 70},
+        {"title": "critical", "analysis": "y" * 1000, "score": 95},
+        {"title": "mid", "analysis": "z" * 1000, "score": 80},
+        {"title": "high", "analysis": "w" * 1000, "score": 88},
+    ]
+
+    limited = _limit_output_findings(findings, max_findings=3, max_field_chars=20)
+
+    assert len(limited) == 3
+    assert limited[0]["title"] == "critical"
+    assert all(len(item["analysis"]) <= len("x" * 20 + "...[truncated]") for item in limited)
+
+
+def test_dimension_tool_budget_is_adaptive(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override="gitlab")
+
+    small = {
+        "changed_files": [
+            {"added_lines": list(range(1, 101)), "deleted_lines": []},
+        ]
+    }
+    medium = {
+        "changed_files": [
+            {"added_lines": list(range(1, 302)), "deleted_lines": []},
+        ]
+    }
+    large = {
+        "changed_files": [
+            {"added_lines": list(range(1, 1202)), "deleted_lines": []},
+        ]
+    }
+
+    assert _dimension_tool_budget_bytes(runtime_context, small) == 20 * 1024
+    assert _dimension_tool_budget_bytes(runtime_context, medium) == 80 * 1024
+    assert _dimension_tool_budget_bytes(runtime_context, large) == 120 * 1024
+
+
+def test_dimension_tool_budget_counts_compact_line_ranges(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override="gitlab")
+    compact_large = {
+        "changed_files": [
+            {"path": "a.py", "added_ranges": [[1, 1000], [1200, 1500]]},
+        ]
+    }
+
+    assert _dimension_tool_budget_bytes(runtime_context, compact_large) == 120 * 1024
+
+
+def test_dimension_tool_budget_falls_back_to_raw_diff_bytes(agent_config_path: Path) -> None:
+    runtime_context = bootstrap_runtime(agent_config_path, platform_override="gitlab")
+
+    assert _dimension_tool_budget_bytes(runtime_context, {"raw_diff": "x" * 10}) == 20 * 1024
+    assert _dimension_tool_budget_bytes(runtime_context, {"raw_diff": "x" * 40_000}) == 80 * 1024
+    assert _dimension_tool_budget_bytes(runtime_context, {"raw_diff": "x" * 90_000}) == 120 * 1024
+
+
+@pytest.mark.asyncio
 async def test_dimension_review_infcode_uses_fallback_when_profile_empty(
     agent_config_path: Path,
 ) -> None:
@@ -453,6 +592,44 @@ async def test_dimension_failure_degrades_without_failing_whole_task(
     performance_artifact = _load_json(artifact_dir / "performance.json")
     assert performance_artifact["status"] == "failed"
     assert performance_artifact["raw_yaml"] == "- not an object"
+
+
+@pytest.mark.asyncio
+async def test_dimension_failure_persists_model_result_error_details(
+    agent_config_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dimensions_config = tmp_path / "dimensions.toml"
+    _write_dimensions_config(dimensions_config, dimensions=["security"], concurrency=1)
+    monkeypatch.setattr(dimension_skill, "_DIMENSIONS_CONFIG", dimensions_config)
+
+    class _FailingRuntime:
+        async def query_subagent(self, agent_name: str, prompt: str, *, assembled_options=None, timeout_s=None):
+            exc = RuntimeModelResultError(
+                "Model reported error for agent=dimension: kind=upstream_api_timeout",
+                error_kind="upstream_api_timeout",
+                raw_error_result="API Error: The operation timed out.",
+                diagnostics={"is_error": True, "result": "API Error: The operation timed out."},
+            )
+            exc.usage = {"input_tokens": 9, "output_tokens": 1}
+            raise exc
+
+    runtime_context = _runtime_context(
+        agent_config_path,
+        platform="gitlab",
+        dimension_runtime=_FailingRuntime(),
+    )
+
+    with pytest.raises(RuntimeCallError, match="all dimension reviews failed"):
+        await dimension_review(runtime_context, {"task_id": "task-1"})
+
+    artifact = _load_json(runtime_context.result_dir / "dimensions" / "security.json")
+    assert artifact["status"] == "failed"
+    assert artifact["error_kind"] == "upstream_api_timeout"
+    assert artifact["raw_error_result"] == "API Error: The operation timed out."
+    assert artifact["error_diagnostics"]["is_error"] is True
+    assert artifact["usage"]["input_tokens"] == 9
 
 
 @pytest.mark.asyncio

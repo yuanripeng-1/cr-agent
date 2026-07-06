@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from cr_agent.core.types import TokenUsage
-from cr_agent.core.usage import accumulate_usage, extract_usage
+from cr_agent.core.usage import accumulate_usage, accumulate_usage_from_dimension_artifacts, extract_usage
 
 
 def test_accumulate_usage_adds_task_level_token_totals() -> None:
@@ -41,3 +41,52 @@ def test_extract_usage_reads_object_payload() -> None:
         cache_read_tokens=6,
     )
 
+
+def test_accumulate_usage_from_dimension_artifacts_includes_failed_nonzero_usage(tmp_path) -> None:
+    dimensions_dir = tmp_path / "dimensions"
+    dimensions_dir.mkdir()
+    (dimensions_dir / "security.json").write_text(
+        """
+        {
+          "dimension": "security",
+          "status": "failed",
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
+            "cost": 0.1
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    (dimensions_dir / "testing.json").write_text(
+        """
+        {
+          "dimension": "testing",
+          "status": "failed",
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
+            "cost": 0.0
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    usages = []
+    entries = []
+
+    accumulate_usage_from_dimension_artifacts(
+        dimensions_dir,
+        add_usage=usages.append,
+        add_breakdown=entries.append,
+    )
+
+    assert usages == [TokenUsage(input_tokens=10, output_tokens=5, cost=0.1)]
+    assert len(entries) == 1
+    assert entries[0]["dimension"] == "security"
+    assert entries[0]["status"] == "failed"

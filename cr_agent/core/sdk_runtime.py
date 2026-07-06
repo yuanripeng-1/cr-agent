@@ -25,6 +25,7 @@ from cr_agent.core.agent_config import AgentConfig
 from cr_agent.core.errors import (
     RuntimeCallError,
     RuntimeContextLimitError,
+    RuntimeModelResultError,
     RuntimeTimeoutError,
     RuntimeTokenLimitError,
     StructuredOutputError,
@@ -251,11 +252,19 @@ class SdkQueryClient:
         stderr_tail = stderr_callback.tail() if hasattr(stderr_callback, "tail") else ""
 
         if is_error:
-            error = RuntimeCallError(
+            raw_error_result = final_text or ""
+            error_kind = _model_result_error_kind(raw_error_result, diagnostics)
+            error = RuntimeModelResultError(
                 append_stderr_diagnostic(
-                    f"Model reported error for agent={agent_name}: {error_detail or 'unknown'}",
+                    "Model reported error for "
+                    f"agent={agent_name}: kind={error_kind}; "
+                    f"result={raw_error_result or 'unknown'}; "
+                    f"detail={error_detail or 'unknown'}",
                     stderr_tail,
-                )
+                ),
+                error_kind=error_kind,
+                raw_error_result=raw_error_result,
+                diagnostics=diagnostics,
             )
             # 把已计费 usage 带回上游,避免失败时丢 token / 写假 0。
             error.usage = usage  # type: ignore[attr-defined]
@@ -323,6 +332,25 @@ def _format_result_message_error(diagnostics: dict[str, Any]) -> str:
         if value not in (None, "", []):
             parts.append(f"{key}={value}")
     return "; ".join(parts)
+
+
+def _model_result_error_kind(result: str, diagnostics: dict[str, Any]) -> str:
+    text = " ".join(
+        str(value or "")
+        for value in (
+            result,
+            diagnostics.get("result"),
+            diagnostics.get("errors"),
+            diagnostics.get("api_error_status"),
+        )
+    ).lower()
+    if "timed out" in text or "timeout" in text:
+        return "upstream_api_timeout"
+    if "rate limit" in text or "429" in text:
+        return "upstream_rate_limited"
+    if "context" in text and ("too long" in text or "length" in text or "window" in text):
+        return "upstream_context_limit"
+    return "model_result_error"
 
 
 def _truncate(text: str, limit: int = 800) -> str:

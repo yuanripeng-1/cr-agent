@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
-from cr_agent.core.errors import RuntimeCallError
+from cr_agent.core.errors import RuntimeCallError, RuntimeModelResultError
 from cr_agent.core.orchestrator import run_review
 from cr_agent.core.review_output import load_review_result
 from cr_agent.core.sdk_runtime import (
@@ -139,6 +139,27 @@ async def test_sdk_client_raises_with_usage_on_model_error() -> None:
     # 计费 usage 带回上游,失败也不丢 token。
     assert excinfo.value.usage == {"input_tokens": 5, "output_tokens": 0}
     assert "errors=['boom']" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_sdk_client_preserves_model_result_error_details() -> None:
+    messages = [
+        _result_message(
+            result="API Error: The operation timed out.",
+            usage={"input_tokens": 7, "output_tokens": 0},
+            is_error=True,
+        ),
+    ]
+    client = SdkQueryClient(model="m", query_fn=_fake_query(messages))
+
+    with pytest.raises(RuntimeModelResultError) as excinfo:
+        await client.query(agent_name="dimension", prompt="hi")
+
+    assert excinfo.value.error_kind == "upstream_api_timeout"
+    assert excinfo.value.raw_error_result == "API Error: The operation timed out."
+    assert excinfo.value.diagnostics["is_error"] is True
+    assert "kind=upstream_api_timeout" in str(excinfo.value)
+    assert "API Error: The operation timed out." in str(excinfo.value)
 
 
 @pytest.mark.asyncio

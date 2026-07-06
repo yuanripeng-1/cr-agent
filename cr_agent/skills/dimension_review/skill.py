@@ -31,7 +31,6 @@ _logger = get_logger("cr_agent.skills.dimension_review")
 _DIMENSIONS_CONFIG = Path(__file__).resolve().parents[3] / "config" / "dimensions.toml"
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompt"
 _RULES_DIR = _PROMPT_DIR / "rules"
-_DIMENSION_TOOL_CONTENT_BUDGET_BYTES = 20 * 1024
 
 
 async def dimension_review(
@@ -155,13 +154,44 @@ async def _run_single_dimension(
     prompt_path = _PROMPT_DIR / f"{dimension}.md"
     rule_path = _RULES_DIR / f"{_rule_file_stem(dimension)}Rule.md"
     raw_yaml = ""
+    response: QueryResult | None = None
     try:
         prompt_text = prompt_path.read_text(encoding="utf-8")
         rule_text = rule_path.read_text(encoding="utf-8") if rule_path.exists() else ""
         # 每个维度单独包一层 tracing,日志里能区分是哪个维度发起的工具调用。
+        budget_decision = _dimension_tool_budget_decision(runtime_context, collected_context)
+        tool_budget_bytes = budget_decision["budget_bytes"]
+        max_grep_calls = _positive_int(
+            getattr(runtime_context.config.tools.dimension, "max_grep_calls", 40),
+            default=40,
+        )
+        max_read_file_range_calls = _dimension_read_file_range_limit(
+            runtime_context,
+            dimension,
+        )
+        max_total_tool_calls = _positive_int(
+            getattr(runtime_context.config.tools.dimension, "max_total_tool_calls", 80),
+            default=80,
+        )
+        _logger.info(
+            "DIMENSION_TOOL_BUDGET dimension=%s budget_bytes=%s changed_lines=%s "
+            "diff_bytes=%s tier=%s max_grep_calls=%s max_read_file_range_calls=%s "
+            "max_total_tool_calls=%s",
+            dimension,
+            tool_budget_bytes,
+            budget_decision.get("changed_lines"),
+            budget_decision.get("diff_bytes"),
+            budget_decision.get("tier"),
+            max_grep_calls,
+            max_read_file_range_calls,
+            max_total_tool_calls,
+        )
         budgeted_tools = _wrap_dimension_tool_budget(
             tools,
-            budget_bytes=_DIMENSION_TOOL_CONTENT_BUDGET_BYTES,
+            budget_bytes=tool_budget_bytes,
+            max_grep_calls=max_grep_calls,
+            max_read_file_range_calls=max_read_file_range_calls,
+            max_total_tool_calls=max_total_tool_calls,
         )
         traced_tools = trace_tools(budgeted_tools, agent_name=f"dimension:{dimension}")
         prompt = _build_prompt(
@@ -177,7 +207,7 @@ async def _run_single_dimension(
         if runtime is None:
             raise RuntimeCallError("dimension runtime is not configured")
         # Dimension 子 Agent 启动
-        response: QueryResult = await runtime.query_subagent(
+        response = await runtime.query_subagent(
             "dimension",
             prompt,
             assembled_options=options,
@@ -186,6 +216,7 @@ async def _run_single_dimension(
         raw_yaml = response.text
         parsed = _parse_dimension_yaml(raw_yaml)
         result = _success_artifact(
+            runtime_context=runtime_context,
             dimension=dimension,
             parsed=parsed,
             usage=response.usage,
@@ -193,10 +224,15 @@ async def _run_single_dimension(
             artifact_path=artifact_path,
         )
     except Exception as exc:
+        failure_usage = _usage_from_failure(exc, response)
         result = _failed_artifact(
             dimension=dimension,
             error=str(exc),
             raw_yaml=raw_yaml,
+            usage=failure_usage,
+            error_kind=str(getattr(exc, "error_kind", "") or ""),
+            raw_error_result=str(getattr(exc, "raw_error_result", "") or ""),
+            error_diagnostics=getattr(exc, "diagnostics", None),
             artifact_path=artifact_path,
         )
         _logger.warning(
@@ -289,6 +325,7 @@ def _build_prompt(
 ) -> str:
     review_input = runtime_context.review_input
     skill_doc = load_skill_doc("dimension_review")
+    tool_limits = _dimension_prompt_tool_limits(runtime_context, dimension)
     payload = {
         "dimension": dimension,
         "task_id": review_input.task_id,
@@ -304,10 +341,156 @@ def _build_prompt(
         f"{dimension_prompt}\n\n"
         "维度评分规则：\n"
         f"{dimension_rule}\n\n"
+        "硬性执行限制：\n"
+        "- 一旦已有足够证据支持输出 findings 或空 findings，立即停止探索并输出 YAML。\n"
+        "- 不要在 YAML 前输出审查过程、已检查文件清单、关键观察或思考说明。\n"
+        "- 每次工具调用前判断是否会改变结论；如果不会改变结论，不要调用工具。\n"
+        f"- 本维度最多调用 read_file_range {tool_limits['max_read_file_range_calls']} 次、"
+        f"grep_text {tool_limits['max_grep_calls']} 次、工具总调用 {tool_limits['max_total_tool_calls']} 次；"
+        "接近上限时必须停止调用工具并输出当前 YAML。\n"
+        "- 如果连续两次工具调用没有得到新的 diff 内可定位证据，必须停止探索并输出 YAML。\n\n"
         "以下是本次运行输入：\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
         "请严格按照上方 SKILL.md、维度提示词和维度评分规则执行，并返回指定 YAML 输出。"
     )
+
+
+def _dimension_prompt_tool_limits(
+    runtime_context: RuntimeContext,
+    dimension: str,
+) -> dict[str, int]:
+    return {
+        "max_grep_calls": _positive_int(
+            getattr(runtime_context.config.tools.dimension, "max_grep_calls", 40),
+            default=40,
+        ),
+        "max_read_file_range_calls": _dimension_read_file_range_limit(
+            runtime_context,
+            dimension,
+        ),
+        "max_total_tool_calls": _positive_int(
+            getattr(runtime_context.config.tools.dimension, "max_total_tool_calls", 80),
+            default=80,
+        ),
+    }
+
+
+def _dimension_tool_budget_bytes(
+    runtime_context: RuntimeContext,
+    collected_context: dict[str, Any],
+) -> int:
+    return _dimension_tool_budget_decision(runtime_context, collected_context)["budget_bytes"]
+
+
+def _dimension_read_file_range_limit(
+    runtime_context: RuntimeContext,
+    dimension: str,
+) -> int:
+    config = runtime_context.config.tools.dimension
+    overrides = getattr(config, "dimension_max_read_file_range_calls", {}) or {}
+    if isinstance(overrides, dict) and dimension in overrides:
+        return _positive_int(overrides.get(dimension), default=40)
+    return _positive_int(getattr(config, "max_read_file_range_calls", 40), default=40)
+
+
+def _dimension_tool_budget_decision(
+    runtime_context: RuntimeContext,
+    collected_context: dict[str, Any],
+) -> dict[str, Any]:
+    config = runtime_context.config.tools.dimension
+    changed_lines = _changed_lines_count(collected_context)
+    if changed_lines is not None:
+        if changed_lines <= _positive_int(config.small_changed_lines, default=300):
+            return {
+                "budget_bytes": _positive_int(config.small_content_budget_bytes, default=20 * 1024),
+                "changed_lines": changed_lines,
+                "diff_bytes": None,
+                "tier": "small_changed_lines",
+            }
+        if changed_lines > _positive_int(config.large_changed_lines, default=1200):
+            return {
+                "budget_bytes": _positive_int(config.large_content_budget_bytes, default=120 * 1024),
+                "changed_lines": changed_lines,
+                "diff_bytes": None,
+                "tier": "large_changed_lines",
+            }
+        return {
+            "budget_bytes": _positive_int(config.medium_content_budget_bytes, default=80 * 1024),
+            "changed_lines": changed_lines,
+            "diff_bytes": None,
+            "tier": "medium_changed_lines",
+        }
+
+    diff_bytes = _raw_diff_bytes(collected_context)
+    if diff_bytes <= _positive_int(config.small_diff_bytes, default=30 * 1024):
+        return {
+            "budget_bytes": _positive_int(config.small_content_budget_bytes, default=20 * 1024),
+            "changed_lines": None,
+            "diff_bytes": diff_bytes,
+            "tier": "small_diff_bytes",
+        }
+    if diff_bytes > _positive_int(config.large_diff_bytes, default=80 * 1024):
+        return {
+            "budget_bytes": _positive_int(config.large_content_budget_bytes, default=120 * 1024),
+            "changed_lines": None,
+            "diff_bytes": diff_bytes,
+            "tier": "large_diff_bytes",
+        }
+    return {
+        "budget_bytes": _positive_int(config.medium_content_budget_bytes, default=80 * 1024),
+        "changed_lines": None,
+        "diff_bytes": diff_bytes,
+        "tier": "medium_diff_bytes",
+    }
+
+
+def _changed_lines_count(collected_context: dict[str, Any]) -> int | None:
+    changed_files = collected_context.get("changed_files")
+    if not isinstance(changed_files, list):
+        return None
+
+    total = 0
+    saw_lines = False
+    for item in changed_files:
+        if not isinstance(item, dict):
+            continue
+        for key in ("added_lines", "deleted_lines", "removed_lines", "modified_lines"):
+            value = item.get(key)
+            if isinstance(value, list):
+                total += len(value)
+                saw_lines = True
+            elif isinstance(value, int):
+                total += max(value, 0)
+                saw_lines = True
+        for key in ("added_ranges", "deleted_ranges", "removed_ranges", "modified_ranges"):
+            value = item.get(key)
+            if not isinstance(value, list):
+                continue
+            for raw_range in value:
+                if not isinstance(raw_range, list) or len(raw_range) != 2:
+                    continue
+                try:
+                    start = int(raw_range[0])
+                    end = int(raw_range[1])
+                except (TypeError, ValueError):
+                    continue
+                if end >= start:
+                    total += end - start + 1
+                    saw_lines = True
+    return total if saw_lines else None
+
+
+def _raw_diff_bytes(collected_context: dict[str, Any]) -> int:
+    raw_diff = collected_context.get("raw_diff")
+    if isinstance(raw_diff, str):
+        return len(raw_diff.encode("utf-8"))
+    if isinstance(raw_diff, dict):
+        for key in ("content", "diff", "text", "patch"):
+            value = raw_diff.get(key)
+            if isinstance(value, str):
+                return len(value.encode("utf-8"))
+        return len(json.dumps(raw_diff, ensure_ascii=False).encode("utf-8"))
+    return 0
 
 
 def _parse_dimension_yaml(text: str) -> dict[str, Any]:
@@ -390,8 +573,14 @@ def _wrap_dimension_tool_budget(
     tools: list[ToolSpec],
     *,
     budget_bytes: int,
+    max_grep_calls: int = 40,
+    max_read_file_range_calls: int = 40,
+    max_total_tool_calls: int = 80,
 ) -> list[ToolSpec]:
     remaining = {"bytes": budget_bytes}
+    grep_calls = {"count": 0}
+    read_file_range_calls = {"count": 0}
+    total_tool_calls = {"count": 0}
     wrapped: list[ToolSpec] = []
     for tool in tools:
         original_handler = tool.handler
@@ -402,6 +591,36 @@ def _wrap_dimension_tool_budget(
             _tool: ToolSpec = tool,
             _handler=original_handler,
         ) -> ToolResult:
+            total_tool_calls["count"] += 1
+            if total_tool_calls["count"] > max_total_tool_calls:
+                return error_result(
+                    "dimension total tool call budget exhausted",
+                    [
+                        "dimension total tool call budget exhausted "
+                        f"({max_total_tool_calls} calls per dimension)"
+                    ],
+                )
+            if _tool.name == "grep_text":
+                grep_calls["count"] += 1
+                if grep_calls["count"] > max_grep_calls:
+                    return error_result(
+                        "dimension grep_text call budget exhausted",
+                        [
+                            "dimension grep_text call budget exhausted "
+                            f"({max_grep_calls} calls per dimension)"
+                        ],
+                    )
+            if _tool.name == "read_file_range":
+                read_file_range_calls["count"] += 1
+                if read_file_range_calls["count"] > max_read_file_range_calls:
+                    return error_result(
+                        "dimension read_file_range call budget exhausted",
+                        [
+                            "dimension read_file_range call budget exhausted "
+                            f"({max_read_file_range_calls} calls per dimension)"
+                        ],
+                    )
+
             result: ToolResult = await _handler(args)
             data = result.get("data")
             if not result.get("ok") or not isinstance(data, dict) or "content" not in data:
@@ -496,6 +715,7 @@ def _minimal_yaml_scalar(value: str) -> Any:
 
 def _success_artifact(
     *,
+    runtime_context: RuntimeContext,
     dimension: str,
     parsed: dict[str, Any],
     usage: TokenUsage,
@@ -507,6 +727,17 @@ def _success_artifact(
     confidence = _bounded_int(review.get("confidence"), default=0)
     warnings = review.get("warnings")
     normalized_findings = _normalize_findings(dimension, review)
+    normalized_findings = _limit_output_findings(
+        normalized_findings,
+        max_findings=_positive_int(
+            runtime_context.config.tools.dimension.max_output_findings,
+            default=3,
+        ),
+        max_field_chars=_positive_int(
+            runtime_context.config.tools.dimension.max_field_chars,
+            default=800,
+        ),
+    )
     return {
         "dimension": str(review.get("dimension") or dimension),
         "status": "success",
@@ -522,7 +753,82 @@ def _success_artifact(
     }
 
 
-def _failed_artifact(*, dimension: str, error: str, raw_yaml: str, artifact_path: Path) -> dict[str, Any]:
+_FINDING_TEXT_FIELDS = ("title", "analysis", "evidence", "severity_hint", "suggestion")
+
+
+def _limit_output_findings(
+    findings: list[dict[str, Any]],
+    *,
+    max_findings: int,
+    max_field_chars: int,
+) -> list[dict[str, Any]]:
+    limited = [_limit_finding_fields(finding, max_field_chars) for finding in findings]
+    if max_findings <= 0 or len(limited) <= max_findings:
+        return limited
+    critical = [
+        finding for finding in limited if _finding_is_exceptionally_severe(finding)
+    ]
+    if len(critical) >= max_findings:
+        return critical
+    others = [
+        finding for finding in sorted(
+            limited,
+            key=lambda item: _positive_int(item.get("score"), default=0),
+            reverse=True,
+        )
+        if finding not in critical
+    ]
+    return critical + others[: max_findings - len(critical)]
+
+
+def _limit_finding_fields(finding: dict[str, Any], max_field_chars: int) -> dict[str, Any]:
+    if max_field_chars <= 0:
+        return finding
+    limited = dict(finding)
+    for key in _FINDING_TEXT_FIELDS:
+        value = limited.get(key)
+        if isinstance(value, str):
+            limited[key] = _limit_chars(value, max_field_chars)
+    raw = limited.get("raw")
+    if isinstance(raw, dict):
+        limited["raw"] = {
+            key: _limit_chars(value, max_field_chars) if isinstance(value, str) else value
+            for key, value in raw.items()
+        }
+    return limited
+
+
+def _finding_is_exceptionally_severe(finding: dict[str, Any]) -> bool:
+    if _positive_int(finding.get("score"), default=0) >= 90:
+        return True
+    text = " ".join(
+        str(finding.get(key) or "").lower()
+        for key in ("title", "analysis", "severity_hint")
+    )
+    return any(
+        marker in text
+        for marker in ("critical", "security", "data-loss", "data loss", "merge-blocking")
+    )
+
+
+def _limit_chars(text: str, max_chars: int) -> str:
+    stripped = text.strip()
+    if len(stripped) <= max_chars:
+        return stripped
+    return stripped[:max_chars].rstrip() + "...[truncated]"
+
+
+def _failed_artifact(
+    *,
+    dimension: str,
+    error: str,
+    raw_yaml: str,
+    usage: TokenUsage | None = None,
+    error_kind: str = "",
+    raw_error_result: str = "",
+    error_diagnostics: Any = None,
+    artifact_path: Path,
+) -> dict[str, Any]:
     return {
         "dimension": dimension,
         "status": "failed",
@@ -531,10 +837,37 @@ def _failed_artifact(*, dimension: str, error: str, raw_yaml: str, artifact_path
         "findings": [],
         "warnings": [error],
         "error": error,
-        "usage": usage_to_dict(TokenUsage()),
+        "error_kind": error_kind,
+        "raw_error_result": _truncate(raw_error_result, 1200),
+        "error_diagnostics": error_diagnostics if isinstance(error_diagnostics, dict) else {},
+        "usage": usage_to_dict(usage or TokenUsage()),
         "raw_yaml": _truncate(raw_yaml),
         "artifact_path": str(artifact_path),
     }
+
+
+def _usage_from_failure(exc: Exception, response: QueryResult | None) -> TokenUsage:
+    if response is not None:
+        return response.usage
+    raw_usage = getattr(exc, "usage", None)
+    if isinstance(raw_usage, TokenUsage):
+        return raw_usage
+    if isinstance(raw_usage, dict):
+        return TokenUsage(
+            input_tokens=_positive_int(raw_usage.get("input_tokens"), default=0),
+            output_tokens=_positive_int(raw_usage.get("output_tokens"), default=0),
+            cache_creation_tokens=_positive_int(
+                raw_usage.get("cache_creation_tokens")
+                or raw_usage.get("cache_creation_input_tokens"),
+                default=0,
+            ),
+            cache_read_tokens=_positive_int(
+                raw_usage.get("cache_read_tokens") or raw_usage.get("cache_read_input_tokens"),
+                default=0,
+            ),
+            cost=float(raw_usage.get("cost") or raw_usage.get("total_cost_usd") or 0.0),
+        )
+    return TokenUsage()
 
 
 def _bounded_int(value: Any, *, default: int) -> int:
