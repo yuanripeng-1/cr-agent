@@ -1,0 +1,78 @@
+[context]
+json_path = ""
+result_path = ""
+
+[project]
+language = ""
+status = ""
+guidelines_path = ""
+requirements_path = ""
+
+[llm]
+model = ""
+api_key = ""
+api_base = ""
+# use_litellm_gateway 为true，走litellm代理层转发
+use_litellm_gateway = true
+gateway_provider = "openai"
+# summary 是否走 LiteLLM structured output；DeepSeek/GLM 等建议 false
+summary_structured_output = false
+
+# 可选 git 配置。token 为全局兜底,per-task context.json 的 git_token 优先级更高。
+# 日志只记 configured/短 hash,绝不打印明文。allow_network 默认关闭。
+[git]
+token = ""
+timeout_s = 30
+allow_network = false
+
+[tools.crg]
+enabled = false
+# CRG 全局缓存根目录。相对路径按共享 workspace 根解析,实际落到
+# <base_dir>/projects/<project_id 或 project_root 名>/mrs/<mr_iid>。
+base_dir = ".crg"
+target_root = ""
+max_retry = 3
+retry_interval_s = 1.0
+timeout_s = 180
+
+[tools.semble]
+# semble_search 冷启动加载 Model2Vec/建索引较慢,默认 120s。
+timeout_s = 120
+
+[tools.dimension]
+# dimension 子 agent 按 diff 规模选择累计 read_file_range content 预算。
+# 小 MR 继续 20KB;中大型 MR 提高预算,避免工具上下文过早耗尽。
+small_content_budget_bytes = 20480
+medium_content_budget_bytes = 81920
+large_content_budget_bytes = 122880
+small_changed_lines = 300
+large_changed_lines = 1200
+small_diff_bytes = 30720
+large_diff_bytes = 81920
+# grep_text 不消耗 content 预算,但限制每个维度的调用次数。
+max_grep_calls = 40
+# read_file_range 与总工具调用次数限制,防止单个维度无界检索。
+max_read_file_range_calls = 40
+max_total_tool_calls = 80
+# 输出兜底限制:prompt 会要求短输出,这里负责产物层截断。
+max_output_findings = 3
+max_field_chars = 800
+
+[tools.dimension.dimension_max_read_file_range_calls]
+error_handling = 35
+business = 45
+testing = 45
+
+[debug]
+# false: collected_context.json 默认只写 tool_evidence_summary,不落完整 data.content。
+# true: 保留完整 tool_evidence,便于排查工具原始返回。
+full_tool_evidence = false
+
+# 各子 agent 单次模型调用超时(秒)。summary 输入/输出最大,默认 300s。
+[timeouts]
+context_s = 1200
+dimension_s = 1200
+summary_s = 1500
+
+# 可选值: gitlab / infcode
+platform = "gitlab"

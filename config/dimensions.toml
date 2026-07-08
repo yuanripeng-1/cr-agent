@@ -1,0 +1,28 @@
+[defaults]
+concurrency = 10
+
+[profiles.gitlab]
+dimensions = [
+  "business",
+  "security",
+  "performance",
+  "testing",
+  "error_handling",
+  "consistency",
+
+
+#  "dependency",
+#  "readability",
+#  "maintainability",
+#  "documentation",
+]
+
+
+
+
+[profiles.infcode]
+dimensions = []
+
+[defaults.fallback]
+dimensions = ["security", "error_handling", "business", "readability"]
+

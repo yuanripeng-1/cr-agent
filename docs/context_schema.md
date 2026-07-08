@@ -2,24 +2,29 @@
 
 ## 标准字段定义
 
+> 当前冻结状态:以 `workspace/764-ef5c5c99/context.json` 的真实后端样例为准。
+> 核心审查必需字段已强校验;GitLab MR 相关字段保留为可选兼容字段。
+
 以下是 `context.json` 的标准字段格式，所有字段必须严格遵循此规范：
 
 | 字段名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
 | `task_id` | string | ✅ | 任务唯一标识：后端生成的 UUID，用于追踪单次审查任务，关联日志、容器及宿主机目录 |
-| `project_id` | number | ✅ | GitLab 项目数字 ID：用于后端调用 GitLab API 时定位具体的代码仓库 |
-| `mr_iid` | number | ✅ | 合并请求内部 ID (IID)：MR 在项目内的序列号，用于回写评论和查询 MR 详情 |
+| `project_id` | number | ❌ | GitLab 项目数字 ID：用于后端调用 GitLab API 时定位具体的代码仓库 |
+| `mr_iid` | number | ❌ | 合并请求内部 ID (IID)：MR 在项目内的序列号，用于回写评论和查询 MR 详情 |
 | `title` | string | ✅ | 合并请求标题：描述本次代码变更的主题，帮助 AI 理解审查的大方向 |
 | `description` | string | ✅ | 合并请求描述：开发者填写的详细变更说明，AI 可据此判断代码实现是否符合预期意图 |
-| `base_sha` | string | ✅ | 目标分支基准 SHA：MR 目标分支（如 main）在合并前的最新提交 ID，用于计算 Diff 的起点 |
-| `head_sha` | string | ✅ | 源分支最新提交 SHA：本次 MR 待审查代码的最新提交 ID，评论将挂载到此 SHA 之上 |
-| `start_sha` | string | ✅ | MR 起始基准 SHA：通常与 base_sha 一致，表示 MR 创建时两个分支的共同祖先节点 |
-| `source_branch` | string | ✅ | 源分支名称：开发者开发功能的分支名 |
-| `target_branch` | string | ✅ | 目标分支名称：代码最终要合并进去的分支名（如 main 或 develop） |
+| `base_sha` | string | ❌ | 目标分支基准 SHA：MR 目标分支（如 main）在合并前的最新提交 ID，用于计算 Diff 的起点 |
+| `head_sha` | string | ❌ | 源分支最新提交 SHA：本次 MR 待审查代码的最新提交 ID，评论将挂载到此 SHA 之上 |
+| `start_sha` | string | ❌ | MR 起始基准 SHA：通常与 base_sha 一致，表示 MR 创建时两个分支的共同祖先节点 |
+| `source_branch` | string | ❌ | 源分支名称：开发者开发功能的分支名 |
+| `target_branch` | string | ❌ | 目标分支名称：代码最终要合并进去的分支名（如 main 或 develop） |
 | `diff_content` | string | ✅ | 代码变更内容 (Diff)：Git 标准格式的差异文本，包含修改的文件、行号及具体增删内容 |
 | `project_root` | string | ✅ | 项目代码根目录：在 Docker 容器内部，通过 git clone 下载的全量代码存放路径 |
-| `diff_file_path` | string | ✅ | Diff 文件路径：在 Docker 容器内部，将 diff_content 写入后的文件绝对路径，方便脚本读取 |
+| `diff_file_path` | string | ❌ | Diff 文件路径：在 Docker 容器内部，将 diff_content 写入后的文件绝对路径，方便脚本读取 |
 | `requirements_Doc` | string | ❌ | 需求文档路径：产品需求文档的路径，AI 将据此判断代码实现是否符合业务需求 |
+| `commit_messages` | array[string] | ✅ | 本次审查范围内的 commit message 列表，作为上下文信息输入给 agent |
+| `platform` | string | ❌ | 运行平台标识，可选值 `gitlab`/`infcode`，用于工具集与维度策略切换 |
 
 ## 示例
 
@@ -38,11 +43,24 @@
     "diff_content": "--- a/internal/auth.go\n+++ b/internal/auth.go\n@@ -10,5 +10,7 @@\n func Login(username, password string) (string, error) {\n     if username == \"\" || password == \"\" {\n         return \"\", errors.New(\"invalid credentials\")\n     }\n+    \n+    // JWT validation\n+    token := generateJWT(username)\n+    return token, nil\n }",
     "project_root": "/workspace/project_code",
     "diff_file_path": "/workspace/changes.diff",
-    "requirements_Doc": "/workspace/requirements_path"
+    "requirements_Doc": "/workspace/requirements_path",
+    "commit_messages": [
+      "feat: 增加登录JWT签发",
+      "fix: 修复空指针异常"
+    ],
+    "platform": "gitlab"
 }
 ```
 
 ## 字段使用说明
+
+### 0. 契约实现位置
+
+- 输入配置契约：`cr_agent/core/agent_config.py`
+- 上下文输入契约：`cr_agent/core/review_input.py`
+- 最终输出契约：`cr_agent/core/review_output.py`
+- 原格式字段说明目录：`cr_agent/schemas/`
+- 外部契约说明：`docs/upgrade/implemented-progress.md`
 
 ### 1. MR 信息字段
 - `title` 和 `description` 会被组合成 `mr_message`，传递给 AI 作为审查上下文

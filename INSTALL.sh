@@ -1,134 +1,265 @@
 #!/bin/bash
 
-# CR-Agent 安装脚本
-# 用法: ./INSTALL.sh [环境名称] [Python版本]
+set -euo pipefail
 
-set -e  # 遇到错误立即退出
-
-# 默认参数
 ENV_NAME="cragent"
+CRG_ENV_NAME="crg"
 PYTHON_VERSION="3.11"
 
-# 解析命令行参数
+usage() {
+  echo "用法: $0 [--env-name <name>] [--crg-env-name <name>] [--python-version <version>]"
+}
+
+upgrade_pip_tooling() {
+  local env_name="$1"
+  conda run -n "$env_name" python -m pip install --upgrade pip setuptools wheel
+}
+
+conda_cmd_exists() {
+  local env_name="$1"
+  local cmd="$2"
+  conda run -n "$env_name" python -c "import shutil, sys; sys.exit(0 if shutil.which('${cmd}') else 1)" 2>/dev/null
+}
+
+has_command_group() {
+  shift 2
+
+  for cmd in "$@"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      return 0
+    fi
+    if conda_cmd_exists "$ENV_NAME" "$cmd"; then
+      return 0
+    fi
+    if conda_cmd_exists "$CRG_ENV_NAME" "$cmd"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_command_group() {
+  local label="$1"
+  local install_hint="$2"
+  shift 2
+
+  if has_command_group "$label" "$install_hint" "$@"; then
+    echo "检测到 $label"
+  else
+    echo "警告: 未检测到 ${label}（候选命令: $*）。${install_hint}"
+  fi
+}
+
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    return 127
+  fi
+}
+
+install_system_package() {
+  local label="$1"
+  local brew_pkg="$2"
+  local apt_pkg="$3"
+  local conda_pkg="$4"
+
+  echo "尝试安装 $label..."
+  if command -v brew >/dev/null 2>&1; then
+    if brew install "$brew_pkg"; then
+      return 0
+    fi
+  elif command -v apt-get >/dev/null 2>&1; then
+    run_privileged apt-get update
+    if run_privileged apt-get install -y "$apt_pkg"; then
+      return 0
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    if run_privileged dnf install -y "$apt_pkg"; then
+      return 0
+    fi
+  elif command -v yum >/dev/null 2>&1; then
+    if run_privileged yum install -y "$apt_pkg"; then
+      return 0
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    if run_privileged apk add --no-cache "$apt_pkg"; then
+      return 0
+    fi
+  fi
+
+  if [[ -n "$conda_pkg" ]]; then
+    echo "尝试通过 conda-forge 安装 $label..."
+    conda install -n "$ENV_NAME" -c conda-forge "$conda_pkg" -y
+    return $?
+  fi
+  return 1
+}
+
+resolve_tool_bin() {
+  local env_name="$1"
+  local cmd="$2"
+  conda run -n "$env_name" python -c "import shutil; print(shutil.which('${cmd}') or '')"
+}
+
+ensure_system_tool() {
+  local label="$1"
+  local install_hint="$2"
+  local brew_pkg="$3"
+  local apt_pkg="$4"
+  local conda_pkg="$5"
+  shift 5
+
+  if has_command_group "$label" "$install_hint" "$@"; then
+    echo "检测到 $label"
+    return 0
+  fi
+
+  if ! install_system_package "$label" "$brew_pkg" "$apt_pkg" "$conda_pkg"; then
+    echo "警告: $label 自动安装失败。$install_hint"
+  fi
+  check_command_group "$label" "$install_hint" "$@"
+}
+
+ensure_pip_tool() {
+  local label="$1"
+  local install_hint="$2"
+  local pip_pkg="$3"
+  shift 3
+
+  if has_command_group "$label" "$install_hint" "$@"; then
+    echo "检测到 $label"
+    return 0
+  fi
+
+  echo "尝试安装 $label..."
+  if ! conda run -n "$ENV_NAME" python -m pip install "$pip_pkg"; then
+    echo "警告: $label 自动安装失败。$install_hint"
+  fi
+  check_command_group "$label" "$install_hint" "$@"
+}
+
+create_tool_wrapper() {
+  local wrapper_path="$1"
+  local target_bin="$2"
+
+  if [[ -z "$target_bin" || ! -x "$target_bin" ]]; then
+    echo "警告: 无法创建 wrapper，目标命令不可执行: $target_bin"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$wrapper_path")"
+  cat > "$wrapper_path" <<EOF
+#!/usr/bin/env bash
+exec "$target_bin" "\$@"
+EOF
+  chmod +x "$wrapper_path"
+}
+
 while [[ $# -gt 0 ]]; do
-    case $1 in
-        --env-name)
-            ENV_NAME="$2"
-            shift 2
-            ;;
-        --python-version)
-            PYTHON_VERSION="$2"
-            shift 2
-            ;;
-        -h|--help)
-            echo "用法: $0 [选项]"
-            echo ""
-            echo "选项说明:"
-            echo "  --env-name <名称>      指定 Conda 环境名称 (默认: cragent)"
-            echo "  --python-version <版本> 指定 Python 版本 (默认: 3.9)"
-            echo "  -h, --help             显示帮助信息"
-            echo ""
-            echo "示例:"
-            echo "  $0                                    # 使用默认配置"
-            echo "  $0 --env-name myenv --python-version 3.10"
-            exit 0
-            ;;
-        *)
-            echo "未知参数: $1"
-            echo "使用 -h 或 --help 查看帮助"
-            exit 1
-            ;;
-    esac
+  case "$1" in
+    --env-name)
+      ENV_NAME="$2"
+      shift 2
+      ;;
+    --crg-env-name)
+      CRG_ENV_NAME="$2"
+      shift 2
+      ;;
+    --python-version)
+      PYTHON_VERSION="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $1"
+      usage
+      exit 1
+      ;;
+  esac
 done
 
-echo "========================================"
-echo "  CR-Agent 安装脚本"
-echo "========================================"
-echo ""
-echo "配置信息:"
-echo "  环境名称: $ENV_NAME"
-echo "  Python 版本: $PYTHON_VERSION"
-echo ""
-
-# 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
+REQ_FILE="$SCRIPT_DIR/requirements.txt"
 
-# 检查 requirements.txt 是否存在
-if [ ! -f "$REQUIREMENTS_FILE" ]; then
-    echo "❌ 错误: requirements.txt 文件不存在: $REQUIREMENTS_FILE"
-    exit 1
+if [[ ! -f "$REQ_FILE" ]]; then
+  echo "requirements.txt 不存在: $REQ_FILE"
+  exit 1
 fi
 
-# 检查 conda 是否已安装
-echo "🔍 检查 Conda 是否已安装..."
-if ! command -v conda &> /dev/null; then
-    echo "❌ 错误: 未找到 Conda"
-    echo ""
-    echo "请先安装 Conda:"
-    echo "  1. 使用 Homebrew 安装:"
-    echo "     brew install --cask miniconda"
-    echo ""
-    echo "  2. 或从官网下载安装:"
-    echo "     https://docs.conda.io/en/latest/miniconda.html"
-    echo ""
-    echo "安装完成后，请重新运行此脚本"
-    exit 1
+if ! command -v conda >/dev/null 2>&1; then
+  echo "错误: 未找到 Conda"
+  echo ""
+  echo "请先安装 Conda:"
+  echo "  1. 使用 Homebrew 安装:"
+  echo "     brew install --cask miniconda"
+  echo ""
+  echo "  2. 或从官网下载安装:"
+  echo "     https://docs.conda.io/en/latest/miniconda.html"
+  echo ""
+  echo "安装完成后初始化 shell 并重新运行此脚本，例如:"
+  echo "  conda init zsh && source ~/.zshrc"
+  exit 1
 fi
 
-echo "✅ Conda 已安装: $(conda --version)"
-echo ""
-
-# 检查环境是否已存在
-echo "🔍 检查 Conda 环境..."
-if conda env list | grep -q "^${ENV_NAME} "; then
-    echo "⚠️  警告: Conda 环境 '$ENV_NAME' 已存在，正在自动删除并重新创建..."
-    echo "🗑️  删除现有环境..."
-    conda env remove -n "$ENV_NAME" -y
-    echo "✅ 环境已删除"
+if [[ -d "$SCRIPT_DIR/.venv" ]]; then
+  echo "警告: 发现 $SCRIPT_DIR/.venv，建议删除以避免 pip 环境混淆: rm -rf .venv"
 fi
 
-# 创建 Conda 环境
-echo ""
-echo "📦 创建 Conda 环境: $ENV_NAME (Python $PYTHON_VERSION)..."
+if conda env list | awk -v env="$ENV_NAME" '$1 == env {found=1} END {exit !found}'; then
+  conda env remove -n "$ENV_NAME" -y
+fi
+
 conda create -n "$ENV_NAME" python="$PYTHON_VERSION" -y
+upgrade_pip_tooling "$ENV_NAME"
+conda run -n "$ENV_NAME" python -m pip install -r "$REQ_FILE"
 
-echo "✅ Conda 环境创建成功"
-echo ""
+if conda env list | awk -v env="$CRG_ENV_NAME" '$1 == env {found=1} END {exit !found}'; then
+  conda env remove -n "$CRG_ENV_NAME" -y
+fi
 
-# 激活环境并安装依赖
-echo "📥 安装项目依赖..."
-echo "依赖文件: $REQUIREMENTS_FILE"
-echo ""
+conda create -n "$CRG_ENV_NAME" python="$PYTHON_VERSION" -y
+upgrade_pip_tooling "$CRG_ENV_NAME"
+conda run -n "$CRG_ENV_NAME" python -m pip install code-review-graph
 
-# 使用 conda run 在指定环境中执行命令
-conda run -n "$ENV_NAME" pip install --upgrade pip
-conda run -n "$ENV_NAME" pip install -r "$REQUIREMENTS_FILE"
+echo "检查外部工具..."
+ensure_system_tool "git" "请安装 git；缺失时 git 工具会降级。" git git git git git
+ensure_system_tool "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep ripgrep ripgrep ripgrep ripgrep rg
+if ! has_command_group "ripgrep/rg" "请安装 ripgrep；缺失时 grep_text 会降级。" ripgrep rg; then
+  echo "错误: ripgrep 安装失败，grep_text 无法使用。"
+  exit 1
+fi
+ensure_system_tool "ast-grep" "请安装 ast-grep；缺失时 ast_grep_search 会降级。" ast-grep ast-grep ast-grep ast-grep
+ensure_pip_tool "Semble" "请安装 semble；缺失时 semble_search 会降级。" semble semble
 
-echo ""
-echo "✅ Python 依赖安装完成"
-echo ""
+TOOLS_BIN_DIR="$SCRIPT_DIR/.tools/bin"
+AST_GREP_BIN="$(resolve_tool_bin "$ENV_NAME" ast-grep)"
+SEMBLE_BIN="$(resolve_tool_bin "$ENV_NAME" semble)"
+CRG_BIN="$(resolve_tool_bin "$CRG_ENV_NAME" code-review-graph)"
+create_tool_wrapper "$TOOLS_BIN_DIR/ast-grep" "$AST_GREP_BIN"
+create_tool_wrapper "$TOOLS_BIN_DIR/semble" "$SEMBLE_BIN"
+create_tool_wrapper "$TOOLS_BIN_DIR/code-review-graph" "$CRG_BIN"
 
-# 显示安装的包
-echo "📋 已安装的包:"
-conda run -n "$ENV_NAME" pip list
-echo ""
+PATH="$TOOLS_BIN_DIR:$PATH"
+check_command_group "ast-grep wrapper" "请检查 $TOOLS_BIN_DIR/ast-grep。" ast-grep
+check_command_group "Semble wrapper" "请检查 $TOOLS_BIN_DIR/semble。" semble
+check_command_group "code-review-graph wrapper" "请检查 $TOOLS_BIN_DIR/code-review-graph。" code-review-graph
 
-# 完成
-echo "========================================"
-echo "✨ 安装完成！"
-echo "========================================"
-echo ""
-echo "使用方法:"
-echo ""
-echo "1. 激活 Conda 环境:"
-echo "   conda activate $ENV_NAME"
-echo ""
-echo "2. 运行 CR-Agent:"
-echo "   cd $SCRIPT_DIR"
-echo "   bash RUN.sh --config config.toml"
-echo ""
-echo "3. 退出 Conda 环境:"
-echo "   conda deactivate"
-echo ""
-echo "========================================"
+if [ -n "$SEMBLE_BIN" ]; then
+  echo "Pre-warming semble model..."
+  if timeout 180 "$TOOLS_BIN_DIR/semble" search "warmup" --top-k 1 >/dev/null 2>&1; then
+    echo "semble warmup ok"
+  else
+    echo "semble warmup skipped (offline or slow)"
+  fi
+fi
+
+echo "安装完成。"
+echo "运行方式:"
+echo "  conda activate $ENV_NAME"
+echo "  bash RUN.sh --config workspace/<task>/agent_config.toml --platform gitlab"

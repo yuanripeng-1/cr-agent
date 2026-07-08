@@ -1,0 +1,15 @@
+[agents.main]
+skills = ["collect_context", "dimension_review", "summarize_report", "validate_json"]
+tools = []
+
+[agents.context]
+tools = ["*"]
+
+[agents.dimension]
+tools = ["read_file_range", "grep_text"]
+
+[agents.summary]
+tools = []
+
+[agents.resolution]
+tools = ["read_file_range", "grep_text", "git_rev_parse", "git_status"]

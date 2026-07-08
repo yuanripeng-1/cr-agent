@@ -1,0 +1,53 @@
+{
+  "context": {
+    "json_path": "context.json 路径,用于读取后端传入的审查上下文。",
+    "result_path": "结果输出目录,用于写入 result.json、cr_result.md 和 run.log。"
+  },
+  "project": {
+    "language": "待审查项目主要语言,用于选择规范文档或后续审查策略。",
+    "status": "项目状态,例如 update,用于后续产品侧区分审查场景。",
+    "guidelines_path": "团队代码规范文档路径。",
+    "requirements_path": "需求文档路径,可作为业务审查上下文。"
+  },
+  "llm": {
+    "model": "本次 review 使用的模型标识。",
+    "api_key": "模型代理鉴权信息。",
+    "api_base": "Anthropic 兼容代理地址。",
+    "platform": "兼容历史配置的平台字段。推荐后续迁移到根级 platform。",
+    "summary_structured_output": "summary agent 是否走 LiteLLM structured output。false 时改走 Claude Agent SDK。"
+  },
+  "platform": "推荐的平台配置位置,用于选择工具集和审查维度。命令行 --platform 优先级更高。"
+  ,
+  "tools": {
+    "crg": {
+      "enabled": "是否启用 code-review-graph 生命周期管理。默认 false。",
+      "base_dir": "CRG 全局 data-dir 缓存根目录。相对路径按共享 workspace 根解析。",
+      "target_root": "兼容旧配置。code-review-graph 2.x 基于 context.project_root --repo 构建,不读取该字段。",
+      "max_retry": "crg_query 等待 CRG ready 的最大重试次数。",
+      "retry_interval_s": "crg_query 每次 ready 检查之间的等待秒数。",
+      "timeout_s": "单条 CRG build/update/query 命令超时时间。",
+      "python_path": "调用链工具(crg_callers/callees/affected_flows/get_flow)所用 crg 环境 python 路径。留空自动从 code-review-graph 命令推断,也可用环境变量 CRG_PYTHON 覆盖。"
+    },
+    "semble": {
+      "timeout_s": "semble_search 单次调用超时(秒)。冷启动加载 Model2Vec 较慢,默认 120。"
+    },
+    "dimension": {
+      "small_content_budget_bytes": "小 MR 下每个 dimension 子 agent 可读取的累计工具 content 字节数。默认 20480。",
+      "medium_content_budget_bytes": "中型 MR 下每个 dimension 子 agent 可读取的累计工具 content 字节数。默认 81920。",
+      "large_content_budget_bytes": "大型 MR 下每个 dimension 子 agent 可读取的累计工具 content 字节数。默认 122880。",
+      "small_changed_lines": "按 changed_files 行数判定小 MR 的最大变更行数。默认 300。",
+      "large_changed_lines": "超过该 changed_files 行数判定为大型 MR。默认 1200。",
+      "small_diff_bytes": "changed_files 不可用时按 raw_diff 字节数判定小 MR 的阈值。默认 30720。",
+      "large_diff_bytes": "changed_files 不可用时按 raw_diff 字节数判定大型 MR 的阈值。默认 81920。",
+      "max_grep_calls": "每个 dimension 子 agent 最多允许调用 grep_text 的次数。默认 40。",
+      "max_read_file_range_calls": "每个 dimension 子 agent 最多允许调用 read_file_range 的次数。默认 40。",
+      "max_total_tool_calls": "每个 dimension 子 agent 最多允许调用工具的总次数。默认 80。",
+      "max_output_findings": "每个维度产物默认最多保留的 findings 数量。默认 3。",
+      "max_field_chars": "维度产物中长文本字段的最大字符数。默认 800。",
+      "dimension_max_read_file_range_calls": "按维度覆盖 read_file_range 调用次数上限,例如 error_handling=35。"
+    }
+  },
+  "debug": {
+    "full_tool_evidence": "是否在 collected_context.json 中保留完整 tool_evidence.data。默认 false，仅输出瘦身 tool_evidence_summary。"
+  }
+}
