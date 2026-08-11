@@ -3,7 +3,7 @@ type SkillReviewFixtureProps = {
   onDelete: () => void;
 };
 
-// E2E run marker: 2 (code-reviewer Skill only)
+// E2E run marker: 1-valid (dimensions only, cywx/gpt-5.6-sol)
 export function SkillReviewFixture({ html, onDelete }: SkillReviewFixtureProps) {
   return (
     <section>
