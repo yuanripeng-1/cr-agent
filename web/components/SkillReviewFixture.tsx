@@ -3,7 +3,7 @@ type SkillReviewFixtureProps = {
   onDelete: () => void;
 };
 
-// E2E run marker: 3-valid (security dimension + code-reviewer Skill)
+// E2E run marker: 4-valid (security dimension only; frontend matrix)
 export function SkillReviewFixture({ html, onDelete }: SkillReviewFixtureProps) {
   return (
     <section>
