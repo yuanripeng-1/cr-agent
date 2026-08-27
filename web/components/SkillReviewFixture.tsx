@@ -3,12 +3,12 @@ type SkillReviewFixtureProps = {
   onDelete: () => void;
 };
 
-// E2E run marker: skills-only previous-issue re-review, round 1
+// E2E run marker: skills-only previous-issue re-review, round 2
 export function SkillReviewFixture({ html, onDelete }: SkillReviewFixtureProps) {
   return (
     <section>
       <article dangerouslySetInnerHTML={{ __html: html }} />
-      <div onClick={onDelete}>Delete</div>
+      <button type="button" onClick={onDelete}>Delete</button>
     </section>
   );
 }
