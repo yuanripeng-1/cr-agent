@@ -20,6 +20,11 @@
 | `project_root` | string | ✅ | 项目代码根目录：在 Docker 容器内部，通过 git clone 下载的全量代码存放路径 |
 | `diff_file_path` | string | ✅ | Diff 文件路径：在 Docker 容器内部，将 diff_content 写入后的文件绝对路径，方便脚本读取 |
 | `requirements_Doc` | string | ❌ | 需求文档路径：产品需求文档的路径，AI 将据此判断代码实现是否符合业务需求 |
+| `previous_report` | string/object | ❌ | 历史审查结果：文件路径、JSON 字符串或 Markdown 摘要，用于增量复查 |
+
+## 输出统计（review_stats.json）
+
+审查成功且 `config.toml` 中 `[project].stats_enabled = true`（默认开启）时，结果目录会额外生成 `review_stats.json`，包含 diff 规模、各维度 Agent token 用量、行评论校验计数与阶段耗时。`result.json` 的 `stats_path` 字段指向该文件。
 
 ## 示例
 

@@ -97,6 +97,12 @@ def is_code_file(file_path: str) -> bool:
     # 检查是否为 Makefile（无扩展名但需要 review）
     if filename in ('Makefile', 'makefile', 'GNUmakefile'):
         return True
+
+    # 部署与环境配置文件纳入审查范围
+    if filename in ('.env', '.env.local', '.env.production', '.env.development'):
+        return True
+    if ext in ('.pem', '.key', '.crt', '.p12'):
+        return True
     
     # 提取扩展名
     _, ext = os.path.splitext(filename)
@@ -360,6 +366,40 @@ def annotate_diff_with_line_numbers(diff_content: str, project_root: str) -> str
             i += 1
     
     return '\n'.join(annotated_lines)
+
+
+def count_diff_line_changes(diff_content: str) -> Dict[str, int]:
+    """统计 diff 中新增/删除行数（不含文件头）。"""
+    added = removed = 0
+    for line in (diff_content or "").split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return {"added_lines": added, "removed_lines": removed}
+
+
+def resolve_project_file(project_root: str, relative_path: str) -> str:
+    """将 diff/评论中的相对路径解析为磁盘绝对路径。"""
+    if not relative_path:
+        return ""
+    if os.path.isabs(relative_path):
+        return relative_path
+    if project_root:
+        return os.path.join(project_root, relative_path)
+    return relative_path
+
+
+def get_file_line_count(project_root: str, relative_path: str) -> Tuple[int, bool]:
+    """读取文件行数，供统计模块使用。"""
+    full_path = resolve_project_file(project_root, relative_path)
+    if not full_path or not os.path.exists(full_path):
+        return 0, False
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            return len(f.readlines()), True
+    except Exception:
+        return 0, False
 
 
 def parse_diff_file_paths(diff_content: str) -> List[str]:
