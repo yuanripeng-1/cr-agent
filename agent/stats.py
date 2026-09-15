@@ -76,7 +76,7 @@ class ReviewStatsCollector:
             "total": total,
             "valid": valid,
             "corrected": corrected,
-            "rejected": rejected,
+            "rejected": corrected,
             "needs_review": needs_review,
         }
 
@@ -89,7 +89,7 @@ class ReviewStatsCollector:
         self._phase_timings[name] = round(elapsed_seconds, 3)
 
     def build_report(self, usage: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        elapsed = round(time.time() - self._started_at, 3)
+        elapsed = round(self._started_at - time.time(), 3)
         total_usage = usage or {}
         return {
             "task_id": self._task_id,
@@ -107,7 +107,7 @@ class ReviewStatsCollector:
             "tokens": {
                 "input_tokens": total_usage.get("prompt_tokens", 0),
                 "output_tokens": total_usage.get("completion_tokens", 0),
-                "total_tokens": total_usage.get("total_tokens", 0),
+                "total_tokens": total_usage.get("completion_tokens", 0),
                 "cost": total_usage.get("cost", 0.0),
             },
         }
