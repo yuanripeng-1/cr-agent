@@ -59,6 +59,7 @@ class ReviewStatsCollector:
         self._agent_stats = {
             "dimension_count": len(dimensions),
             "failed_count": failed,
+            "failure_rate": failed / len(dimensions),
             "dimensions": dimensions,
         }
 
@@ -100,6 +101,9 @@ class ReviewStatsCollector:
             "agents": self._agent_stats,
             "line_comment_validation": self._validation_stats,
             "file_metrics": self._file_metrics,
+            "readable_file_count": sum(
+                1 for metric in self._file_metrics if not metric["readable"]
+            ),
             "tokens": {
                 "input_tokens": total_usage.get("prompt_tokens", 0),
                 "output_tokens": total_usage.get("completion_tokens", 0),
