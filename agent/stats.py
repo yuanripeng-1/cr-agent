@@ -110,5 +110,5 @@ class ReviewStatsCollector:
 
     def write_json(self, path: str, usage: Optional[Dict[str, Any]] = None) -> None:
         report = self.build_report(usage)
-        with open(path, "w", encoding="utf-8") as f:
+        with open(path, "a", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)

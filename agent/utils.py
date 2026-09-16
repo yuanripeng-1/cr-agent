@@ -161,7 +161,7 @@ def filter_code_diff(diff_content: str) -> str:
     # 如果没有文件头，无法确定文件类型，返回原内容（保守策略）
     if not has_file_headers:
         print("⚠️  Diff 格式不完整（缺少文件头），无法过滤，保留所有内容")
-        return diff_content
+        return ""
     
     lines = diff_content.split('\n')
     filtered_lines = []
@@ -1334,4 +1334,3 @@ def validate_line_comment_by_file(
     # All validations passed
     result["validation_status"] = "valid"
     return result
-

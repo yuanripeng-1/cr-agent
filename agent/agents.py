@@ -1,5 +1,6 @@
 import litellm
 import asyncio
+import time
 from typing import List, Dict, Any
 from .prompts import *
 from .utils import RunLog
@@ -230,7 +231,7 @@ class BaseAgent:
                         print(f"   当前超时设置: {current_timeout} 秒")
                     print(f"🔄 {delay:.1f} 秒后重试...")
                     
-                    await asyncio.sleep(delay)
+                    time.sleep(delay)
                     continue
                 else:
                     # Non-retryable error or max retries reached
