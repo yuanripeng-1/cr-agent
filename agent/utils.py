@@ -1,65 +1,20 @@
 import json
+import os
 import re
 import sys
-import os
 import traceback
 from typing import List, Dict, Tuple, Optional, Any
 
 # 代码文件扩展名列表（需要 review 的文件）
-CODE_FILE_EXTENSIONS = {
-    # Python
-    '.py', '.pyx', '.pyi',
-    # Go
-    '.go',
-    # Java
-    '.java',
-    # JavaScript/TypeScript
-    '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
-    # C/C++
-    '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',
-    # Rust
-    '.rs',
-    # PHP
-    '.php', '.phtml',
-    # Ruby
-    '.rb',
-    # Swift
-    '.swift',
-    # Kotlin
-    '.kt', '.kts',
-    # Scala
-    '.scala',
-    # C#
-    '.cs',
-    # Objective-C
-    '.m', '.mm',
-    # Shell
-    '.sh', '.bash', '.zsh',
-    # R
-    '.r',
-    # Lua
-    '.lua',
-    # Perl
-    '.pl', '.pm',
-    # Dart
-    '.dart',
-    # Elixir
-    '.ex', '.exs',
-    # Clojure
-    '.clj', '.cljs', '.cljc',
-    # Haskell
-    '.hs',
-    # Erlang
-    '.erl', '.hrl',
-    # OCaml
-    '.ml', '.mli',
-    # F#
-    '.fs', '.fsi', '.fsx',
-    # Groovy
-    '.groovy', '.gvy',
-    # Makefile
-    'Makefile',
-}
+CODE_FILE_EXTENSIONS = set(
+    """
+    .py .pyx .pyi .go .java .js .jsx .ts .tsx .mjs .cjs
+    .c .cpp .cc .cxx .h .hpp .hxx .rs .php .phtml .rb .swift
+    .kt .kts .scala .cs .m .mm .sh .bash .zsh .r .lua .pl .pm
+    .dart .ex .exs .clj .cljs .cljc .hs .erl .hrl .ml .mli
+    .fs .fsi .fsx .groovy .gvy Makefile
+    """.split()
+)
 
 # 非代码文件扩展名（明确排除的文件）
 NON_CODE_FILE_EXTENSIONS = {
@@ -1334,4 +1289,3 @@ def validate_line_comment_by_file(
     # All validations passed
     result["validation_status"] = "valid"
     return result
-
