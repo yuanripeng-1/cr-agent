@@ -6,4 +6,4 @@ def normalized_names(names):
 # Test release 20261103: cancellation diagnostic acceptance.
 DIAGNOSTIC_ACCEPTANCE_ROUND = 4
 
-WAIT_EXIT_ACCEPTANCE_ROUND = 2
+WAIT_EXIT_ACCEPTANCE_ROUND = 3
